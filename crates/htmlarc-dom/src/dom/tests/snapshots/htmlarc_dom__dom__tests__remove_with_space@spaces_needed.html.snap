@@ -1,0 +1,8 @@
+---
+source: common/html/src/doc/tests/mod.rs
+expression: "html.to_html(Format::Raw)"
+input_file: common/html/src/doc/tests/html/prune/spaces_needed.html
+---
+<html>
+<body>hi<br />there again</body>
+</html>

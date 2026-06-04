@@ -1,0 +1,24 @@
+---
+source: crates/html/src/html/tests/mod.rs
+assertion_line: 130
+expression: print_elements(selected)
+input_file: crates/html/src/html/tests/html/aerodynamik.html
+snapshot_kind: text
+---
+71 - label
+80 - a
+87 - a
+97 - a
+107 - a
+117 - a
+155 - input
+161 - button
+190 - a
+196 - a
+202 - a
+220 - div
+224 - a
+232 - a
+316 - a
+400 - span
+408 - span

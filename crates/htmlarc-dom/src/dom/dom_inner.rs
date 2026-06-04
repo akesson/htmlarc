@@ -1,0 +1,550 @@
+pub(crate) use super::nodes::Nodes;
+use crate::css::AttributeSelector;
+use crate::debug;
+use crate::fmt::HtmlFormat;
+use crate::html::HtmlElement;
+use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
+use crate::stores::{
+    Attribute, AttributeStore, Class, ClassStore, DataAttributeStore, ListIndex, StringStack,
+};
+use crate::{fmt::Spaces, html::HtmlAttr, html::HtmlTag};
+use rkyv::{Archive, Deserialize, Serialize};
+use std::fmt::Debug;
+use std::hash::Hash;
+
+#[derive(Default, Archive, Serialize, Deserialize, Hash, Clone)]
+pub struct DomInner {
+    pub(crate) nodes: Nodes,
+    pub(crate) attrs: AttributeStore,
+    pub(crate) dataattrs: DataAttributeStore,
+    pub(crate) classes: ClassStore,
+    pub(crate) strings: StringStack,
+}
+
+impl Debug for DomInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DomInner")
+            .field("node count", &self.nodes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl DomInner {
+    /// Checks if the given node has the specified attributes
+    ///
+    /// # Arguments
+    /// - `node`: The index of the node to check
+    /// - `attrs`: The attributes to check for
+    pub(crate) fn has_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
+        if let Some(list_index) = self.nodes.attr_list_index(node) {
+            attrs
+                .iter()
+                .all(|a| self.attrs.list_at(list_index).any(|v| *a == v))
+        } else {
+            false
+        }
+    }
+
+    /// Checks if the given node has the specified classes
+    ///
+    /// # Arguments
+    /// - `node`: The index of the node to check
+    /// - `classes`: The classes to check for
+    pub(crate) fn has_classes<P>(&self, node: u16, classes: &[P]) -> bool
+    where
+        P: for<'a> PartialEq<Class<'a>>,
+    {
+        if let Some(list_index) = self.nodes.class_list_index(node) {
+            classes
+                .iter()
+                .all(|c| self.classes.list_at(list_index).any(|v| *c == v))
+        } else {
+            false
+        }
+    }
+
+    /// Checks if the given node has the specified data attributes
+    ///
+    /// # Arguments
+    /// - `node`: The index of the node to check
+    /// - `attrs`: The data attributes to check for
+    pub(crate) fn has_data_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
+        if let Some(list_index) = self.nodes.data_attr_list_index(node) {
+            attrs
+                .iter()
+                .all(|a| self.dataattrs.list_at(list_index).any(|v| *a == v))
+        } else {
+            false
+        }
+    }
+
+    /// Checks if the given node has the specified id
+    ///
+    /// # Arguments
+    /// - `node`: The index of the node to check
+    /// - `id`: The id to check for
+    pub(crate) fn has_id(&self, index: u16, id: &str) -> bool {
+        if let Some(list_index) = self.nodes.attr_list_index(index) {
+            self.attrs
+                .list_at(list_index)
+                .any(|v| v.tag == HtmlAttr::id && v.val == id)
+        } else {
+            false
+        }
+    }
+
+    pub fn append_text_child(&mut self, tag: HtmlTag, index: u16, text: &str) -> u16 {
+        debug_assert!(matches!(tag, HtmlTag::sys_comment | HtmlTag::sys_text));
+        self.add_string_child(index, tag, text)
+    }
+
+    pub fn add_classes(&mut self, index: u16, classes: &str) -> Option<ListIndex> {
+        let list_index = self.classes.add_class_list(classes)?;
+        self.nodes
+            .set_class_list_index(index, Some(list_index.as_u16()));
+        Some(list_index)
+    }
+
+    pub fn add_attribute(
+        &mut self,
+        index: u16,
+        list_index: Option<ListIndex>,
+        attr: &Attribute,
+    ) -> Option<ListIndex> {
+        if let Some(attr_index) = list_index {
+            self.attrs.list_mut_at(attr_index).insert(attr);
+            list_index
+        } else {
+            let attr_index = self.attrs.add_list(attr);
+            self.nodes
+                .set_attr_list_index(index, Some(attr_index.as_u16()));
+            Some(attr_index)
+        }
+    }
+
+    pub fn replace_text(&mut self, index: u16, string: &str) {
+        let range = self.strings.push(string);
+        self.nodes.set_text_range(index, range);
+    }
+
+    fn add_string_child(&mut self, index: u16, tag: HtmlTag, string: &str) -> u16 {
+        let range = self.strings.push(string);
+        let index = self.nodes.add_as_last_child(index, tag);
+        self.nodes.set_text_range(index, range);
+        index
+    }
+
+    pub(crate) fn text(&self, index: u16) -> Option<&str> {
+        let tag = self.nodes.tag(index);
+        if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
+            Some(self.string_at(index))
+        } else {
+            None
+        }
+    }
+    pub(crate) fn string_at(&self, index: u16) -> &str {
+        let r = self.nodes.text_range(index);
+        &self.strings[r]
+    }
+
+    pub(crate) fn starts_with_space(&self, index: u16) -> bool {
+        let el = HtmlElement::new(self, index);
+        debug!(
+            "start (rev) {index}: '{}' {}",
+            el.forwards().text_chars().collect::<String>(),
+            self.nodes.tag(index)
+        );
+        if let Some(first_char) = el.forwards().text_chars().next() {
+            first_char == ' '
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn ends_with_space(&self, index: u16) -> bool {
+        let el = HtmlElement::new(self, index);
+
+        if let Some(last_char) = el.reverse().text_chars().next() {
+            last_char == ' '
+        } else {
+            false
+        }
+    }
+
+    pub fn insert_space_node_if_needed(
+        &mut self,
+        prev_sibling: Option<u16>,
+        next_sibling: Option<u16>,
+    ) {
+        if let (Some(prev), Some(next)) = (prev_sibling, next_sibling)
+            && self.nodes.is_inline_element(prev)
+                && self.nodes.is_inline_element(next)
+                // we use 'next' here as a parameter because the reverse chars iterator will ignore the provided index's characters
+                && !self.ends_with_space(next)
+                && !self.starts_with_space(next)
+        {
+            let space = self.nodes.add_as_next_sibling(prev, HtmlTag::sys_text);
+            self.replace_text(space, " ");
+        }
+    }
+
+    /// Replaces the current node with another one from the tree,
+    pub fn replace_with(&mut self, index: u16, new_index: u16) {
+        let is_block = self.nodes.is_block_element(index);
+        let is_substitute_inline = self.nodes.is_inline_element(new_index);
+        let prev_sibling = self.nodes.prev_sibling_index(index);
+        let next_sibling = self.nodes.next_sibling_index(index);
+        let Some(substitute_parent) = self.nodes.parent_index(new_index) else {
+            panic!(
+                "Substitute element is the root or is not in the tree and cannot be used as a replacement"
+            );
+        };
+
+        self.nodes.replace_with(index, new_index);
+
+        // prune the replacement node's parent
+        let mut cursor = index;
+        self.prune(&mut cursor, substitute_parent);
+
+        if is_block && is_substitute_inline {
+            // if the replaced node is a block element and the replacement node is an inline element
+
+            // handle the space between the previous sibling and the new node
+            self.insert_space_node_if_needed(prev_sibling, Some(new_index));
+
+            // handle the space between the next sibling and the new node
+            self.insert_space_node_if_needed(Some(new_index), next_sibling);
+        }
+    }
+
+    /// Unwraps the current node, moving its children to its parent
+    /// The cursor is moved to the next sibling if it exists, otherwise to the previous sibling
+    pub fn unwrap_element(&mut self, index: u16) -> Option<u16> {
+        let Some(parent) = self.nodes.parent_index(index) else {
+            panic!("Element is the root or is not in the tree and cannot be unwrapped");
+        };
+        let is_block = self.nodes.is_block_element(index);
+        let first_child = self.nodes.first_child_index(index);
+        let last_child = self.nodes.last_child_index(index);
+        let prev_sibling = self.nodes.prev_sibling_index(index);
+        let next_sibling = self.nodes.next_sibling_index(index);
+
+        let mut summaries = Vec::new();
+
+        // collect every summary child of the unwrapped node
+        {
+            let el = HtmlElement::new(self, index);
+
+            for child in RelativeIter::children(&el) {
+                if child.tag() == HtmlTag::summary {
+                    summaries.push(child.index());
+                }
+            }
+        }
+
+        // remove the summary elements
+        for summary in summaries {
+            self.nodes.remove(summary);
+        }
+
+        if let Some(new_index) = self.nodes.unwrap_node(index) {
+            if is_block {
+                // if the unwrapped node is a block element
+
+                // handle the space between the previous sibling and the first child
+                self.insert_space_node_if_needed(prev_sibling, first_child);
+
+                // handle the space between the last child and the next sibling
+                self.insert_space_node_if_needed(last_child, next_sibling);
+            }
+
+            Some(new_index)
+        } else {
+            // prune the parent because the node was removed, not unwrapped
+            // NOTE: the pruning  will add spaces if necessary, so no need to handle them like in the block condition above
+            let mut cursor = index;
+            let new_index = self.prune(&mut cursor, parent);
+
+            // and return the new element that wasn't pruned
+            Some(new_index)
+        }
+    }
+
+    pub fn prune(&mut self, cursor: &mut u16, index: u16) -> u16 {
+        let Some(parent) = self.nodes.parent_index(index) else {
+            return index;
+        };
+        let tag = self.nodes.tag(index);
+        let prev_sibling = self.nodes.prev_sibling_index(index);
+        let next_sibling = self.nodes.next_sibling_index(index);
+        let is_block = self.nodes.is_block_element(index);
+        let is_childless = self.nodes.first_child_index(index).is_none();
+
+        if tag == HtmlTag::body {
+            let body = HtmlElement::new(self, index);
+            let mut chars = body.descendants().text_chars();
+
+            if chars.all(|c| c.is_whitespace()) || is_childless {
+                // prune body element containing only whitespace or has no children
+                if self.nodes.remove(index).is_some() {
+                    // reposition the cursor index
+                    *cursor = reposition_cursor(prev_sibling, next_sibling, parent);
+
+                    // then consider pruning the parent
+                    return self.prune(cursor, parent);
+                }
+            }
+        } else if is_block {
+            let el = HtmlElement::new(self, index);
+            let mut chars = el.descendants().text_chars();
+
+            if chars.all(|c| c.is_whitespace()) || is_childless {
+                // prune the element
+                if self.nodes.remove(index).is_some() {
+                    // consider adding a space because we are removing a block element
+                    self.insert_space_node_if_needed(prev_sibling, next_sibling);
+
+                    // reposition the cursor index
+                    *cursor = reposition_cursor(prev_sibling, next_sibling, parent);
+
+                    // then consider pruning the parent
+                    return self.prune(cursor, parent);
+                }
+            }
+        } else if tag != HtmlTag::br && tag != HtmlTag::hr && is_childless {
+            // prune empty element
+            if self.nodes.remove(index).is_some() {
+                // reposition the cursor index
+                *cursor = reposition_cursor(prev_sibling, next_sibling, parent);
+
+                // then consider pruning the parent
+                return self.prune(cursor, parent);
+            }
+        }
+
+        index
+    }
+
+    pub fn remove(&mut self, index: u16) -> Option<u16> {
+        let Some(parent) = self.nodes.parent_index(index) else {
+            panic!("Element is the root or is not in the tree and cannot be removed");
+        };
+
+        if let Some(new_index) = self.nodes.remove(index) {
+            let prev_sibling = self.nodes.prev_sibling_index(index);
+            let next_sibling = self.nodes.next_sibling_index(index);
+            let is_block = self.nodes.is_block_element(index);
+
+            if prev_sibling.is_some() || next_sibling.is_some() {
+                // add a space if the removed node is a block element surrounded by inline elements with no preceding or leading space
+                if is_block {
+                    self.insert_space_node_if_needed(prev_sibling, next_sibling);
+                }
+            }
+
+            // the pruning will replace block elements with a space and remove elements containing only whitespace
+            // so a space will always be added if needed
+            // the pruning will also reposition the cursor index if necessary
+            let mut cursor = new_index;
+            self.prune(&mut cursor, parent);
+            Some(cursor)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_formatting(&mut self) {
+        let mut iter = TagIter::new(self);
+        while let Some(elem) = iter.next(self) {
+            if let Tag::Open(index) = elem {
+                let tag = self.nodes.tag(index);
+
+                if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
+                    let mut string = { self.string_at(index).to_owned() };
+
+                    let spaces = Spaces::count(&string);
+
+                    if spaces.is_formatting() {
+                        self.nodes.remove(index);
+                    } else if spaces.nl > 0 || spaces.tab > 0 {
+                        if spaces.tab > 0 {
+                            string = string.replace('\t', "");
+                        }
+                        if spaces.nl > 0 {
+                            string = string.trim_matches('\n').to_string();
+                            string = string.replace('\n', " ");
+                        }
+                        self.replace_text(index, &string);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn to_html(&self, fmt: HtmlFormat) -> String {
+        fmt.to_html(self, 0)
+    }
+}
+
+fn reposition_cursor(prev_sibling: Option<u16>, next_sibling: Option<u16>, parent: u16) -> u16 {
+    if let Some(prev_sibling) = prev_sibling {
+        prev_sibling
+    } else if let Some(next_sibling) = next_sibling {
+        next_sibling
+    } else {
+        parent
+    }
+}
+
+#[cfg(test)]
+use crate::prelude::*;
+
+#[test]
+fn test_adding_space() {
+    let html_str = "<strong><b>a</b></strong><em><i>b</i></em>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    let strong = el.index();
+    let el = el.next_sibling().unwrap();
+    let em = el.index();
+
+    html.with_mut(|dom| dom.insert_space_node_if_needed(Some(strong), Some(em)));
+
+    assert_eq!(
+        html.to_html(HtmlFormat::Pretty).trim(),
+        "<strong><b>a</b></strong> <em><i>b</i></em>",
+        "Should add space between inline elements"
+    );
+
+    let html_str = "<strong><b>a </b></strong><em>b</em>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    let strong = el.index();
+    let el = el.next_sibling().unwrap();
+    let em = el.index();
+    html.with_mut(|dom| dom.insert_space_node_if_needed(Some(strong), Some(em)));
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "<strong><b>a </b></strong><em>b</em>",
+        "Should not add a space if the preceding element is ending with a space"
+    );
+
+    let html_str = "<strong><b>a</b></strong><em> b</em>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    let strong = el.index();
+    let el = el.next_sibling().unwrap();
+    let em = el.index();
+    html.with_mut(|dom| dom.insert_space_node_if_needed(Some(strong), Some(em)));
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "<strong><b>a</b></strong><em> b</em>",
+        "Should not add a space if the following element is starting with a space"
+    );
+
+    let html_str = "<div><b>a</b></div><em>b</em>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    let div = el.index();
+    let el = el.next_sibling().unwrap();
+    let em = el.index();
+    html.with_mut(|dom| dom.insert_space_node_if_needed(Some(div), Some(em)));
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "<div><b>a</b></div><em>b</em>",
+        "Should not add space between block and inline elements"
+    );
+}
+
+#[test]
+fn prune_body_element() {
+    let html_str =
+        "<head><meta></head><section><div><body><p> </p>   <div> </div></body></div></section>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    let el = el.next_sibling().unwrap();
+    html.with_mut(|dom| {
+        dom.prune(&mut 0, el.index());
+    });
+
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "<head><meta></head>",
+        "Body element containing only whitespaces should be pruned along with all its ancestors that are empty"
+    );
+}
+
+#[test]
+fn prune_empty_block() {
+    let html_str = "<div><p></p><p> </p><p> </p></div>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap();
+    html.with_mut(|dom| dom.prune(&mut 0, el.index()));
+
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "",
+        "Empty block element should be pruned"
+    );
+
+    let html_str = "<body><i>italic</i><section><div><p></p></div></section><b>bold</b></body>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap(); // body
+    let el = el.first_child().unwrap(); // i
+    let el = el.next_sibling().unwrap(); // section
+    let el = el.first_child().unwrap(); // div
+    let el = el.first_child().unwrap(); // p
+    html.with_mut(|dom| dom.prune(&mut 0, el.index()));
+
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "<body><i>italic</i> <b>bold</b></body>",
+        "After pruning an empty block element, its ancestors should be pruned or replaced with a space if it's between inline elements"
+    );
+}
+
+#[test]
+fn prune_empty_elements() {
+    let html_str = "<a><i><b><sub></sub></b></i></a>";
+    let html = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+    let el = html.root();
+    let el = el.first_child().unwrap(); // a
+    let el = el.first_child().unwrap(); // i
+    let el = el.first_child().unwrap(); // b
+    let el = el.first_child().unwrap(); // sub
+    html.with_mut(|dom| dom.prune(&mut 0, el.index()));
+
+    assert_eq!(
+        html.to_html(HtmlFormat::Raw),
+        "",
+        "Empty elements should be pruned along with all their ancestors that are empty"
+    );
+}
+
+#[test]
+fn test_reposition_cursor() {
+    let index = reposition_cursor(Some(0), Some(1), 2);
+    assert_eq!(
+        index, 0,
+        "Should prioritize moving the cursor to the previous sibling"
+    );
+
+    let index = reposition_cursor(None, Some(1), 2);
+    assert_eq!(
+        index, 1,
+        "Should move the cursor to the next sibling if there is no previous sibling"
+    );
+
+    let index = reposition_cursor(None, None, 2);
+    assert_eq!(
+        index, 2,
+        "Should move the cursor to the parent if there are no siblings"
+    );
+}

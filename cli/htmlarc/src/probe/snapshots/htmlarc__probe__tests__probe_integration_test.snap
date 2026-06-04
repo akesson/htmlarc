@@ -1,0 +1,6 @@
+---
+source: cli/htmlarc/src/probe/tests.rs
+expression: "format!(\"{}\", String::from_utf8_lossy(&output.stdout)).remove_duration()"
+snapshot_kind: text
+---
+

@@ -1,0 +1,25 @@
+[package]
+name = "htmlarc"
+description = "Pack a corpus of HTML into one archive and CSS-query it without re-parsing"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+colorful.workspace = true
+htmlarc-dom.workspace = true
+htmlarc-format.workspace = true
+indexmap.workspace = true
+log.workspace = true
+pretty.workspace = true
+sanitize-filename.workspace = true
+smallvec.workspace = true
+termion.workspace = true
+thiserror.workspace = true
+xflags.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+rkyv.workspace = true

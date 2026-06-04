@@ -1,0 +1,15 @@
+[package]
+name = "htmlarc-format"
+description = "A single-file archive of pre-parsed HTML documents, CSS-queryable without re-parsing"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fs-err = { workspace = true }
+htmlarc-dom = { workspace = true }
+rkyv = { workspace = true }
+seahash = { workspace = true }
+thiserror = { workspace = true }
+unicode-segmentation = { workspace = true }

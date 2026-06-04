@@ -1,0 +1,10 @@
+---
+source: crates/html/src/css/parse.rs
+expression: diagnosis
+---
+[4md[0miv#header.blue > p, [4mh[0m1.title + span  [4ma[0m[4m:[0m[4mf[0mirdt-child.link input[type="text"]
+│                    │                ││└─────────────────────────────────── Invalid pseudo-class keyword at 40
+│                    │                │└──────────────────────────────────── Failed to parse pseudo-class selector at 39
+│                    │                └───────────────────────────────────── Failed to parse relative selector at 38
+│                    └────────────────────────────────────────────────────── Failed to parse complex selector at 21
+└─────────────────────────────────────────────────────────────────────────── Failed to parse selector list at 0

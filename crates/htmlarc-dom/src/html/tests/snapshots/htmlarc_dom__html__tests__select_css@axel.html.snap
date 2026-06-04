@@ -1,0 +1,24 @@
+---
+source: crates/html/src/html/tests/mod.rs
+assertion_line: 130
+expression: print_elements(selected)
+input_file: crates/html/src/html/tests/html/axel.html
+snapshot_kind: text
+---
+73 - label
+82 - a
+89 - a
+99 - a
+109 - a
+119 - a
+157 - input
+163 - button
+192 - a
+198 - a
+204 - a
+356 - div
+360 - a
+368 - a
+831 - a
+1719 - span
+1727 - span

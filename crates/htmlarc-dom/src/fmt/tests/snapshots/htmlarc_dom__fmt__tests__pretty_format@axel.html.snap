@@ -1,0 +1,1969 @@
+---
+source: common/html/src/doc/fmt/tests/mod.rs
+expression: "format(&html, Format::Pretty)"
+input_file: common/html/src/doc/fmt/tests/html/axel.html
+---
+<!DOCTYPE html>
+<html class="client-nojs" dir="ltr" lang="sv">
+	<head>
+		<meta charset="UTF-8">
+		<title>
+axel - Wiktionary
+		</title>
+		<script>
+document.documentElement.className="client-js";RLCONF={"wgBreakFrames":!1,"wgSeparatorTransformTable":[",\t."," \t,"],"wgDigitTransformTable":["",""],"wgDefaultDateFormat":"dmy","wgMonthNames":["","januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"],"wgRequestId":"45904ad4-67eb-447c-b1da-0f1ce772e9dc","wgCSPNonce":!1,"wgCanonicalNamespace":"","wgCanonicalSpecialPageName":!1,"wgNamespaceNumber":0,"wgPageName":"axel","wgTitle":"axel","wgCurRevisionId":3437329,"wgRevisionId":3437329,"wgArticleId":9910,"wgIsArticle":!0,"wgIsRedirect":!1,"wgAction":"view","wgUserName":null,"wgUserGroups":["*"],"wgPageContentLanguage":"sv","wgPageContentModel":"wikitext","wgRelevantPageName":"axel","wgRelevantArticleId":9910,"wgIsProbablyEditable":!0,"wgRelevantPageIsProbablyEditable":!0,"wgRestrictionEdit":[],"wgRestrictionMove":[],"wgMediaViewerOnClick":!0,"wgMediaViewerEnabledByDefault":!0,"wgVisualEditor":{"pageLanguageCode" :"sv","pageLanguageDir":"ltr","pageVariantFallbacks":"sv"},"wgMFMode":"stable","wgMFAmc":!1,"wgMFAmcOutreachActive":!1,"wgMFAmcOutreachUserEligible":!1,"wgMFLazyLoadImages":!0,"wgMFDisplayWikibaseDescriptions":{"search":!0,"nearby":!0,"watchlist":!0,"tagline":!1},"wgMFIsPageContentModelEditable":!0,"wgWMESchemaEditAttemptStepOversample":!1,"wgULSCurrentAutonym":"svenska","wgNoticeProject":"wiktionary","wgCentralAuthMobileDomain":!0,"wgEditSubmitButtonLabelPublish":!0,"wgMinervaPermissions":{"watch":!0,"talk":!1},"wgMinervaFeatures":{"beta":!1,"donate":!0,"mobileOptionsLink":!0,"categories":!1,"pageIssues":!0,"talkAtTop":!1,"historyInPageActions":!1,"overflowSubmenu":!1,"tabsOnSpecials":!1,"personalMenu":!1,"mainMenuExpanded":!1,"simplifiedTalk":!0},"wgMinervaDownloadNamespaces":[0]};RLSTATE={"ext.globalCssJs.user.styles":"ready","site.styles":"ready","noscript":"ready","user.styles":"ready","ext.globalCssJs.user":"ready" ,"user":"ready","user.options":"loading","skins.minerva.base.styles":"ready","skins.minerva.content.styles":"ready","skins.minerva.content.styles.images":"ready","mediawiki.hlist":"ready","mediawiki.ui.icon":"ready","mediawiki.ui.button":"ready","skins.minerva.icons.wikimedia":"ready","skins.minerva.mainMenu.icons":"ready","skins.minerva.mainMenu.styles":"ready","mobile.init.styles":"ready","ext.wikimediaBadges":"ready"};RLPAGEMODULES=["site","mediawiki.page.ready","skins.minerva.options","skins.minerva.scripts","ext.centralauth.centralautologin","mobile.init","ext.eventLogging","ext.wikimediaEvents","ext.navigationTiming","ext.centralNotice.geoIP","ext.centralNotice.startUp"];
+		</script>
+		<script>
+(RLQ=window.RLQ||[]).push(function(){mw.loader.implement("user.options@1hzgi",function($,jQuery,require,module){/*@nomin*/mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});mw.user.options.set({"variant":"sv"}); });});
+		</script>
+		<link href="/w/load.php?lang=sv&amp;modules=ext.wikimediaBadges%7Cmediawiki.hlist%7Cmediawiki.ui.button%2Cicon%7Cmobile.init.styles%7Cskins.minerva.base.styles%7Cskins.minerva.content.styles%7Cskins.minerva.content.styles.images%7Cskins.minerva.icons.wikimedia%7Cskins.minerva.mainMenu.icons%2Cstyles&amp;only=styles&amp;skin=minerva" rel="stylesheet">
+		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile">
+		</script>
+		<meta content="MediaWiki 1.36.0-wmf.13" name="generator">
+		<meta content="origin" name="referrer">
+		<meta content="origin-when-crossorigin" name="referrer">
+		<meta content="origin-when-cross-origin" name="referrer">
+		<meta content="#eaecf0" name="theme-color">
+		<meta content="https://upload.wikimedia.org/wikipedia/commons/3/3b/Gray326.png" property="og:image">
+		<meta content="width=device-width, initial-scale=1.0, user-scalable=yes, minimum-scale=0.25, maximum-scale=5.0" name="viewport">
+		<link href="/w/api.php?action=webapp-manifest" rel="manifest">
+		<link href="/w/index.php?title=axel&amp;action=edit" rel="alternate" title="Redigera" type="application/x-wiki">
+		<link href="/w/index.php?title=axel&amp;action=edit" rel="edit" title="Redigera">
+		<link href="/static/apple-touch/wiktionary.png" rel="apple-touch-icon">
+		<link href="/static/favicon/piece.ico" rel="shortcut icon">
+		<link href="/w/opensearch_desc.php" rel="search" title="Wiktionary (sv)" type="application/opensearchdescription+xml">
+		<link href="//sv.wiktionary.org/w/api.php?action=rsd" rel="EditURI" type="application/rsd+xml">
+		<link href="//creativecommons.org/licenses/by-sa/3.0/" rel="license">
+		<link href="https://sv.wiktionary.org/wiki/axel" rel="canonical">
+		<link href="//login.wikimedia.org" rel="dns-prefetch">
+		<link href="//meta.wikimedia.org" rel="dns-prefetch">
+	</head>
+	<body class="mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-axel rootpage-axel stable issues-group-B skin-minerva action-view skin--responsive">
+		<div id="mw-mf-viewport">
+			<div id="mw-mf-page-center">
+				<a class="mw-mf-page-center__mask" href="#"></a>
+				<header class="header-container header-chrome">
+					<form class="header" action="/w/index.php" method="get">
+						<nav class="navigation-drawer toggle-list view-border-box">
+							<input class="toggle-list__checkbox" aria-labelledby="mw-mf-main-menu-button" id="main-menu-input" role="button" type="checkbox" />
+							<label class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-menu-base20 mw-ui-icon-flush-left toggle-list__toggle" data-event-name="ui.mainmenu" for="main-menu-input" id="mw-mf-main-menu-button" title="Öppna huvudmenyn">
+Öppna huvudmenyn
+							</label>
+							<div class="menu toggle-list__list view-border-box" id="mw-mf-page-left">
+								<ul id="p-navigation">
+									<li class="">
+ 
+										<a class="mw-ui-icon mw-ui-icon-before mw-ui-icon-minerva-home" data-event-name="menu.home" href="/wiki/Wiktionary:Huvudsida">
+											<span>
+Huvudsida
+											</span>
+										</a>
+									</li>
+									<li class="">
+ 
+										<a class="mw-ui-icon mw-ui-icon-before mw-ui-icon-minerva-die" data-event-name="menu.random" href="/wiki/Special:Random#/random">
+											<span>
+Slumpartikel
+											</span>
+										</a>
+									</li>
+								</ul>
+								<ul id="p-personal">
+									<li class="">
+ 
+										<a class="menu__item--login mw-ui-icon mw-ui-icon-before mw-ui-icon-minerva-logIn" data-event-name="menu.login" href="/w/index.php?title=Special:Inloggning&amp;returnto=axel">
+											<span>
+Logga in
+											</span>
+										</a>
+									</li>
+								</ul>
+								<ul id="pt-preferences">
+									<li class="jsonly">
+ 
+										<a class="menu__item--settings mw-ui-icon mw-ui-icon-before mw-ui-icon-minerva-settings" data-event-name="menu.settings" href="/w/index.php?title=Special:MobileOptions&amp;returnto=axel">
+											<span>
+Inställningar
+											</span>
+										</a>
+									</li>
+								</ul>
+								<ul id="p-donation">
+									<li class="">
+ 
+										<a class="mw-ui-icon mw-ui-icon-before mw-ui-icon-minerva-heart" data-event-name="menu.donate" href="//donate.wikimedia.org/wiki/Special:FundraiserRedirector?utm_source=donate&amp;utm_medium=sidebar&amp;utm_campaign=C13_sv.wiktionary.org&amp;uselang=sv&amp;utm_key=minerva">
+											<span>
+Stöd Wiktionary
+											</span>
+										</a>
+									</li>
+								</ul>
+								<ul class="hlist">
+									<li class="">
+ 
+										<a class="" data-event-name="" href="/wiki/Wiktionary:Om">
+											<span>
+Om Wiktionary
+											</span>
+										</a>
+									</li>
+									<li class="">
+ 
+										<a class="" data-event-name="" href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll">
+											<span>
+Förbehåll
+											</span>
+										</a>
+									</li>
+								</ul>
+							</div>
+							<label class="main-menu-mask" for="main-menu-input"></label>
+						</nav>
+						<div class="branding-box">
+							<a href="/wiki/Wiktionary:Huvudsida">
+								<span>
+									<img alt="Wiktionary" height="19" src="/static/images/mobile/copyright/wiktionary-wordmark-en.svg" width="107" />
+								</span>
+							</a>
+						</div>
+						<div class="search-box">
+							<input class="search mw-ui-background-icon-search skin-minerva-search-trigger" aria-label="Sök på Wiktionary" autocomplete="off" id="searchInput" name="search" placeholder="Sök på Wiktionary" type="search" value />
+						</div>
+						<nav class="minerva-user-navigation" aria-label="Användarnavigering">
+							<div>
+								<button class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-search-base20 skin-minerva-search-trigger" id="searchIcon" type="submit">
+Sök
+								</button>
+							</div>
+						</nav>
+					</form>
+				</header>
+				<main class="mw-body" id="content">
+					<div class="banner-container">
+						<div id="siteNotice"></div>
+					</div>
+					<div class="pre-content heading-holder">
+						<div class="page-heading">
+							<h1 id="section_0">
+axel
+							</h1>
+							<div class="tagline"></div>
+						</div>
+						<nav class="page-actions-menu">
+							<ul class="page-actions-menu__list" id="page-actions">
+								<li class="page-actions-menu__list-item" id="language-selector">
+									<a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-language-base20 mw-ui-icon-with-label-desktop language-selector" data-event-name="menu.languages" data-mw="interface" href="/wiki/Special:Mobil_spr%C3%A5k/axel" id role="button" title="Läs på ett annat språk">
+Läs på ett annat språk
+									</a>
+								</li>
+								<li class="page-actions-menu__list-item" id="page-actions-watch">
+									<a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-star-base20 mw-ui-icon-with-label-desktop watch-this-article mw-watchlink menu__item--page-actions-watch" data-event-name="menu.watch" data-mw="interface" href="/w/index.php?title=Special:Inloggning&amp;returnto=axel" id="ca-watch" role="button" title="Bevaka">
+Bevaka
+									</a>
+								</li>
+								<li class="page-actions-menu__list-item" id="page-actions-edit">
+									<a class="edit-page menu__item--page-actions-edit mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 mw-ui-icon-with-label-desktop" data-event-name="menu.edit" data-mw="interface" href="/w/index.php?title=axel&amp;action=edit&amp;section=0" id="ca-edit" role="button" title="Redigera huvudavsnittet på denna sida">
+Redigera
+									</a>
+								</li>
+							</ul>
+						</nav>
+<!-- version 1.0.2 (change every time you update a partial) -->
+						<div class="minerva__subtitle"></div>
+					</div>
+					<div class="content" id="bodyContent">
+						<div class="mw-content-ltr" dir="ltr" id="mw-content-text" lang="sv">
+							<script>
+function mfTempOpenSection(id){var block=document.getElementById("mf-section-"+id);block.className+=" open-block";block.previousSibling.className+=" open-block";}
+							</script>
+							<div class="mw-parser-output">
+								<section class="mf-section-0" id="mf-section-0">
+									<p>
+<i>Se även</i> 
+										<a href="/wiki/Axel" title="Axel">
+Axel
+										</a>
+.
+									</p>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Axel_(kroppsdel)" title="w:Axel (kroppsdel)">
+Axel (kroppsdel)
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Axel_(mekanik)" title="w:Axel (mekanik)">
+Axel (mekanik)
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Hjulaxel_(t%C3%A5g)" title="w:Hjulaxel (tåg)">
+Hjulaxel (tåg)
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Drivaxel" title="w:Drivaxel">
+Drivaxel
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Axelmakterna" title="w:Axelmakterna">
+Axelmakterna
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+									<div class="noprint" style="clear: right; border: solid #aaa 1px; margin: 0 0 1em 1em; font-size: 90%; background: #F9F9F5; width: 250px; padding:4px; spacing: 0px; text-align: left; float: right;">
+										<div style="float: left;">
+											<div class="floatnone">
+												<a class="image" href="/wiki/Fil:Wikipedia-logo-v2.svg">
+													<img data-file-height="94" data-file-width="103" alt="Wikipedia-logo-v2.svg" decoding="async" height="37" src="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/40px-Wikipedia-logo-v2.svg.png" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/60px-Wikipedia-logo-v2.svg.png 1.5x, //upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/80px-Wikipedia-logo-v2.svg.png 2x" width="40" />
+												</a>
+											</div>
+										</div>
+										<div style="margin-left: 60px;">
+											<a class="extiw" href="https://sv.wikipedia.org/wiki/Main_Page" title="w:Main Page">
+Wikipedia
+											</a>
+ har en artikel om:
+											<br />
+ 
+											<span style="font-size:1.1em">
+												<i>
+													<b>
+														<a class="extiw" href="https://sv.wikipedia.org/wiki/Axel_(konst%C3%A5kning)" title="w:Axel (konståkning)">
+Axel (konståkning)
+														</a>
+													</b>
+												</i>
+											</span>
+										</div>
+									</div>
+								</section>
+								<h2 class="section-heading" onclick="javascript:mfTempOpenSection(1)">
+									<div class="mw-ui-icon mw-ui-icon-element indicator mw-ui-icon-small mw-ui-icon-flush-left"></div>
+									<span class="mw-headline" id="Svenska">
+Svenska
+									</span>
+									<span class="mw-editsection">
+										<a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 edit-page mw-ui-icon-flush-right" data-section="1" href="/w/index.php?title=axel&amp;action=edit&amp;section=1" title="Redigera avsnitt Svenska">
+Redigera
+										</a>
+									</span>
+								</h2>
+								<section class="mf-section-1 collapsible-block" id="mf-section-1">
+									<h3 class="in-block">
+										<span class="mw-headline" id="Substantiv">
+Substantiv
+										</span>
+										<span class="mw-editsection">
+											<a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 edit-page mw-ui-icon-flush-right" data-section="2" href="/w/index.php?title=axel&amp;action=edit&amp;section=2" title="Redigera avsnitt Substantiv">
+Redigera
+											</a>
+										</span>
+									</h3>
+									<table class="grammar template-sv-subst-n-ar" cellspacing="0" width="10">
+										<tbody>
+											<tr>
+												<th class="main">
+Böjningar&nbsp;av 
+													<i>
+														<a class="mw-selflink selflink">
+axel
+														</a>
+&nbsp;
+													</i>
+												</th>
+												<th class="min" colspan="2">
+Singular
+												</th>
+												<th class="min" colspan="2">
+Plural
+												</th>
+											</tr>
+											<tr>
+												<th class="main">
+utrum
+												</th>
+												<th>
+Obestämd
+												</th>
+												<th>
+Bestämd
+												</th>
+												<th>
+Obestämd
+												</th>
+												<th>
+Bestämd
+												</th>
+											</tr>
+											<tr>
+												<th>
+Nominativ
+												</th>
+												<td>
+													<span class="infl">
+														<a class="mw-selflink selflink">
+axel
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axeln#Svenska" title="axeln">
+axeln
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axlar#Svenska" title="axlar">
+axlar
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axlarna#Svenska" title="axlarna">
+axlarna
+														</a>
+													</span>
+												</td>
+											</tr>
+											<tr>
+												<th>
+Genitiv
+												</th>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axels#Svenska" title="axels">
+axels
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axelns#Svenska" title="axelns">
+axelns
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axlars#Svenska" title="axlars">
+axlars
+														</a>
+													</span>
+												</td>
+												<td>
+													<span class="infl">
+														<a href="/wiki/axlarnas#Svenska" title="axlarnas">
+axlarnas
+														</a>
+													</span>
+												</td>
+											</tr>
+										</tbody>
+									</table>
+									<div class="thumb tright">
+										<div class="thumbinner" style="width:172px;">
+											<a class="image" href="/wiki/Fil:Gray326.png">
+												<noscript>
+<img class="thumbimage" data-file-width="452" data-file-height="500" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" decoding="async" width="170" height="188" />
+												</noscript>
+												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="188" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" data-width="170" style="width: 170px;height: 188px;">
+&nbsp;
+												</span>
+											</a>
+ 
+											<div class="thumbcaption">
+												<div class="magnify">
+													<a class="internal" href="/wiki/Fil:Gray326.png" title="Förstora"></a>
+												</div>
+ vänster <b>axel</b> (kroppsdel) framifrån
+											</div>
+										</div>
+									</div>
+									<div class="thumb tright">
+										<div class="thumbinner" style="width:172px;">
+											<a class="image" href="/wiki/Fil:Rollingstock_axle.jpg">
+												<noscript>
+<img class="thumbimage" data-file-width="800" data-file-height="600" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" decoding="async" width="170" height="128" />
+												</noscript>
+												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="128" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" data-width="170" style="width: 170px;height: 128px;">
+&nbsp;
+												</span>
+											</a>
+ 
+											<div class="thumbcaption">
+												<div class="magnify">
+													<a class="internal" href="/wiki/Fil:Rollingstock_axle.jpg" title="Förstora"></a>
+												</div>
+ järnvägshjulpar med axel (<b>hjulaxel</b>)
+											</div>
+										</div>
+									</div>
+									<div class="thumb tright">
+										<div class="thumbinner" style="width:172px;">
+											<a class="image" href="/wiki/Fil:Cardan-joint_intermediate-shaft_topview_animated.gif">
+												<noscript>
+<img class="thumbimage" data-file-width="451" data-file-height="208" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" decoding="async" width="170" height="78" />
+												</noscript>
+												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="78" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" data-width="170" style="width: 170px;height: 78px;">
+&nbsp;
+												</span>
+											</a>
+ 
+											<div class="thumbcaption">
+												<div class="magnify">
+													<a class="internal" href="/wiki/Fil:Cardan-joint_intermediate-shaft_topview_animated.gif" title="Förstora"></a>
+												</div>
+ kardanaxel (<b>drivaxel</b>)
+											</div>
+										</div>
+									</div>
+									<p>
+<b>axel</b>
+									</p>
+									<ul>
+										<li>
+											<b>
+												<a href="/wiki/Wiktionary:Stilguide/Uttal" title="Wiktionary:Stilguide/Uttal">
+uttal
+												</a>
+:
+											</b>
+&nbsp;/
+											<span class="ipa">
+ˈak.sɛl
+											</span>
+/
+										</li>
+									</ul>
+									<ol>
+										<li>
+<i>(anatomi)</i> en kroppsdel; ovan- och yttersidan av 
+											<a href="/wiki/arm" title="arm">
+armens
+											</a>
+ fäste i 
+											<a href="/wiki/torso" title="torso">
+torson
+											</a>
+											<dl>
+												<dd>
+<i>Jag har så ont i <b>axeln</b>.</i>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-synonymer">
+<em title="Ord med samma betydelse">Synonymer:</em> 
+													<a href="/wiki/%C3%A4rd%C3%A4" title="ärdä">
+ärdä
+													</a>
+ <i>(orsamål)</i>, 
+													<a href="/wiki/skuldra" title="skuldra">
+skuldra
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-besläktade_ord">
+<em title="Relaterade ord med samma ursprung (men som har andra prefix eller suffix, eller är av annan ordklass)">Besläktade ord:</em> 
+													<a href="/wiki/axla" title="axla">
+axla
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=axelband&amp;action=edit&amp;redlink=1" title="axelband (inte skapad ännu)">
+axelband
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelbred&amp;action=edit&amp;redlink=1" title="axelbred (inte skapad ännu)">
+axelbred
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelbredd&amp;action=edit&amp;redlink=1" title="axelbredd (inte skapad ännu)">
+axelbredd
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelh%C3%A5la&amp;action=edit&amp;redlink=1" title="axelhåla (inte skapad ännu)">
+axelhåla
+													</a>
+, 
+													<a href="/wiki/axelklaff" title="axelklaff">
+axelklaff
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelrem&amp;action=edit&amp;redlink=1" title="axelrem (inte skapad ännu)">
+axelrem
+													</a>
+, 
+													<a href="/wiki/axelryckning" title="axelryckning">
+axelryckning
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelsjal&amp;action=edit&amp;redlink=1" title="axelsjal (inte skapad ännu)">
+axelsjal
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelschal&amp;action=edit&amp;redlink=1" title="axelschal (inte skapad ännu)">
+axelschal
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelvadd&amp;action=edit&amp;redlink=1" title="axelvadd (inte skapad ännu)">
+axelvadd
+													</a>
+, 
+													<a href="/wiki/axelv%C3%A4ska" title="axelväska">
+axelväska
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-fraser">
+<em title="Begrepp som består av flera ord">Fraser:</em> 
+													<a href="/wiki/se_%C3%B6ver_axeln" title="se över axeln">
+se över axeln
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(mekanik)</i> hjulaxel; stångliknande maskindel som 
+											<a href="/wiki/hjul" title="hjul">
+hjul
+											</a>
+ (eller något annat) 
+											<a href="/wiki/rotera" title="rotera">
+roterar
+											</a>
+ runt
+											<dl>
+												<dd></dd>
+												<dd class="semantic-relation template-jämför">
+<em title="Andra liknande begrepp">Jämför:</em> 
+													<a href="/wiki/pivot" title="pivot">
+pivot
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=piv%C3%A5&amp;action=edit&amp;redlink=1" title="pivå (inte skapad ännu)">
+pivå
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=vridningsaxel&amp;action=edit&amp;redlink=1" title="vridningsaxel (inte skapad ännu)">
+vridningsaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axeltapp&amp;action=edit&amp;redlink=1" title="axeltapp (inte skapad ännu)">
+axeltapp
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=sv%C3%A4ngtapp&amp;action=edit&amp;redlink=1" title="svängtapp (inte skapad ännu)">
+svängtapp
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=axelbrott&amp;action=edit&amp;redlink=1" title="axelbrott (inte skapad ännu)">
+axelbrott
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=hjulaxel&amp;action=edit&amp;redlink=1" title="hjulaxel (inte skapad ännu)">
+hjulaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=pendelaxel&amp;action=edit&amp;redlink=1" title="pendelaxel (inte skapad ännu)">
+pendelaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=bakaxel&amp;action=edit&amp;redlink=1" title="bakaxel (inte skapad ännu)">
+bakaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=vridningsaxel&amp;action=edit&amp;redlink=1" title="vridningsaxel (inte skapad ännu)">
+vridningsaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axeltapp&amp;action=edit&amp;redlink=1" title="axeltapp (inte skapad ännu)">
+axeltapp
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(mekanik, kort för)</i> drivaxel; långsträckt, 
+											<a href="/wiki/rotera" title="rotera">
+roterande
+											</a>
+ maskindel för överföring av mekanisk effekt (i form av 
+											<a class="new" href="/w/index.php?title=rotationsfrekvens&amp;action=edit&amp;redlink=1" title="rotationsfrekvens (inte skapad ännu)">
+rotationsfrekvens
+											</a>
+ och 
+											<a href="/wiki/vridmoment" title="vridmoment">
+vridmoment
+											</a>
+)
+											<dl>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=drivaxel&amp;action=edit&amp;redlink=1" title="drivaxel (inte skapad ännu)">
+drivaxel
+													</a>
+, 
+													<a href="/wiki/kardanaxel" title="kardanaxel">
+kardanaxel
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelkoppling&amp;action=edit&amp;redlink=1" title="axelkoppling (inte skapad ännu)">
+axelkoppling
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(abstrakt)</i> tänkt 
+											<a href="/wiki/mittlinje" title="mittlinje">
+mittlinje
+											</a>
+ kring vilken något 
+											<a href="/wiki/rotera" title="rotera">
+roterar
+											</a>
+ eller (
+											<a href="/wiki/symmetrisk" title="symmetrisk">
+symmetriskt
+											</a>
+) grupperar sig
+											<dl>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=blomaxel&amp;action=edit&amp;redlink=1" title="blomaxel (inte skapad ännu)">
+blomaxel
+													</a>
+, 
+													<a href="/wiki/jordaxel" title="jordaxel">
+jordaxel
+													</a>
+, 
+													<a href="/wiki/symmetriaxel" title="symmetriaxel">
+symmetriaxel
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(matematik, kort för)</i> koordinataxel; rät 
+											<a href="/wiki/linje" title="linje">
+linje
+											</a>
+ utifrån vilken man definierar 
+											<a href="/wiki/koordinat" title="koordinat">
+koordinater
+											</a>
+											<dl>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=koordinataxel&amp;action=edit&amp;redlink=1" title="koordinataxel (inte skapad ännu)">
+koordinataxel
+													</a>
+, 
+													<a href="/wiki/x-axel" title="x-axel">
+x-axel
+													</a>
+, 
+													<a href="/wiki/y-axel" title="y-axel">
+y-axel
+													</a>
+, 
+													<a href="/wiki/z-axel" title="z-axel">
+z-axel
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(politik, historia)</i> Axeln Rom-Berlin-Tokyo; 
+											<a href="/wiki/allians" title="allians">
+alliansen
+											</a>
+ mellan 
+											<a class="new" href="/w/index.php?title=axelmakterna&amp;action=edit&amp;redlink=1" title="axelmakterna (inte skapad ännu)">
+axelmakterna
+											</a>
+ under 
+											<a href="/wiki/andra_v%C3%A4rldskriget" title="andra världskriget">
+andra världskriget
+											</a>
+; utvidgat även andra föraktade allianser
+											<dl>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=axelmakt&amp;action=edit&amp;redlink=1" title="axelmakt (inte skapad ännu)">
+axelmakt
+													</a>
+, 
+													<a class="new" href="/w/index.php?title=axelmakterna&amp;action=edit&amp;redlink=1" title="axelmakterna (inte skapad ännu)">
+axelmakterna
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-fraser">
+<em title="Begrepp som består av flera ord">Fraser:</em> 
+													<a class="new" href="/w/index.php?title=ondskans_axelmakter&amp;action=edit&amp;redlink=1" title="ondskans axelmakter (inte skapad ännu)">
+ondskans axelmakter
+													</a>
+												</dd>
+											</dl>
+										</li>
+										<li>
+<i>(sport, skridskoåkning)</i> hopp inom 
+											<a href="/wiki/konst%C3%A5kning" title="konståkning">
+konståkning
+											</a>
+ på 
+											<a href="/wiki/skridsko" title="skridsko">
+skridsko
+											</a>
+ där konståkaren hoppar upp framåt, och därför roterar ett halvt varv längre än andra hopp, d.v.s. ett (eller flera) och ett halvt varv i luften
+											<dl>
+												<dd>
+<i>Han gjorde en perfekt trippel <b>axel</b>.</i>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-sammansättningar">
+<em title="Ord som består av flera andra ord">Sammansättningar:</em> 
+													<a class="new" href="/w/index.php?title=axelhoppet&amp;action=edit&amp;redlink=1" title="axelhoppet (inte skapad ännu)">
+axelhoppet
+													</a>
+												</dd>
+												<dd></dd>
+												<dd class="semantic-relation template-etymologi">
+<em title="Ordets ursprung">Etymologi:</em> Eponym efter den norske konståkaren 
+													<a class="extiw" href="https://sv.wikipedia.org/wiki/Axel_R._Paulsen" title="w:Axel R. Paulsen">
+Axel R. Paulsen
+													</a>
+ (1885-1939).
+												</dd>
+											</dl>
+										</li>
+									</ol>
+									<dl>
+										<dd>
+											<noscript>
+<img data-file-width="222" data-file-height="18" alt="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." src="//upload.wikimedia.org/wikipedia/commons/8/83/Hor_barileto_avgraensare_i_222_18_px_trans.png" decoding="async" title="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." width="222" height="18" />
+											</noscript>
+											<span class="lazy-image-placeholder" data-alt="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." data-height="18" data-src="//upload.wikimedia.org/wikipedia/commons/8/83/Hor_barileto_avgraensare_i_222_18_px_trans.png" data-width="222" style="width: 222px;height: 18px;">
+&nbsp;
+											</span>
+										</dd>
+										<dd></dd>
+										<dd class="semantic-relation template-besläktade_ord">
+<em title="Relaterade ord med samma ursprung (men som har andra prefix eller suffix, eller är av annan ordklass)">Besläktade ord:</em> 
+											<a href="/wiki/axial" title="axial">
+axial
+											</a>
+, 
+											<a href="/wiki/axiell" title="axiell">
+axiell
+											</a>
+										</dd>
+									</dl>
+									<h4 class="in-block">
+										<span id=".C3.96vers.C3.A4ttningar"></span>
+										<span class="mw-headline" id="Översättningar">
+Översättningar
+										</span>
+										<span class="mw-editsection">
+											<a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 edit-page mw-ui-icon-flush-right" data-section="3" href="/w/index.php?title=axel&amp;action=edit&amp;section=3" title="Redigera avsnitt Översättningar">
+Redigera
+											</a>
+										</span>
+									</h4>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(anatomi) kroppsdel
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+bokmål: 
+														<span class="ö" data-lang="no" data-title="skulder">
+															<a href="/wiki/skulder#Bokm%C3%A5l" title="skulder">
+skulder
+															</a>
+														</span>
+, 
+														<span class="ö" data-gender="f" data-lang="no" data-title="aksel">
+															<a href="/wiki/aksel#Bokm%C3%A5l" title="aksel">
+aksel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://no.wiktionary.org/wiki/aksel" title="no:aksel">
+(no)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+danska: 
+														<span class="ö" data-gender="u" data-lang="da" data-title="skulder">
+															<a href="/wiki/skulder#Danska" title="skulder">
+skulder
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://da.wiktionary.org/wiki/skulder" title="da:skulder">
+(da)
+															</a>
+														</sup>
+ <b class="gender" title="utrum"><i>u</i></b>
+													</li>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="shoulder">
+															<a href="/wiki/shoulder#Engelska" title="shoulder">
+shoulder
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/shoulder" title="en:shoulder">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+finska: 
+														<span class="ö" data-lang="fi" data-title="olka">
+															<a href="/wiki/olka#Finska" title="olka">
+olka
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fi.wiktionary.org/wiki/olka" title="fi:olka">
+(fi)
+															</a>
+														</sup>
+													</li>
+													<li>
+franska: 
+														<span class="ö" data-gender="f" data-lang="fr" data-title="épaule">
+															<a href="/wiki/%C3%A9paule#Franska" title="épaule">
+épaule
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fr.wiktionary.org/wiki/%C3%A9paule" title="fr:épaule">
+(fr)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+frisiska: 
+														<span class="ö" data-gender="n" data-lang="fy" data-title="skouder">
+															<a href="/wiki/skouder#Frisiska" title="skouder">
+skouder
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fy.wiktionary.org/wiki/skouder" title="fy:skouder">
+(fy)
+															</a>
+														</sup>
+ <b class="gender" title="neutrum"><i>n</i></b>
+													</li>
+													<li>
+italienska: 
+														<span class="ö" data-gender="f" data-lang="it" data-title="spalla">
+															<a href="/wiki/spalla#Italienska" title="spalla">
+spalla
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://it.wiktionary.org/wiki/spalla" title="it:spalla">
+(it)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+japanska: 
+														<span class="ö" data-lang="ja" data-title="肩">
+															<a href="/wiki/%E8%82%A9#Japanska" title="肩">
+肩
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ja.wiktionary.org/wiki/%E8%82%A9" title="ja:肩">
+(ja)
+															</a>
+														</sup>
+ (kata)
+													</li>
+													<li>
+katalanska: 
+														<span class="ö" data-lang="ca" data-title="espatlla">
+															<a class="new" href="/w/index.php?title=espatlla&amp;action=edit&amp;redlink=1" title="espatlla (inte skapad ännu)">
+espatlla
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ca.wiktionary.org/wiki/espatlla" title="ca:espatlla">
+(ca)
+															</a>
+														</sup>
+													</li>
+													<li>
+nederländska: 
+														<span class="ö" data-gender="m" data-lang="nl" data-title="schouder">
+															<a href="/wiki/schouder#Nederl%C3%A4ndska" title="schouder">
+schouder
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://nl.wiktionary.org/wiki/schouder" title="nl:schouder">
+(nl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+norn: 
+														<span class="ö" data-lang="nrn" data-title="akkel">
+															<a href="/wiki/akkel#Norn" title="akkel">
+akkel
+															</a>
+														</span>
+													</li>
+													<li>
+nynorska: 
+														<span class="ö" data-gender="f" data-lang="nn" data-title="skulder">
+															<a href="/wiki/skulder#Nynorska" title="skulder">
+skulder
+															</a>
+														</span>
+ <b class="gender" title="femininum"><i>f</i></b>, 
+														<span class="ö" data-gender="f" data-lang="nn" data-title="aksel">
+															<a href="/wiki/aksel#Nynorska" title="aksel">
+aksel
+															</a>
+														</span>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="m" data-lang="pl" data-title="bark">
+															<a href="/wiki/bark#Polska" title="bark">
+bark
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/bark" title="pl:bark">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>, 
+														<span class="ö" data-gender="n" data-lang="pl" data-title="ramię">
+															<a href="/wiki/rami%C4%99#Polska" title="ramię">
+ramię
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/rami%C4%99" title="pl:ramię">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="neutrum"><i>n</i></b>, 
+														<span class="ö" data-gender="f" data-lang="pl" data-title="obręcz barkowa">
+															<a class="new" href="/w/index.php?title=obr%C4%99cz_barkowa&amp;action=edit&amp;redlink=1" title="obręcz barkowa (inte skapad ännu)">
+obręcz barkowa
+															</a>
+														</span>
+ <b class="gender" title="femininum"><i>f</i></b> <i>(fackspråk)</i>
+													</li>
+													<li>
+portugisiska: 
+														<span class="ö" data-gender="m" data-lang="pt" data-title="ombro">
+															<a href="/wiki/ombro#Portugisiska" title="ombro">
+ombro
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pt.wiktionary.org/wiki/ombro" title="pt:ombro">
+(pt)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+ryska: 
+														<span class="ö" data-gender="n" data-lang="ru" data-title="плечо">
+															<a href="/wiki/%D0%BF%D0%BB%D0%B5%D1%87%D0%BE#Ryska" title="плечо">
+плечо
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BF%D0%BB%D0%B5%D1%87%D0%BE" title="ru:плечо">
+(ru)
+															</a>
+														</sup>
+ <b class="gender" title="neutrum"><i>n</i></b>
+													</li>
+													<li>
+spanska: 
+														<span class="ö" data-gender="m" data-lang="es" data-title="hombro">
+															<a href="/wiki/hombro#Spanska" title="hombro">
+hombro
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://es.wiktionary.org/wiki/hombro" title="es:hombro">
+(es)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+tyska: 
+														<span class="ö" data-lang="de" data-title="Schulter">
+															<a href="/wiki/Schulter#Tyska" title="Schulter">
+Schulter
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://de.wiktionary.org/wiki/Schulter" title="de:Schulter">
+(de)
+															</a>
+														</sup>
+, 
+														<span class="ö" data-gender="f" data-lang="de" data-title="Achsel">
+															<a href="/wiki/Achsel#Tyska" title="Achsel">
+Achsel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://de.wiktionary.org/wiki/Achsel" title="de:Achsel">
+(de)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(mekanik) hjulaxel
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+alemanniska: 
+														<span class="ö" data-lang="als" data-title="Achs">
+															<a href="/wiki/Achs#Alemanniska" title="Achs">
+Achs
+															</a>
+														</span>
+													</li>
+													<li>
+bokmål: 
+														<span class="ö" data-lang="no" data-title="aksel">
+															<a href="/wiki/aksel#Bokm%C3%A5l" title="aksel">
+aksel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://no.wiktionary.org/wiki/aksel" title="no:aksel">
+(no)
+															</a>
+														</sup>
+, 
+														<span class="ö" data-gender="m" data-lang="no" data-title="aksling">
+															<a href="/wiki/aksling#Bokm%C3%A5l" title="aksling">
+aksling
+															</a>
+														</span>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+danska: 
+														<span class="ö" data-gender="u" data-lang="da" data-title="aksel">
+															<a href="/wiki/aksel#Danska" title="aksel">
+aksel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://da.wiktionary.org/wiki/aksel" title="da:aksel">
+(da)
+															</a>
+														</sup>
+ <b class="gender" title="utrum"><i>u</i></b>
+													</li>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="axle">
+															<a href="/wiki/axle#Engelska" title="axle">
+axle
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/axle" title="en:axle">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+finska: 
+														<span class="ö" data-lang="fi" data-title="akseli">
+															<a class="new" href="/w/index.php?title=akseli&amp;action=edit&amp;redlink=1" title="akseli (inte skapad ännu)">
+akseli
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fi.wiktionary.org/wiki/akseli" title="fi:akseli">
+(fi)
+															</a>
+														</sup>
+													</li>
+													<li>
+franska: 
+														<span class="ö" data-gender="m" data-lang="fr" data-title="essieu">
+															<a href="/wiki/essieu#Franska" title="essieu">
+essieu
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fr.wiktionary.org/wiki/essieu" title="fr:essieu">
+(fr)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+nederländska: 
+														<span class="ö" data-gender="m" data-lang="nl" data-title="as">
+															<a href="/wiki/as#Nederl%C3%A4ndska" title="as">
+as
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://nl.wiktionary.org/wiki/as" title="nl:as">
+(nl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+nynorska: 
+														<span class="ö" data-gender="m" data-lang="nn" data-title="aksel">
+															<a href="/wiki/aksel#Nynorska" title="aksel">
+aksel
+															</a>
+														</span>
+ <b class="gender" title="maskulinum"><i>m</i></b>, 
+														<span class="ö" data-gender="m" data-lang="nn" data-title="aksling">
+															<a href="/wiki/aksling#Nynorska" title="aksling">
+aksling
+															</a>
+														</span>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="f" data-lang="pl" data-title="oś">
+															<a href="/wiki/o%C5%9B#Polska" title="oś">
+oś
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+portugisiska: 
+														<span class="ö" data-gender="m" data-lang="pt" data-title="eixo">
+															<a class="new" href="/w/index.php?title=eixo&amp;action=edit&amp;redlink=1" title="eixo (inte skapad ännu)">
+eixo
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
+(pt)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+ryska: 
+														<span class="ö" data-gender="f" data-lang="ru" data-title="ось">
+															<a class="new" href="/w/index.php?title=%D0%BE%D1%81%D1%8C&amp;action=edit&amp;redlink=1" title="ось (inte skapad ännu)">
+ось
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
+(ru)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+spanska: 
+														<span class="ö" data-gender="m" data-lang="es" data-title="eje">
+															<a href="/wiki/eje#Spanska" title="eje">
+eje
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
+(es)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+tyska: 
+														<span class="ö" data-gender="f" data-lang="de" data-title="Achse">
+															<a href="/wiki/Achse#Tyska" title="Achse">
+Achse
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://de.wiktionary.org/wiki/Achse" title="de:Achse">
+(de)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(mekanik) drivaxel
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+danska: 
+														<span class="ö" data-gender="u" data-lang="da" data-title="aksel">
+															<a href="/wiki/aksel#Danska" title="aksel">
+aksel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://da.wiktionary.org/wiki/aksel" title="da:aksel">
+(da)
+															</a>
+														</sup>
+ <b class="gender" title="utrum"><i>u</i></b>
+													</li>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="shaft">
+															<a href="/wiki/shaft#Engelska" title="shaft">
+shaft
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/shaft" title="en:shaft">
+(en)
+															</a>
+														</sup>
+, 
+														<span class="ö" data-lang="en" data-title="drive shaft">
+															<a class="new" href="/w/index.php?title=drive_shaft&amp;action=edit&amp;redlink=1" title="drive shaft (inte skapad ännu)">
+drive shaft
+															</a>
+														</span>
+													</li>
+													<li>
+finska: 
+														<span class="ö" data-lang="fi" data-title="kardaaniakseli">
+															<a class="new" href="/w/index.php?title=kardaaniakseli&amp;action=edit&amp;redlink=1" title="kardaaniakseli (inte skapad ännu)">
+kardaaniakseli
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fi.wiktionary.org/wiki/kardaaniakseli" title="fi:kardaaniakseli">
+(fi)
+															</a>
+														</sup>
+, 
+														<span class="ö" data-lang="fi" data-title="vetoakseli">
+															<a class="new" href="/w/index.php?title=vetoakseli&amp;action=edit&amp;redlink=1" title="vetoakseli (inte skapad ännu)">
+vetoakseli
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fi.wiktionary.org/wiki/vetoakseli" title="fi:vetoakseli">
+(fi)
+															</a>
+														</sup>
+													</li>
+													<li>
+franska: 
+														<span class="ö" data-gender="m" data-lang="fr" data-title="axe">
+															<a href="/wiki/axe#Franska" title="axe">
+axe
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fr.wiktionary.org/wiki/axe" title="fr:axe">
+(fr)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+nederländska: 
+														<span class="ö" data-gender="m" data-lang="nl" data-title="as">
+															<a href="/wiki/as#Nederl%C3%A4ndska" title="as">
+as
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://nl.wiktionary.org/wiki/as" title="nl:as">
+(nl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="m" data-lang="pl" data-title="wał">
+															<a href="/wiki/wa%C5%82#Polska" title="wał">
+wał
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/wa%C5%82" title="pl:wał">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+portugisiska: 
+														<span class="ö" data-gender="m" data-lang="pt" data-title="veio de transmissão">
+															<a class="new" href="/w/index.php?title=veio_de_transmiss%C3%A3o&amp;action=edit&amp;redlink=1" title="veio de transmissão (inte skapad ännu)">
+veio de transmissão
+															</a>
+														</span>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+ryska: 
+														<span class="ö" data-gender="f" data-lang="ru" data-title="ось">
+															<a class="new" href="/w/index.php?title=%D0%BE%D1%81%D1%8C&amp;action=edit&amp;redlink=1" title="ось (inte skapad ännu)">
+ось
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
+(ru)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+spanska: 
+														<span class="ö" data-gender="m" data-lang="es" data-title="eje">
+															<a href="/wiki/eje#Spanska" title="eje">
+eje
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
+(es)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+tyska: 
+														<span class="ö" data-gender="f" data-lang="de" data-title="Welle">
+															<a href="/wiki/Welle#Tyska" title="Welle">
+Welle
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://de.wiktionary.org/wiki/Welle" title="de:Welle">
+(de)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(abstrakt) tänkt linje
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+bokmål: 
+														<span class="ö" data-gender="m" data-lang="no" data-title="akse">
+															<a href="/wiki/akse#Bokm%C3%A5l" title="akse">
+akse
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://no.wiktionary.org/wiki/akse" title="no:akse">
+(no)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="axis">
+															<a href="/wiki/axis#Engelska" title="axis">
+axis
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/axis" title="en:axis">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+nynorska: 
+														<span class="ö" data-gender="m" data-lang="nn" data-title="akse">
+															<a href="/wiki/akse#Nynorska" title="akse">
+akse
+															</a>
+														</span>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="f" data-lang="pl" data-title="oś">
+															<a href="/wiki/o%C5%9B#Polska" title="oś">
+oś
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+portugisiska: 
+														<span class="ö" data-gender="m" data-lang="pt" data-title="eixo">
+															<a class="new" href="/w/index.php?title=eixo&amp;action=edit&amp;redlink=1" title="eixo (inte skapad ännu)">
+eixo
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
+(pt)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+ryska: 
+														<span class="ö" data-gender="f" data-lang="ru" data-title="ось">
+															<a class="new" href="/w/index.php?title=%D0%BE%D1%81%D1%8C&amp;action=edit&amp;redlink=1" title="ось (inte skapad ännu)">
+ось
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
+(ru)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(matematik) koordinataxel
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+bokmål: 
+														<span class="ö" data-gender="m" data-lang="no" data-title="akse">
+															<a href="/wiki/akse#Bokm%C3%A5l" title="akse">
+akse
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://no.wiktionary.org/wiki/akse" title="no:akse">
+(no)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+danska: 
+														<span class="ö" data-gender="u" data-lang="da" data-title="akse">
+															<a href="/wiki/akse#Danska" title="akse">
+akse
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://da.wiktionary.org/wiki/akse" title="da:akse">
+(da)
+															</a>
+														</sup>
+ <b class="gender" title="utrum"><i>u</i></b>
+													</li>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="axis">
+															<a href="/wiki/axis#Engelska" title="axis">
+axis
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/axis" title="en:axis">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+franska: 
+														<span class="ö" data-gender="m" data-lang="fr" data-title="axe">
+															<a href="/wiki/axe#Franska" title="axe">
+axe
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://fr.wiktionary.org/wiki/axe" title="fr:axe">
+(fr)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="f" data-lang="pl" data-title="oś">
+															<a href="/wiki/o%C5%9B#Polska" title="oś">
+oś
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+													<li>
+portugisiska: 
+														<span class="ö" data-gender="m" data-lang="pt" data-title="eixo">
+															<a class="new" href="/w/index.php?title=eixo&amp;action=edit&amp;redlink=1" title="eixo (inte skapad ännu)">
+eixo
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
+(pt)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+spanska: 
+														<span class="ö" data-gender="m" data-lang="es" data-title="eje">
+															<a href="/wiki/eje#Spanska" title="eje">
+eje
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
+(es)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(historia) Axeln Rom-Berlin-Tokyo
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="Axis">
+															<a class="new" href="/w/index.php?title=Axis&amp;action=edit&amp;redlink=1" title="Axis (inte skapad ännu)">
+Axis
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/Axis" title="en:Axis">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="f" data-lang="pl" data-title="Oś">
+															<a class="new" href="/w/index.php?title=O%C5%9B&amp;action=edit&amp;redlink=1" title="Oś (inte skapad ännu)">
+Oś
+															</a>
+														</span>
+ <b class="gender" title="femininum"><i>f</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+									<div class="NavFrame översättningar">
+										<div class="NavHead">
+(sport) konståkningshopp
+										</div>
+										<div class="NavContent">
+											<div class="ö-content">
+												<ul>
+													<li>
+engelska: 
+														<span class="ö" data-lang="en" data-title="Axel">
+															<a href="/wiki/Axel#Engelska" title="Axel">
+Axel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://en.wiktionary.org/wiki/Axel" title="en:Axel">
+(en)
+															</a>
+														</sup>
+													</li>
+													<li>
+polska: 
+														<span class="ö" data-gender="m" data-lang="pl" data-title="Axel">
+															<a href="/wiki/Axel#Polska" title="Axel">
+Axel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://pl.wiktionary.org/wiki/Axel" title="pl:Axel">
+(pl)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+													<li>
+tyska: 
+														<span class="ö" data-gender="m" data-lang="de" data-title="Axel">
+															<a href="/wiki/Axel#Tyska" title="Axel">
+Axel
+															</a>
+														</span>
+														<sup>
+&nbsp;
+															<a class="extiw" href="https://de.wiktionary.org/wiki/Axel" title="de:Axel">
+(de)
+															</a>
+														</sup>
+ <b class="gender" title="maskulinum"><i>m</i></b>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
+								</section>
+							</div>
+							<noscript>
+<img src="//sv.wiktionary.org/wiki/Special:CentralAutoLogin/start?type=1x1&amp;mobile=1" alt title width="1" height="1" style="border: none; position: absolute;" />
+							</noscript>
+						</div>
+						<div class="printfooter">
+Hämtad från "
+							<a dir="ltr" href="https://sv.wiktionary.org/w/index.php?title=axel&amp;oldid=3437329">
+https://sv.wiktionary.org/w/index.php?title=axel&amp;oldid=3437329
+							</a>
+"
+						</div>
+					</div>
+					<div class="post-content" id="page-secondary-actions">
+					</div>
+				</main>
+				<footer class="mw-footer minerva-footer" role="contentinfo">
+					<div class="last-modified-bar">
+						<div class="post-content last-modified-bar__content">
+							<span class="last-modified-bar__icon mw-ui-icon mw-ui-icon-mw-ui-icon-small mw-ui-icon-wikimedia-history-base20"></span>
+							<a class="last-modified-bar__text modified-enhancement" data-timestamp="1602339155" data-user-gender="male" data-user-name="Pametzma" href="/wiki/Special:Historik/axel">
+								<span>
+Senast redigerad den 10 oktober 2020, kl 16.12
+								</span>
+							</a>
+							<span class="mw-ui-icon mw-ui-icon-small mw-ui-icon-mf-expand-gray mf-mw-ui-icon-rotate-anti-clockwise indicator"></span>
+						</div>
+					</div>
+					<div class="post-content footer-content">
+						<h2>
+							<img alt="Wiktionary" height="19" src="/static/images/mobile/copyright/wiktionary-wordmark-en.svg" width="107" />
+						</h2>
+						<div class="license">
+Innehållet är tillgängligt under 
+							<a class="external" href="https://creativecommons.org/licenses/by-sa/3.0/" rel="nofollow">
+CC BY-SA 3.0
+							</a>
+ om ingenting annat anges.
+						</div>
+						<ul class="footer-info hlist hlist-separated">
+							<li id="footer-info-lastmod">
+ Sidan redigerades senast den 10 oktober 2020 kl. 16.12.
+							</li>
+							<li id="footer-info-copyright">
+Text är tillgänglig under licensen 
+								<a href="https://creativecommons.org/licenses/by-sa/3.0/deed.sv">
+Creative Commons Erkännande-Dela Lika
+								</a>
+; ytterligare villkor kan gälla. Se 
+								<a href="https://foundation.wikimedia.org/wiki/Terms_of_Use">
+användarvillkoren
+								</a>
+ för detaljer.
+							</li>
+						</ul>
+						<ul class="footer-places hlist hlist-separated">
+							<li id="footer-places-privacy">
+								<a class="extiw" href="https://foundation.wikimedia.org/wiki/Privacy_policy" title="wmf:Privacy policy">
+Integritetspolicy
+								</a>
+							</li>
+							<li id="footer-places-about">
+								<a href="/wiki/Wiktionary:Om" title="Wiktionary:Om">
+Om Wiktionary
+								</a>
+							</li>
+							<li id="footer-places-disclaimer">
+								<a href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll" title="Wiktionary:Allmänt förbehåll">
+Förbehåll
+								</a>
+							</li>
+							<li id="footer-places-terms-use">
+								<a href="https://foundation.wikimedia.org/wiki/Terms_of_Use">
+Användarvillkor
+								</a>
+							</li>
+							<li id="footer-places-desktop-toggle">
+								<a href="//sv.wiktionary.org/w/index.php?title=axel&amp;mobileaction=toggle_view_desktop" id="mw-mf-display-toggle">
+Stationär dator
+								</a>
+							</li>
+							<li id="footer-places-developers">
+								<a href="https://www.mediawiki.org/wiki/Special:MyLanguage/How_to_contribute">
+Utvecklare
+								</a>
+							</li>
+							<li id="footer-places-statslink">
+								<a href="https://stats.wikimedia.org/#/sv.wiktionary.org">
+Statistik
+								</a>
+							</li>
+							<li id="footer-places-cookiestatement">
+								<a href="https://foundation.wikimedia.org/wiki/Cookie_statement">
+Information om kakor
+								</a>
+							</li>
+						</ul>
+					</div>
+				</footer>
+			</div>
+		</div>
+		<div class="mw-notification-area" data-mw="interface"></div>
+<!-- v:8.3.0 -->
+		<script>
+(RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgPageParseReport":{"limitreport":{"cputime":"0.400","walltime":"0.485","ppvisitednodes":{"value":6638,"limit":1000000},"postexpandincludesize":{"value":36400,"limit":2097152},"templateargumentsize":{"value":7510,"limit":2097152},"expansiondepth":{"value":9,"limit":40},"expensivefunctioncount":{"value":0,"limit":500},"unstrip-depth":{"value":0,"limit":20},"unstrip-size":{"value":0,"limit":5000000},"entityaccesscount":{"value":0,"limit":400},"timingprofile":["100.00% 414.904 1 -total"," 36.32% 150.684 54 Mall:ö+"," 21.98% 91.184 68 Mall:länk"," 20.71% 85.915 1 Mall:sv-subst-n-ar"," 12.06% 50.034 7 Mall:tagg"," 10.11% 41.962 54 Mall:sidnamn"," 7.87% 32.662 6 Mall:wikipedia"," 7.08% 29.384 6 Mall:systerprojekt"," 6.62% 27.457 13 Mall:ö"," 6.50% 26.989 8 Mall:g-cell"]},"scribunto":{"limitreport-timeusage":{"value":"0.182","limit":"10.000"},"limitreport-memusage":{"value":4677594,"limit":52428800}},"cachereport":{"origin":"mw2335","timestamp":"20201011153153","ttl":2592000,"transientcontent":false}}});});
+		</script>
+		<script>
+(window.NORLQ=window.NORLQ||[]).push(function(){var ns,i,p,img;ns=document.getElementsByTagName('noscript');for(i=0;i<ns.length;i++){p=ns[i].nextSibling;if(p&&p.className&&p.className.indexOf('lazy-image-placeholder')>-1){img=document.createElement('img');img.setAttribute('src',p.getAttribute('data-src'));img.setAttribute('width',p.getAttribute('data-width'));img.setAttribute('height',p.getAttribute('data-height'));img.setAttribute('alt',p.getAttribute('data-alt'));p.parentNode.replaceChild(img,p);}}});
+		</script>
+		<script>
+(RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgBackendResponseTime":174,"wgHostname":"mw2227"});});
+		</script>
+	</body>
+</html>

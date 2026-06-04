@@ -1,0 +1,7 @@
+---
+source: crates/html/src/dom/tests/mod.rs
+expression: "html.to_html(HtmlFormat::Raw)"
+input_file: crates/html/src/dom/tests/html/unwrap/many divs.html
+snapshot_kind: text
+---
+<html><body>One Two Three Four Five Six</body></html>

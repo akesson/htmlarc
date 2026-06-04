@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "cli/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hakesson/htmlarc"
+
+[workspace.dependencies]
+anyhow = "1.0"
+colorful = "0.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+fs-err = "3.1"
+function_name = "0.3"
+indexmap = "2.11"
+insta = { version = "1.43", features = ["glob", "json", "yaml"] }
+log = "0.4"
+pretty = "0.12"
+rkyv = { version = "0.8", features = ["pointer_width_64"] }
+sanitize-filename = "0.6"
+seahash = "4.1"
+smallvec = "1.13"
+strum = "0.27"
+strum_macros = "0.27"
+termion = "4.0"
+thiserror = "2.0"
+tinyvec = { version = "1.8", features = ["alloc"] }
+unicode-normalization = "0.1"
+unicode-segmentation = "1.12"
+xflags = "0.3"
+
+# internal crates
+htmlarc-dom = { path = "crates/htmlarc-dom" }
+htmlarc-macros = { path = "crates/htmlarc-macros" }
+htmlarc-format = { path = "crates/htmlarc-format" }
+
+# Speed up insta/similar in dev so snapshot tests run fast.
+[profile.dev.package.insta]
+opt-level = 3
+
+[profile.dev.package.similar]
+opt-level = 3

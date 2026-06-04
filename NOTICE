@@ -1,0 +1,24 @@
+htmlarc
+Copyright (c) 2026 Henrik Åkesson
+
+This product is licensed under either of Apache License, Version 2.0 or
+MIT license at your option.
+
+================================================================================
+Third-party test fixtures
+================================================================================
+
+Some files used only for tests and benchmarks are real HTML pages from the
+Wikimedia projects (Wiktionary), retrieved from *.wiktionary.org. They are
+included solely to exercise the parser, formatter, and CSS engine against
+real-world markup.
+
+These pages are licensed under the Creative Commons Attribution-ShareAlike
+License (CC BY-SA); some embedded content may also be available under the GNU
+Free Documentation License. See https://www.wiktionary.org and
+https://creativecommons.org/licenses/by-sa/4.0/ for details.
+
+Affected paths (test/bench data only — not part of the distributed library):
+  - crates/htmlarc-dom/src/**/tests/html/*.html
+  - crates/htmlarc-dom/src/**/snapshots/*.snap
+  - cli/htmlarc/src/testdata/*.html

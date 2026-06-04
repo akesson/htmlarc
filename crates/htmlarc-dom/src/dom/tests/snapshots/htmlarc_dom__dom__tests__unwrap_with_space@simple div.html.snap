@@ -1,0 +1,7 @@
+---
+source: crates/html/src/dom/tests/mod.rs
+expression: "html.to_html(HtmlFormat::Raw)"
+input_file: crates/html/src/dom/tests/html/unwrap/simple div.html
+snapshot_kind: text
+---
+<html><body>Pre div First text <span>1</span>Test<span>2</span> will merge wrong with div</body></html>

@@ -1,0 +1,11 @@
+---
+source: crates/html/src/css/parse.rs
+expression: diagnosis
+---
+[4ma[0m.button.active + .tooltip, [method="POST" s] ~ .message, [4m:[0mfirst-child.card > [4mp[0m[4m:[0mnth-child[4m([0m2n+1[4ma[0m).details
+│                                                         │                   ││         │    └────────── Invalid end delimiter at 94: expected ')', found 'a'
+│                                                         │                   ││         └─────────────── Failed to parse parameter at 89
+│                                                         │                   │└───────────────────────── Failed to parse pseudo-class selector at 79
+│                                                         │                   └────────────────────────── Failed to parse relative selector at 78
+│                                                         └────────────────────────────────────────────── Failed to parse complex selector at 58
+└──────────────────────────────────────────────────────────────────────────────────────────────────────── Failed to parse selector list at 0

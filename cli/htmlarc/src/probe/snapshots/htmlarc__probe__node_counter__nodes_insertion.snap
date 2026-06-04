@@ -1,0 +1,11 @@
+---
+source: cmds/htmlprobe/src/probe/node_counter.rs
+expression: nodes.to_pretty_string()
+---
+ᵃ<section>¹[test]
+  ᵇ<h1 id='h1-header'>¹
+  ᵇ<div>¹
+    ᶜ<a>¹[test]
+    ᶜ<p>¹
+      ᵈ<h1 id='h1-footer'>¹
+ᵃ<aside>¹[test]
