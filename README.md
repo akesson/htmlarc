@@ -72,10 +72,13 @@ Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc 
   required — but building it does need a **C compiler** (`zstd-sys`/`lzma-sys` compile bundled
   C) and pulls in ~110 transitive crates. This is isolated to the `zim2htmlarc` binary; the
   three core `htmlarc-*` crates stay pure-Rust with no C dependencies.
+- We depend on a **fork** of `zim` 0.4: the upstream crate is unmaintained and fails to open
+  any current Kiwix dump (modern ZIMs omit the legacy title pointer list, which upstream slices
+  unconditionally → `OutOfBounds`). The fork guards that sentinel.
 - `extract` matches an **exact** title (the pure-Rust reader has no full-text search).
 - Articles with an empty title are keyed by their URL slug.
 
-[`zim`]: https://crates.io/crates/zim
+[`zim`]: https://github.com/akesson/zim
 
 ## How it works
 
