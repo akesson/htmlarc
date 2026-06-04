@@ -1,3 +1,4 @@
+use crate::superscript::NumStrings;
 use colorful::Colorful;
 use htmlarc_dom::{
     css::Selector,
@@ -6,7 +7,6 @@ use htmlarc_dom::{
 use pretty::{Doc, RcDoc};
 use smallvec::{SmallVec, ToSmallVec};
 use std::ops::AddAssign;
-use crate::superscript::NumStrings;
 
 use super::{ElementString, ProbeExpression};
 

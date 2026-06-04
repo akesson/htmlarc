@@ -30,10 +30,10 @@ pub fn run(args: Probe) -> Result<()> {
         probe: exprs,
     } = args;
 
-    let archive: &'static HtmlArchive = Box::leak(Box::new(
-        HtmlArchive::open(&source)
-            .with_context(|| format!("opening source {}", source.display()))?,
-    ));
+    let archive: &'static HtmlArchive =
+        Box::leak(Box::new(HtmlArchive::open(&source).with_context(|| {
+            format!("opening source {}", source.display())
+        })?));
 
     // Leak the expression strings first so the parsed selectors can borrow them for 'static.
     let exprs: &'static Vec<String> = Box::leak(Box::new(exprs));
@@ -94,7 +94,7 @@ pub fn probe(
         })
         .collect::<Vec<_>>();
 
-    counters.sort_by(|(a, _), (b, _)| a.cmp(b));
+    counters.sort_by_key(|(a, _)| *a);
 
     let mut counter = counters
         .first_mut()

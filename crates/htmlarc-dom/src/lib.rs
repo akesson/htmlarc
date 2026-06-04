@@ -79,7 +79,10 @@ macro_rules! here {
 #[function_name::named]
 fn location_test() {
     use std::panic::Location;
-    assert_eq!(here!().to_string(), "htmlarc-dom::lib.rs:82 fn location_test");
+    assert_eq!(
+        here!().to_string(),
+        "htmlarc-dom::lib.rs:83 fn location_test"
+    );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),
         "htmlarc-dom::lib.rs"

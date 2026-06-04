@@ -6,12 +6,12 @@ members = ["crates/*", "cli/*"]
 edition = "2024"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hakesson/htmlarc"
+repository = "https://github.com/akesson/htmlarc"
 
 [workspace.dependencies]
 anyhow = "1.0"
 colorful = "0.3"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 fs-err = "3.1"
 function_name = "0.3"
 indexmap = "2.11"
@@ -22,8 +22,8 @@ rkyv = { version = "0.8", features = ["pointer_width_64"] }
 sanitize-filename = "0.6"
 seahash = "4.1"
 smallvec = "1.13"
-strum = "0.27"
-strum_macros = "0.27"
+strum = "0.28"
+strum_macros = "0.28"
 termion = "4.0"
 thiserror = "2.0"
 tinyvec = { version = "1.8", features = ["alloc"] }
