@@ -37,9 +37,7 @@ fn usize_to_superscript(mut num: usize) -> String {
     while num > 0 {
         let rem = num % 10;
         num /= 10;
-        chars.push(
-            ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'][rem],
-        );
+        chars.push(['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'][rem]);
     }
     chars.reverse();
     chars.into_iter().collect()
@@ -53,9 +51,7 @@ fn usize_to_subscript(mut num: usize) -> String {
     while num > 0 {
         let rem = num % 10;
         num /= 10;
-        chars.push(
-            ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'][rem],
-        );
+        chars.push(['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'][rem]);
     }
     chars.reverse();
     chars.into_iter().collect()

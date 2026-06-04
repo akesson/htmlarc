@@ -113,7 +113,13 @@ fn run_diff<O: DataOperator, D: DataManager>(
 
     let default = to_folder.is_none() && !navigate;
     if let Some(folder) = &to_folder {
-        operator.write_diff_list(folder, &diff_indexes, &list_archive, &diff_archive, raw_html)?;
+        operator.write_diff_list(
+            folder,
+            &diff_indexes,
+            &list_archive,
+            &diff_archive,
+            raw_html,
+        )?;
     }
     if navigate {
         operator.navigate_diff(&diff_indexes, &list_archive, &diff_archive, raw_html)?;
