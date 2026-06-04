@@ -5,11 +5,10 @@ HTML documents in one file (`.htmlarc`) and lets you CSS-query them **without re
 useful when you have gigabytes of HTML (e.g. a Wiktionary dump) split across hundreds of
 thousands of small files.
 
-> [!IMPORTANT]
-> **Unmaintained.** This is an extraction from an abandoned project, published in the hope it
-> is useful. Use it if you like — there is no support, no roadmap, and pull requests may not
-> be reviewed. The interesting parts are the ideas; the code is provided as-is under
-> MIT/Apache-2.0.
+> [!NOTE]
+> **Stable, but not under active development.** Provided as-is under MIT/Apache-2.0 — use it
+> freely. There is no free support or roadmap, but **I'm available for paid contract work** to
+> extend, integrate, or maintain it for your use case — reach me at [@akesson](https://github.com/akesson).
 
 ## Why
 
