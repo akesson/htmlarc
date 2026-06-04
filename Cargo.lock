@@ -1993,8 +1993,7 @@ dependencies = [
 [[package]]
 name = "zim"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cbe144d3bf3058e73a3183c74c4c22234b4b408a7966c5cb880476e36b8d1a5"
+source = "git+https://github.com/akesson/zim?branch=fix-modern-zim-title-ptr#50677c5c7989b995c418fb6f261310f9f283fe2c"
 dependencies = [
  "bitreader",
  "byteorder",
