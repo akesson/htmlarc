@@ -48,6 +48,35 @@ htmlarc diff old.htmlarc new.htmlarc
 
 Run `htmlarc --help` (or `htmlarc <command> --help`) for the full options.
 
+## Ingesting a ZIM (`zim2htmlarc`)
+
+The workspace also ships `zim2htmlarc`, a small companion that turns a **ZIM** file (the
+Kiwix/Wikipedia offline format) into a `.htmlarc` archive — straight from a downloaded dump
+to a queryable archive:
+
+```sh
+# Export every HTML article from a ZIM into one archive:
+zim2htmlarc export wikipedia.zim wikipedia.htmlarc
+
+# Only export articles whose title is in a list (one per line):
+zim2htmlarc export wikipedia.zim subset.htmlarc --list words.txt
+
+# Inspect a ZIM without converting:
+zim2htmlarc list wikipedia.zim                 # "title <TAB> url", one per article
+zim2htmlarc extract wikipedia.zim 'Some Title' # print one article's HTML
+```
+
+Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc -p '…'`).
+
+- It reads ZIM via the pure-Rust [`zim`] crate (MIT/Apache), so **no system libzim** is
+  required — but building it does need a **C compiler** (`zstd-sys`/`lzma-sys` compile bundled
+  C) and pulls in ~110 transitive crates. This is isolated to the `zim2htmlarc` binary; the
+  three core `htmlarc-*` crates stay pure-Rust with no C dependencies.
+- `extract` matches an **exact** title (the pure-Rust reader has no full-text search).
+- Articles with an empty title are keyed by their URL slug.
+
+[`zim`]: https://crates.io/crates/zim
+
 ## How it works
 
 The DOM (`htmlarc-dom`) is **structure-of-arrays**: each node is a fixed 17-byte record in a
@@ -79,6 +108,7 @@ crates/
   htmlarc-format/   the single-file .htmlarc archive (build / open / query / diff)
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
+  zim2htmlarc/      converts a ZIM (Kiwix/Wikipedia) into a .htmlarc archive
 ```
 
 ## Building & testing

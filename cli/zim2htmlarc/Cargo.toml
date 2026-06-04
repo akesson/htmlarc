@@ -1,0 +1,18 @@
+[package]
+name = "zim2htmlarc"
+description = "Convert a ZIM file (Kiwix/Wikipedia offline format) into an .htmlarc archive"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+htmlarc-dom.workspace = true
+htmlarc-format.workspace = true
+unicode-normalization.workspace = true
+xflags.workspace = true
+zim.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

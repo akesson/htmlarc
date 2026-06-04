@@ -22,3 +22,13 @@ Affected paths (test/bench data only — not part of the distributed library):
   - crates/htmlarc-dom/src/**/tests/html/*.html
   - crates/htmlarc-dom/src/**/snapshots/*.snap
   - cli/htmlarc/src/testdata/*.html
+
+================================================================================
+ZIM support (zim2htmlarc)
+================================================================================
+
+The `zim2htmlarc` binary reads the ZIM format via the third-party `zim` crate
+(https://crates.io/crates/zim), licensed MIT OR Apache-2.0, pulled in at build
+time as an ordinary Cargo dependency. No ZIM file is bundled in this repository;
+the optional end-to-end test fetches one on demand (see
+cli/zim2htmlarc/fetch-testdata.sh).
