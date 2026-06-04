@@ -30,6 +30,7 @@ tinyvec = { version = "1.8", features = ["alloc"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
 xflags = "0.3"
+zim = "0.4"
 
 # internal crates
 htmlarc-dom = { path = "crates/htmlarc-dom" }
