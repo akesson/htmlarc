@@ -6,9 +6,11 @@ useful when you have gigabytes of HTML (e.g. a Wiktionary dump) split across hun
 thousands of small files.
 
 > [!NOTE]
-> **Stable, but not under active development.** Provided as-is under MIT/Apache-2.0 — use it
-> freely. There is no free support or roadmap, but **I'm available for paid contract work** to
-> extend, integrate, or maintain it for your use case — reach me at [@akesson](https://github.com/akesson).
+> **Stable, but not under active development.** Dual-licensed: **[AGPL-3.0](LICENSE)** for
+> open-source use, or a **[commercial license](COMMERCIAL.md)** to use it in closed-source or
+> SaaS software without AGPL obligations. There is no free support or roadmap, but **I'm
+> available for paid contract work** to extend, integrate, or maintain it for your use case —
+> reach me at [@akesson](https://github.com/akesson).
 
 ## Why
 
@@ -126,7 +128,13 @@ fixtures and rely on nextest's process-per-test isolation; running them with the
 
 ## License
 
-Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+Dual-licensed:
+
+- **[GNU AGPL-3.0](LICENSE)** — free for open-source use. If you distribute htmlarc (or a work
+  based on it), or offer it to users over a network, the AGPL requires you to make the
+  corresponding source available under the AGPL.
+- **[Commercial license](COMMERCIAL.md)** — to use htmlarc in closed-source or SaaS software
+  without AGPL obligations. Contact [@akesson](https://github.com/akesson).
 
 Test/benchmark fixtures under `crates/htmlarc-dom/src/**` and `cli/htmlarc/src/testdata/` are
 real Wikimedia (Wiktionary) pages, licensed CC BY-SA — see [NOTICE](NOTICE).
