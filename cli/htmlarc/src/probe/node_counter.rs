@@ -2,7 +2,7 @@ use crate::superscript::NumStrings;
 use colorful::Colorful;
 use htmlarc_dom::{
     css::Selector,
-    prelude::{DomRef, HtmlElement, Tag, TagIter},
+    prelude::{DomRef, HtmlElement, NodeIndex, Tag, TagIter},
 };
 use pretty::{Doc, RcDoc};
 use smallvec::{SmallVec, ToSmallVec};
@@ -103,7 +103,7 @@ impl<'dom> CountedNodes<'dom> {
         root: &HtmlElement<'dom, Dom>,
         expressions: &[ProbeExpression<'dom>],
     ) {
-        let mut index_stack: Vec<(usize, u16)> = Vec::new();
+        let mut index_stack: Vec<(usize, NodeIndex)> = Vec::new();
 
         let mut iter = TagIter::new(root.dom());
 

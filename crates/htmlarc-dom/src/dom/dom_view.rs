@@ -1,4 +1,5 @@
 use crate::css::AttributeSelector;
+use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
@@ -42,13 +43,13 @@ impl<'a> DomView<'a> {
     }
 
     /// The text/comment payload of a string node.
-    pub(crate) fn string_at(&self, index: u16) -> &'a str {
+    pub(crate) fn string_at(&self, index: NodeIndex) -> &'a str {
         let r = self.nodes.text_range(index);
         self.strings.get(r)
     }
 
     /// The text value if `index` is a text or comment node.
-    pub(crate) fn text(&self, index: u16) -> Option<&'a str> {
+    pub(crate) fn text(&self, index: NodeIndex) -> Option<&'a str> {
         let tag = self.nodes.tag(index);
         if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
             Some(self.string_at(index))
@@ -57,7 +58,7 @@ impl<'a> DomView<'a> {
         }
     }
 
-    pub(crate) fn has_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
+    pub(crate) fn has_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
         if let Some(list_index) = self.nodes.attr_list_index(node) {
             attrs
                 .iter()
@@ -67,7 +68,7 @@ impl<'a> DomView<'a> {
         }
     }
 
-    pub(crate) fn has_classes<P>(&self, node: u16, classes: &[P]) -> bool
+    pub(crate) fn has_classes<P>(&self, node: NodeIndex, classes: &[P]) -> bool
     where
         P: for<'b> PartialEq<Class<'b>>,
     {
@@ -80,7 +81,7 @@ impl<'a> DomView<'a> {
         }
     }
 
-    pub(crate) fn has_data_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
+    pub(crate) fn has_data_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
         if let Some(list_index) = self.nodes.data_attr_list_index(node) {
             attrs
                 .iter()
@@ -90,7 +91,7 @@ impl<'a> DomView<'a> {
         }
     }
 
-    pub(crate) fn has_id(&self, index: u16, id: &str) -> bool {
+    pub(crate) fn has_id(&self, index: NodeIndex, id: &str) -> bool {
         if let Some(list_index) = self.nodes.attr_list_index(index) {
             self.attrs
                 .list_at(list_index)
@@ -103,11 +104,11 @@ impl<'a> DomView<'a> {
     /// Whether the subtree rooted at `index` can be rendered inline (no inserted
     /// whitespace). Mirrors `HtmlElement::is_format_inlined`, but walks the node blob
     /// directly so the formatter needs only a [`DomView`], not a `DomRead` cursor.
-    pub(crate) fn is_format_inlined(&self, index: u16) -> bool {
+    pub(crate) fn is_format_inlined(&self, index: NodeIndex) -> bool {
         self.is_format_inlined_inner(index, false)
     }
 
-    fn is_format_inlined_inner(&self, index: u16, skip_ancestor_check: bool) -> bool {
+    fn is_format_inlined_inner(&self, index: NodeIndex, skip_ancestor_check: bool) -> bool {
         let tag = self.nodes.tag(index);
         match tag {
             HtmlTag::DOCTYPE => false,
