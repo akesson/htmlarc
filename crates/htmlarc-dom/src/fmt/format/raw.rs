@@ -1,5 +1,5 @@
 use crate::{
-    dom::DomInner,
+    dom::DomView,
     fmt::{
         fmt_buf::FmtBuf,
         iter::{TagIter, TagStage},
@@ -10,17 +10,17 @@ use crate::{
 use super::common::CommonFormatting;
 
 pub struct RawFormat<'dom> {
-    dom: &'dom DomInner,
+    dom: DomView<'dom>,
     buf: FmtBuf,
 }
-impl CommonFormatting for RawFormat<'_> {
-    fn dom_and_buf(&mut self) -> (&DomInner, &mut FmtBuf) {
+impl<'dom> CommonFormatting<'dom> for RawFormat<'dom> {
+    fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf) {
         (self.dom, &mut self.buf)
     }
 }
 
 impl<'dom> RawFormat<'dom> {
-    pub fn new(dom: &'dom DomInner) -> Self {
+    pub fn new(dom: DomView<'dom>) -> Self {
         Self {
             dom,
             buf: Default::default(),

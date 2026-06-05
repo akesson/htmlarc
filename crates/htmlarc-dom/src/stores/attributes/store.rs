@@ -130,6 +130,14 @@ impl AttributeStore {
         self.lists.list_at(index).map(AttrIndex)
     }
 
+    pub(crate) fn view(&self) -> AttributeStoreView<'_> {
+        AttributeStoreView {
+            lists: self.lists.view(),
+            attributes: AttrTableView::Owned(&self.attributes),
+            strings: self.strings.view(),
+        }
+    }
+
     #[cfg(test)]
     pub fn dbg_all(&self) -> String {
         self.lists
@@ -145,5 +153,85 @@ impl AttributeStore {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+}
+
+/// The sorted `(attr_byte, string_index)` table: owned native tuples, or archived
+/// little-endian ones read via `.to_native()`.
+#[derive(Clone, Copy)]
+enum AttrTableView<'a> {
+    Owned(&'a [(u8, u16)]),
+    Archived(&'a [rkyv::Archived<(u8, u16)>]),
+}
+
+impl AttrTableView<'_> {
+    fn at(&self, index: usize) -> (u8, u16) {
+        match self {
+            Self::Owned(s) => s[index],
+            Self::Archived(s) => (s[index].0, s[index].1.to_native()),
+        }
+    }
+}
+
+/// Borrowed, read-only view over an [`AttributeStore`], backed by either the owned
+/// or the rkyv-archived representation.
+#[derive(Clone, Copy)]
+pub(crate) struct AttributeStoreView<'a> {
+    lists: super::super::listvec::ListVecView<'a>,
+    attributes: AttrTableView<'a>,
+    strings: super::super::stringheap::StringHeapView<'a>,
+}
+
+impl<'a> AttributeStoreView<'a> {
+    pub(crate) fn attribute_at(&self, index: AttrIndex) -> Attribute<'a> {
+        let (attr, s) = self.attributes.at(index.as_usize());
+        Attribute {
+            tag: HtmlAttr::from_repr(attr).unwrap(),
+            val: self.strings.get(s),
+        }
+    }
+
+    pub(crate) fn list_at(&self, index: ListIndex) -> AttributeListView<'a> {
+        AttributeListView {
+            store: *self,
+            index: self.lists.head_index_at(index),
+        }
+    }
+
+    /// Advance an externally-held list cursor (mirrors [`attr_list::next`] for the
+    /// owned store) — used by the [`crate::accessors::Attributes`] iterator.
+    pub(crate) fn next_in_list(&self, index: &mut Option<ListIndex>) -> Option<Attribute<'a>> {
+        let i = (*index)?;
+        let (next, val) = self.lists.next(i);
+        let attr = self.attribute_at(val.into());
+        *index = next;
+        Some(attr)
+    }
+}
+
+impl ArchivedAttributeStore {
+    pub(crate) fn view(&self) -> AttributeStoreView<'_> {
+        AttributeStoreView {
+            lists: self.lists.view(),
+            attributes: AttrTableView::Archived(self.attributes.as_slice()),
+            strings: self.strings.view(),
+        }
+    }
+}
+
+pub(crate) struct AttributeListView<'a> {
+    store: AttributeStoreView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl<'a> Iterator for AttributeListView<'a> {
+    type Item = Attribute<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.store.lists.next(index);
+        let attr = self.store.attribute_at(val.into());
+        self.index = next;
+        Some(attr)
     }
 }

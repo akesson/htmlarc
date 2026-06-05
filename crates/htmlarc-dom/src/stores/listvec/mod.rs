@@ -7,7 +7,7 @@ mod tests;
 use std::fmt::Display;
 
 use super::ListRemovalResult;
-use listentry::ListEntry;
+use listentry::{ArchivedListEntry, ListEntry};
 pub(crate) use rebuilder::{ListRebuilder, ListRebuilt};
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -49,15 +49,16 @@ impl ListVec {
         Self { vec }
     }
 
+    pub(crate) fn view(&self) -> ListVecView<'_> {
+        ListVecView::Owned(&self.vec)
+    }
+
     pub(crate) fn head_index_at(&self, index: ListIndex) -> Option<ListIndex> {
-        (!self.vec[index.0 as usize].is_empty_head()).then_some(index)
+        self.view().head_index_at(index)
     }
 
     pub fn next(&self, index: ListIndex) -> (Option<ListIndex>, u16) {
-        let entry = &self.vec[index.0 as usize];
-        let next = entry.info.next().map(|v| v.into());
-        let val = entry.value;
-        (next, val)
+        self.view().next(index)
     }
 
     pub(super) fn shift_values_from(&mut self, start: u16) {
@@ -132,6 +133,40 @@ impl Iterator for List<'_> {
         let (next, value) = self.lists.next(index);
         self.index = next;
         Some(value)
+    }
+}
+
+/// A borrowed, read-only view over a [`ListVec`] — backed by either the owned
+/// `[ListEntry]` slice or the archived one. Each entry is decoded into an owned
+/// (Copy) `ListEntry` so the existing bit logic is reused verbatim.
+#[derive(Clone, Copy)]
+pub(crate) enum ListVecView<'a> {
+    Owned(&'a [ListEntry]),
+    Archived(&'a [ArchivedListEntry]),
+}
+
+impl<'a> ListVecView<'a> {
+    fn entry(&self, index: usize) -> ListEntry {
+        match self {
+            Self::Owned(v) => v[index],
+            Self::Archived(v) => v[index].decode(),
+        }
+    }
+
+    pub(crate) fn head_index_at(&self, index: ListIndex) -> Option<ListIndex> {
+        (!self.entry(index.0 as usize).is_empty_head()).then_some(index)
+    }
+
+    pub(crate) fn next(&self, index: ListIndex) -> (Option<ListIndex>, u16) {
+        let entry = self.entry(index.0 as usize);
+        let next = entry.info.next().map(|v| v.into());
+        (next, entry.value)
+    }
+}
+
+impl ArchivedListVec {
+    pub(crate) fn view(&self) -> ListVecView<'_> {
+        ListVecView::Archived(self.vec.as_slice())
     }
 }
 

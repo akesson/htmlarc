@@ -5,11 +5,12 @@ use htmlarc_dom::prelude::HtmlDoc;
 use htmlarc_format::{HtmlArchive, HtmlEntry};
 
 use super::DataManager;
+use crate::source::ArchiveSource;
 
 pub struct TestData;
 
 impl DataManager for TestData {
-    fn create_list_arch(&self, _source: &Path) -> Result<Arc<HtmlArchive>> {
+    fn create_list_arch(&self, _source: &Path) -> Result<Arc<ArchiveSource>> {
         let data: Vec<(&'static str, &'static str)> = vec![
             ("Zephyr", "<body><h2 id='test'>zephyr</h2></body>"),
             ("Ephemeral", "<body><h1 class='test'>ephemeral</h1></body>"),
@@ -29,10 +30,12 @@ impl DataManager for TestData {
             })
             .collect::<Vec<_>>();
 
-        Ok(Arc::new(HtmlArchive::from_vec(entries)))
+        Ok(Arc::new(ArchiveSource::from_owned(HtmlArchive::from_vec(
+            entries,
+        ))))
     }
 
-    fn create_diff_arch(&self, _source: &Path) -> Result<HtmlArchive> {
+    fn create_diff_arch(&self, _source: &Path) -> Result<ArchiveSource> {
         let data: Vec<(&'static str, &'static str)> = vec![
             ("Zephyr", "<body><span>zephyr</span></body>"),
             ("Ephemeral", "<body><h1>ephemeral</h1></body>"),
@@ -49,6 +52,6 @@ impl DataManager for TestData {
             })
             .collect::<Vec<_>>();
 
-        Ok(HtmlArchive::from_vec(entries))
+        Ok(ArchiveSource::from_owned(HtmlArchive::from_vec(entries)))
     }
 }

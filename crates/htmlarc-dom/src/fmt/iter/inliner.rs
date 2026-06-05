@@ -1,4 +1,4 @@
-use crate::{dom::DomInner, html::HtmlElement};
+use crate::{dom::DomView, html::HtmlTag};
 
 use super::{
     queue_iter::QueueIter,
@@ -19,7 +19,7 @@ pub struct Inliner<'dom> {
 }
 
 impl<'dom> Inliner<'dom> {
-    pub fn new(dom: &'dom DomInner, index: u16) -> Self {
+    pub fn new(dom: DomView<'dom>, index: u16) -> Self {
         Self {
             iter: TagIter::new(dom, index),
             queued: None,
@@ -27,8 +27,7 @@ impl<'dom> Inliner<'dom> {
     }
 
     fn is_inlineable(&self, stage: &ElementStage) -> bool {
-        let el = HtmlElement::new(self.iter.dom, stage.index);
-        el.is_format_inlined()
+        self.iter.dom.is_format_inlined(stage.index)
     }
 
     fn next_inner(&mut self) -> Option<(ElementStage, bool)> {
@@ -68,7 +67,8 @@ impl<'dom> Iterator for Inliner<'dom> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_inner().map(|(stage, inlined)| ElementInfo {
-            element: HtmlElement::new(self.iter.dom, stage.index),
+            dom: self.iter.dom,
+            index: stage.index,
             in_inline_sequence: inlined,
             stage: stage.stage,
             depth: stage.depth,
@@ -77,10 +77,21 @@ impl<'dom> Iterator for Inliner<'dom> {
 }
 
 pub struct ElementInfo<'dom> {
-    pub element: HtmlElement<'dom, DomInner>,
+    dom: DomView<'dom>,
+    index: u16,
     pub stage: TagStage,
     pub in_inline_sequence: bool,
     pub depth: u16,
+}
+
+impl ElementInfo<'_> {
+    pub fn index(&self) -> u16 {
+        self.index
+    }
+
+    pub fn tag(&self) -> HtmlTag {
+        self.dom.nodes.tag(self.index)
+    }
 }
 #[cfg(test)]
 use crate::prelude::*;
@@ -88,10 +99,10 @@ use crate::prelude::*;
 #[cfg(test)]
 fn inline_vec(html: &str, index: u16) -> Vec<(HtmlTag, TagStage, bool, u16)> {
     let dom = HtmlDoc::parse(html).unwrap().inner();
-    Inliner::new(&dom, index)
+    Inliner::new(dom.view(), index)
         .map(|info| {
             (
-                info.element.tag(),
+                info.tag(),
                 info.stage,
                 info.in_inline_sequence,
                 info.depth,

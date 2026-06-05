@@ -4,7 +4,7 @@ use crate::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
     css::{self, AttributeSelector, SelectorList},
-    dom::{DomInner, DomOwn, DomRead, DomRef, DomRefCell, Nodes},
+    dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
     html::HtmlTag,
@@ -42,17 +42,17 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.dom
     }
 
-    fn with_nodes<R, F: Fn(&Nodes) -> R>(&self, f: F) -> R {
-        self.dom.with_dom(|dom| f(&dom.nodes))
+    fn with_nodes<R, F: Fn(NodesView) -> R>(&self, f: F) -> R {
+        self.dom.with_view(|view| f(view.nodes))
     }
 
-    fn with_nodes_new<F: Fn(&Nodes) -> Option<u16>>(&self, f: F) -> Option<Self> {
+    fn with_nodes_new<F: Fn(NodesView) -> Option<u16>>(&self, f: F) -> Option<Self> {
         self.dom
-            .with_dom(|dom| f(&dom.nodes).map(|index| self.new_with_index(index)))
+            .with_view(|view| f(view.nodes).map(|index| self.new_with_index(index)))
     }
 
-    fn with_dom<R, F: Fn(&DomInner) -> R>(&self, f: F) -> R {
-        self.dom.with_dom(|dom| f(dom))
+    fn with_view<R, F: Fn(DomView) -> R>(&self, f: F) -> R {
+        self.dom.with_view(f)
     }
 
     pub fn index(&self) -> u16 {
@@ -181,7 +181,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// Returns the text value if the element is a text or comment node
     pub fn text(&self) -> Option<String> {
         self.dom
-            .with_dom(|dom| dom.text(self.index()).map(|s| s.to_string()))
+            .with_view(|view| view.text(self.index()).map(|s| s.to_string()))
     }
 
     /// Gathers the text content of the element and its descendants
@@ -220,46 +220,41 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     pub fn has_attributes(&self, attrs: &[AttributeSelector]) -> bool {
-        self.with_dom(|dom| dom.has_attributes(self.index(), attrs))
-    }
-
-    pub fn with_attributes<R, F: Fn(Attributes<DomInner>) -> R>(&self, f: F) -> R {
-        self.with_dom(|dom| f(Attributes::new(dom, self.index())))
+        self.with_view(|view| view.has_attributes(self.index(), attrs))
     }
 
     pub fn attribute(&self, attr: HtmlAttr) -> Option<String> {
-        self.with_attributes(|mut attrs| attrs.find_tag(attr).map(|a| a.to_string()))
+        self.find_attribute(attr, |v| v.map(|s| s.to_string()))
     }
 
     pub fn find_attribute<R, F: Fn(Option<&str>) -> R>(&self, tag: HtmlAttr, f: F) -> R {
-        self.with_attributes(|mut attrs| f(attrs.find_tag(tag)))
+        self.with_view(|view| {
+            let val = view
+                .nodes
+                .attr_list_index(self.index())
+                .and_then(|idx| view.attrs.list_at(idx).find(|a| a.tag == tag))
+                .map(|a| a.val);
+            f(val)
+        })
     }
 
     pub fn with_id<R, F: Fn(Option<&str>) -> R>(&self, f: F) -> R {
-        self.with_attributes(|mut attrs| f(attrs.find_tag(HtmlAttr::id)))
+        self.find_attribute(HtmlAttr::id, f)
     }
 
     pub fn has_id(&self, id: &str) -> bool {
-        self.with_dom(|dom| dom.has_id(self.index(), id))
+        self.with_view(|view| view.has_id(self.index(), id))
     }
 
     pub fn has_data_attributes(&self, attrs: &[AttributeSelector]) -> bool {
-        self.with_dom(|dom| dom.has_data_attributes(self.index(), attrs))
-    }
-
-    pub fn with_data_attributes<R, F: Fn(DataAttributes<DomInner>) -> R>(&self, f: F) -> R {
-        self.with_dom(|dom| f(DataAttributes::new(dom, self.index())))
+        self.with_view(|view| view.has_data_attributes(self.index(), attrs))
     }
 
     pub fn has_classes<P>(&self, classes: &[P]) -> bool
     where
         P: for<'a> PartialEq<Class<'a>>,
     {
-        self.with_dom(move |dom| dom.has_classes(self.index(), classes))
-    }
-
-    pub fn with_classes<R, F: Fn(Classes<DomInner>) -> R>(&self, f: F) -> R {
-        self.with_dom(|dom| f(Classes::new(dom, self.index())))
+        self.with_view(move |view| view.has_classes(self.index(), classes))
     }
 
     pub fn is_root(&self) -> bool {
@@ -379,7 +374,7 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
     }
     pub fn get_type(&self) -> ElementType<'dom> {
         let index = self.index();
-        let dom = self.dom.as_ref();
+        let dom = self.dom.dom_view();
         match dom.nodes.tag(index) {
             HtmlTag::sys_text => ElementType::Text(dom.string_at(index)),
             HtmlTag::sys_comment => ElementType::Comment(dom.string_at(index)),

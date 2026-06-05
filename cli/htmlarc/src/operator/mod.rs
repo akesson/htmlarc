@@ -11,7 +11,8 @@ pub use test_op::TestOperator as Operator;
 use std::path::Path;
 
 use anyhow::Result;
-use htmlarc_format::HtmlArchive;
+
+use crate::source::ArchiveSource;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum OperationError {
@@ -24,29 +25,29 @@ pub trait DataOperator {
         &mut self,
         folder: &Path,
         indexes: &[usize],
-        list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()>;
     fn write_list(
         &mut self,
         folder: &Path,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()>;
     fn navigate_diff(
         &mut self,
         indexes: &[usize],
-        list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()>;
     fn navigate_list(
         &mut self,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()>;
-    fn list(&mut self, indexes: &[usize], archive: &HtmlArchive);
+    fn list(&mut self, indexes: &[usize], archive: &ArchiveSource);
 }
