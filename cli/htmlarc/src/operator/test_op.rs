@@ -2,10 +2,10 @@ use std::path::Path;
 
 use anyhow::Result;
 use htmlarc_dom::prelude::*;
-use htmlarc_format::HtmlArchive;
 use sanitize_filename::sanitize;
 
 use super::{DataOperator, OperationError};
+use crate::source::ArchiveSource;
 
 #[derive(Default)]
 pub struct TestOperator {
@@ -31,8 +31,8 @@ impl DataOperator for TestOperator {
         &mut self,
         _folder: &Path,
         indexes: &[usize],
-        list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         self.add_output("Write Diff:");
@@ -43,18 +43,15 @@ impl DataOperator for TestOperator {
             return Ok(());
         }
 
+        let fmt = HtmlFormat::raw_else_pretty(raw_html);
         for i in indexes {
-            let entry_2 = &diff_arch[*i];
-            let word = &entry_2.key;
-            let entry_1 = list_arch
-                .get(word)
-                .ok_or(OperationError::GetEntry(word.clone(), "list archive"))?;
+            let word = diff_arch.key(*i);
+            let html_1 = list_arch
+                .html_for_key(word, fmt)
+                .ok_or_else(|| OperationError::GetEntry(word.to_string(), "list archive"))?;
+            let html_2 = diff_arch.to_html(*i, fmt);
 
             let sanitized = sanitize(word);
-            let fmt = HtmlFormat::raw_else_pretty(raw_html);
-            let html_1 = entry_1.html.to_html(fmt);
-            let html_2 = entry_2.html.to_html(fmt);
-
             self.add_output(&format!("\n\n{sanitized}:\n[\n{html_1}\n-\n{html_2}\n]"));
         }
 
@@ -65,7 +62,7 @@ impl DataOperator for TestOperator {
         &mut self,
         _folder: &Path,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         self.add_output("Write List:");
@@ -76,13 +73,10 @@ impl DataOperator for TestOperator {
             return Ok(());
         }
 
+        let fmt = HtmlFormat::raw_else_pretty(raw_html);
         for i in indexes {
-            let entry = &archive[*i];
-
-            let sanitized = sanitize(&entry.key);
-
-            let fmt = HtmlFormat::raw_else_pretty(raw_html);
-            let html = entry.html.to_html(fmt);
+            let sanitized = sanitize(archive.key(*i));
+            let html = archive.to_html(*i, fmt);
 
             self.add_output(&format!("\n\n{sanitized}:\n[\n{html}\n]"));
         }
@@ -93,8 +87,8 @@ impl DataOperator for TestOperator {
     fn navigate_diff(
         &mut self,
         indexes: &[usize],
-        _list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        _list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         _raw_html: bool,
     ) -> Result<()> {
         self.add_output(&format!(
@@ -102,7 +96,7 @@ impl DataOperator for TestOperator {
             indexes.len(),
             indexes
                 .iter()
-                .map(|i| diff_arch[*i].key.clone())
+                .map(|i| diff_arch.key(*i).to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
@@ -113,7 +107,7 @@ impl DataOperator for TestOperator {
     fn navigate_list(
         &mut self,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         _raw_html: bool,
     ) -> Result<()> {
         self.add_output(&format!(
@@ -121,7 +115,7 @@ impl DataOperator for TestOperator {
             indexes.len(),
             indexes
                 .iter()
-                .map(|i| archive[*i].key.clone())
+                .map(|i| archive.key(*i).to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
@@ -129,7 +123,7 @@ impl DataOperator for TestOperator {
         Ok(())
     }
 
-    fn list(&mut self, indexes: &[usize], archive: &HtmlArchive) {
+    fn list(&mut self, indexes: &[usize], archive: &ArchiveSource) {
         self.add_output("List:");
 
         if indexes.is_empty() {
@@ -140,7 +134,7 @@ impl DataOperator for TestOperator {
 
         for index in indexes {
             self.add_output("\n");
-            self.add_output(&archive[*index].key);
+            self.add_output(archive.key(*index));
         }
     }
 }

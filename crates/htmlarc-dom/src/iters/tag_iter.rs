@@ -21,7 +21,7 @@ pub struct TagIter {
 impl TagIter {
     pub fn new<Dom: DomRead>(dom: &Dom) -> Self {
         let mut stack = TinyVec::new();
-        if let Some(root_child) = dom.with_dom(|dom| dom.nodes.first_child_index(0)) {
+        if let Some(root_child) = dom.with_view(|view| view.nodes.first_child_index(0)) {
             // We never include the root node, so we start with the first child
             // but since we need to iterate through the child siblings, which is
             // not done for the last element in the stack, we need to include
@@ -36,7 +36,7 @@ impl TagIter {
         match stage {
             Tag::Open(index) => {
                 self.stack.push(Tag::Close(index));
-                if let Some(child_index) = dom.with_dom(|dom| dom.nodes.first_child_index(index)) {
+                if let Some(child_index) = dom.with_view(|view| view.nodes.first_child_index(index)) {
                     self.stack.push(Tag::Open(child_index));
                 }
             }
@@ -45,7 +45,7 @@ impl TagIter {
             // we don't iterate through the last element's siblings
             Tag::Close(_) if self.stack.is_empty() => {}
             Tag::Close(index) => {
-                if let Some(sibling) = dom.with_dom(|dom| dom.nodes.next_sibling_index(index)) {
+                if let Some(sibling) = dom.with_view(|view| view.nodes.next_sibling_index(index)) {
                     self.stack.push(Tag::Open(sibling));
                 }
             }
@@ -89,13 +89,13 @@ fn tag_iter_plain() {
     assert_eq!(iter.next(&inner), Some(Tag::Close(div_a)));
     assert_eq!(iter.next(&inner), None);
 
-    let txt = HtmlFormat::Raw.to_html(&inner, 0);
+    let txt = HtmlFormat::Raw.to_html(inner.view(),0);
     insta::assert_snapshot!(txt, @r###"<div class="a"><div class="aa"><div class="aaa"></div></div><div class="ab"></div><div class="ac"><div class="aca"></div><div class="acb"></div></div></div>"###);
 
-    let txt = HtmlFormat::Raw.to_html(&inner, div_aca);
+    let txt = HtmlFormat::Raw.to_html(inner.view(),div_aca);
     insta::assert_snapshot!(txt, @r###"<div class="aca"></div>"###);
 
-    let txt = HtmlFormat::Raw.to_html(&inner, div_ac);
+    let txt = HtmlFormat::Raw.to_html(inner.view(),div_ac);
     insta::assert_snapshot!(txt, @r###"<div class="ac"><div class="aca"></div><div class="acb"></div></div>"###);
 }
 
@@ -116,7 +116,7 @@ fn tag_iter_root_two_children() {
     assert_eq!(iter.next(&inner), Some(Tag::Close(div_b)));
     assert_eq!(iter.next(&inner), None);
 
-    let txt = HtmlFormat::Raw.to_html(&inner, 0);
+    let txt = HtmlFormat::Raw.to_html(inner.view(),0);
 
     insta::assert_snapshot!(txt, @r###"<div class="a"></div><div class="b"></div>"###);
 }
@@ -132,7 +132,7 @@ fn tag_div() {
     inner.append_text_child(HtmlTag::sys_text, div, "hi");
     inner.nodes.add_as_last_child(div, HtmlTag::span);
 
-    let txt = HtmlFormat::Raw.to_html(&inner, 0);
+    let txt = HtmlFormat::Raw.to_html(inner.view(),0);
 
     insta::assert_snapshot!(txt, @" <div>hi<span></span></div>");
 }

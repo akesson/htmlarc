@@ -3,15 +3,15 @@ use std::{cell::RefCell, fmt::Display};
 use tinyvec::TinyVec;
 
 use super::{DBG, MAX_DEPTH};
-use crate::dom::DomInner;
+use crate::dom::NodesView;
 #[derive(Clone)]
 pub struct SimpleStack(RefCell<TinyVec<[u16; 32]>>);
 
 impl SimpleStack {
-    pub fn from_root_to_element(dom: &DomInner, mut index: u16) -> Self {
+    pub fn from_root_to_element(nodes: NodesView, mut index: u16) -> Self {
         let mut stack = TinyVec::new();
         stack.push(index);
-        while let Some(parent) = dom.nodes.parent_index(index) {
+        while let Some(parent) = nodes.parent_index(index) {
             DBG.then(|| println!("parent {}", parent));
             index = parent;
             stack.push(index);
@@ -82,20 +82,20 @@ impl Display for VisitedStack {
 }
 
 impl VisitedStack {
-    pub fn from_element(dom: &DomInner, index: u16) -> Self {
+    pub fn from_element(nodes: NodesView, index: u16) -> Self {
         let mut stack = TinyVec::new();
-        let ordinal = Self::ordinal(dom, index);
+        let ordinal = Self::ordinal(nodes, index);
         stack.push(Visited { index, ordinal });
         DBG.then(|| println!("from_element      {stack}"));
         Self(stack)
     }
 
-    pub fn from_root_to_element(dom: &DomInner, mut index: u16) -> Self {
-        let mut me = Self::from_element(dom, index);
-        while let Some(parent) = dom.nodes.parent_index(index) {
+    pub fn from_root_to_element(nodes: NodesView, mut index: u16) -> Self {
+        let mut me = Self::from_element(nodes, index);
+        while let Some(parent) = nodes.parent_index(index) {
             DBG.then(|| println!("parent {}", parent));
             index = parent;
-            let ordinal = Self::ordinal(dom, index);
+            let ordinal = Self::ordinal(nodes, index);
             me.0.push(Visited { index, ordinal });
         }
         me.0.reverse();
@@ -103,9 +103,9 @@ impl VisitedStack {
         me
     }
 
-    fn ordinal(dom: &DomInner, mut index: u16) -> u16 {
+    fn ordinal(nodes: NodesView, mut index: u16) -> u16 {
         let mut ord = 0;
-        while let Some(i) = dom.nodes.prev_sibling_index(index) {
+        while let Some(i) = nodes.prev_sibling_index(index) {
             index = i;
             ord += 1;
         }
@@ -127,7 +127,7 @@ impl VisitedStack {
     /// The last item on the stack is checked to see if it's parent is the same
     /// as the previous entry in the stack. If it's not then we try to find the new
     /// element by going to the parent and then finding the nth child of that parent
-    pub fn last_updated(&mut self, dom: &DomInner) -> VisitedStatus {
+    pub fn last_updated(&mut self, nodes: NodesView) -> VisitedStatus {
         loop {
             let len = self.0.len();
             if len == 0 {
@@ -139,11 +139,11 @@ impl VisitedStack {
             let last_index = len - 1;
             let element = self.0[last_index];
             let stack_parent = self.0[last_index - 1].index;
-            // let element_parent = dom.nodes.parent_index(element.index);
-            if Some(stack_parent) == dom.nodes.parent_index(element.index) {
+            // let element_parent = nodes.parent_index(element.index);
+            if Some(stack_parent) == nodes.parent_index(element.index) {
                 // the element's parent is the same
                 return VisitedStatus::Same(element.index);
-            } else if let Some(new_index) = Self::nth_child_of(dom, stack_parent, element.ordinal) {
+            } else if let Some(new_index) = Self::nth_child_of(nodes, stack_parent, element.ordinal) {
                 // the element was removed or replaced, but we found another element at the same position
                 // relative to the parent
                 self.0[last_index].index = new_index;
@@ -163,10 +163,10 @@ impl VisitedStack {
         }
     }
 
-    fn nth_child_of(dom: &DomInner, parent: u16, n: u16) -> Option<u16> {
-        let mut index = dom.nodes.first_child_index(parent)?;
+    fn nth_child_of(nodes: NodesView, parent: u16, n: u16) -> Option<u16> {
+        let mut index = nodes.first_child_index(parent)?;
         for _ in 0..n {
-            index = dom.nodes.next_sibling_index(index)?;
+            index = nodes.next_sibling_index(index)?;
         }
         Some(index)
     }

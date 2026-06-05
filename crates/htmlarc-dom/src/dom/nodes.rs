@@ -46,23 +46,22 @@ pub(crate) struct Nodes {
     bytes: Vec<u8>,
 }
 
-impl Default for Nodes {
-    fn default() -> Self {
-        Self::new()
-    }
+/// A borrowed, read-only view over the node-topology blob.
+///
+/// The blob is a flat `[u8]` of fixed-width 17-byte records read with
+/// `from_le_bytes`, so the exact same view serves the owned `Nodes` (via
+/// [`Nodes::view`]) and the rkyv-archived `ArchivedNodes` (whose `ArchivedVec<u8>`
+/// derefs to the byte-identical `&[u8]`). This is what makes zero-copy querying of
+/// an mmap'd archive possible without re-parsing or deserializing.
+#[derive(Clone, Copy)]
+pub(crate) struct NodesView<'a> {
+    bytes: &'a [u8],
 }
 
-impl Nodes {
-    /// create a new nodevec with a root node
-    pub fn new() -> Self {
-        let mut me = Self { bytes: Vec::new() };
-        me.add_node(HtmlTag::sys_root, None, None, None);
-        me
-    }
-
-    pub(crate) fn new_based_on(nodes: &Nodes) -> Self {
-        let bytes = Vec::with_capacity(nodes.bytes.len());
-        Self { bytes }
+impl<'a> NodesView<'a> {
+    #[cfg(test)]
+    pub(crate) fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
     }
 
     pub fn len(&self) -> usize {
@@ -123,8 +122,7 @@ impl Nodes {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, CLASS_LIST_OFFSET)
-                .map(ListIndex::from)
+            self.opt_u16_at(index, CLASS_LIST_OFFSET).map(ListIndex::from)
         }
     }
 
@@ -132,8 +130,7 @@ impl Nodes {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, ATTR_LIST_OFFSET)
-                .map(ListIndex::from)
+            self.opt_u16_at(index, ATTR_LIST_OFFSET).map(ListIndex::from)
         }
     }
 
@@ -141,9 +138,125 @@ impl Nodes {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, DATA_ATTR_OFFSET)
-                .map(ListIndex::from)
+            self.opt_u16_at(index, DATA_ATTR_OFFSET).map(ListIndex::from)
         }
+    }
+
+    fn u32_at(&self, index: u16, offset: usize) -> u32 {
+        let pos = index as usize * NODE_SIZE + offset;
+        u32::from_le_bytes([
+            self.bytes[pos],
+            self.bytes[pos + 1],
+            self.bytes[pos + 2],
+            self.bytes[pos + 3],
+        ])
+    }
+
+    fn opt_u16_at(&self, index: u16, offset: usize) -> Option<u16> {
+        let pos = index as usize * NODE_SIZE + offset;
+        opt_u16([self.bytes[pos], self.bytes[pos + 1]])
+    }
+
+    pub(crate) fn dbg_table_string(&self, index: u16) -> String {
+        format!(
+            "[{:2}] {ps}  {ns}  {fc}  {lc}   {level}{tag:?}",
+            index,
+            level = self.parent_list(index).join(""),
+            tag = self.tag(index),
+            ps = dbg_w(self.prev_sibling_index(index), 8),
+            ns = dbg_w(self.next_sibling_index(index), 8),
+            fc = dbg_w(self.first_child_index(index), 8),
+            lc = dbg_w(self.last_child_index(index), 7),
+        )
+    }
+
+    fn parent_list(&self, mut index: u16) -> Vec<String> {
+        let mut list = Vec::new();
+        while let Some(parent) = self.parent_index(index) {
+            list.push(format!("{parent:<2} > "));
+            index = parent;
+        }
+        list.reverse();
+        list
+    }
+}
+
+impl Default for Nodes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Nodes {
+    /// create a new nodevec with a root node
+    pub fn new() -> Self {
+        let mut me = Self { bytes: Vec::new() };
+        me.add_node(HtmlTag::sys_root, None, None, None);
+        me
+    }
+
+    pub(crate) fn new_based_on(nodes: &Nodes) -> Self {
+        let bytes = Vec::with_capacity(nodes.bytes.len());
+        Self { bytes }
+    }
+
+    /// A borrowed read-only view over the node blob. All read accessors live on
+    /// [`NodesView`] so the identical logic serves both the owned `Vec<u8>` and the
+    /// rkyv-archived `ArchivedVec<u8>` (which is byte-identical).
+    pub(crate) fn view(&self) -> NodesView<'_> {
+        NodesView { bytes: &self.bytes }
+    }
+
+    pub fn len(&self) -> usize {
+        self.view().len()
+    }
+
+    pub fn is_string_node(&self, index: u16) -> bool {
+        self.view().is_string_node(index)
+    }
+
+    pub fn is_inline_element(&self, index: u16) -> bool {
+        self.view().is_inline_element(index)
+    }
+
+    pub fn is_block_element(&self, index: u16) -> bool {
+        self.view().is_block_element(index)
+    }
+
+    pub fn tag(&self, index: u16) -> HtmlTag {
+        self.view().tag(index)
+    }
+
+    pub fn parent_index(&self, index: u16) -> Option<u16> {
+        self.view().parent_index(index)
+    }
+
+    pub fn prev_sibling_index(&self, index: u16) -> Option<u16> {
+        self.view().prev_sibling_index(index)
+    }
+
+    pub fn next_sibling_index(&self, index: u16) -> Option<u16> {
+        self.view().next_sibling_index(index)
+    }
+
+    pub fn first_child_index(&self, index: u16) -> Option<u16> {
+        self.view().first_child_index(index)
+    }
+
+    pub fn last_child_index(&self, index: u16) -> Option<u16> {
+        self.view().last_child_index(index)
+    }
+
+    pub fn class_list_index(&self, index: u16) -> Option<ListIndex> {
+        self.view().class_list_index(index)
+    }
+
+    pub fn attr_list_index(&self, index: u16) -> Option<ListIndex> {
+        self.view().attr_list_index(index)
+    }
+
+    pub fn data_attr_list_index(&self, index: u16) -> Option<ListIndex> {
+        self.view().data_attr_list_index(index)
     }
 
     pub fn add_as_next_sibling(&mut self, index: u16, tag: HtmlTag) -> u16 {
@@ -475,16 +588,6 @@ impl Nodes {
         self.set_next_sibling_index(index, None);
     }
 
-    fn u32_at(&self, index: u16, offset: usize) -> u32 {
-        let pos = index as usize * NODE_SIZE + offset;
-        u32::from_le_bytes([
-            self.bytes[pos],
-            self.bytes[pos + 1],
-            self.bytes[pos + 2],
-            self.bytes[pos + 3],
-        ])
-    }
-
     fn set_u32_at(&mut self, index: u16, offset: usize, value: u32) {
         let pos = index as usize * NODE_SIZE + offset;
         let bytes = value.to_le_bytes();
@@ -492,11 +595,6 @@ impl Nodes {
         self.bytes[pos + 1] = bytes[1];
         self.bytes[pos + 2] = bytes[2];
         self.bytes[pos + 3] = bytes[3];
-    }
-
-    fn opt_u16_at(&self, index: u16, offset: usize) -> Option<u16> {
-        let pos = index as usize * NODE_SIZE + offset;
-        opt_u16([self.bytes[pos], self.bytes[pos + 1]])
     }
 
     fn set_opt_u16_at(&mut self, index: u16, offset: usize, value: Option<u16>) {
@@ -589,26 +687,15 @@ impl Nodes {
     }
 
     pub(crate) fn dbg_table_string(&self, index: u16) -> String {
-        format!(
-            "[{:2}] {ps}  {ns}  {fc}  {lc}   {level}{tag:?}",
-            index,
-            level = self.parent_list(index).join(""),
-            tag = self.tag(index),
-            ps = dbg_w(self.prev_sibling_index(index), 8),
-            ns = dbg_w(self.next_sibling_index(index), 8),
-            fc = dbg_w(self.first_child_index(index), 8),
-            lc = dbg_w(self.last_child_index(index), 7),
-        )
+        self.view().dbg_table_string(index)
     }
+}
 
-    fn parent_list(&self, mut index: u16) -> Vec<String> {
-        let mut list = Vec::new();
-        while let Some(parent) = self.parent_index(index) {
-            list.push(format!("{parent:<2} > "));
-            index = parent;
-        }
-        list.reverse();
-        list
+impl ArchivedNodes {
+    /// Zero-copy view over the archived node blob — the `ArchivedVec<u8>` derefs to
+    /// the same `&[u8]` the owned path uses, so query code is representation-agnostic.
+    pub(crate) fn view(&self) -> NodesView<'_> {
+        NodesView { bytes: &self.bytes }
     }
 }
 

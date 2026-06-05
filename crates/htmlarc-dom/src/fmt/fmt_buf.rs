@@ -1,4 +1,4 @@
-use crate::stores::{Attribute, AttributeList, ClassList, DataAttribute, DataAttributeList};
+use crate::stores::{Attribute, Class, DataAttribute};
 
 #[derive(Default)]
 pub struct FmtBuf(String);
@@ -30,7 +30,7 @@ impl FmtBuf {
         self.0
     }
 
-    pub fn add_classes(&mut self, list: ClassList) {
+    pub fn add_classes<'a>(&mut self, list: impl Iterator<Item = Class<'a>>) {
         self.push(' ');
         self.push_str("class=\"");
         for (i, class) in list.enumerate() {
@@ -42,7 +42,7 @@ impl FmtBuf {
         self.push('"');
     }
 
-    pub fn add_attrs(&mut self, list: AttributeList<'_>) {
+    pub fn add_attrs<'a>(&mut self, list: impl Iterator<Item = Attribute<'a>>) {
         for entry in list {
             self.push(' ');
             let Attribute { tag, val } = entry;
@@ -55,7 +55,7 @@ impl FmtBuf {
         }
     }
 
-    pub fn add_data_attrs(&mut self, list: DataAttributeList) {
+    pub fn add_data_attrs<'a>(&mut self, list: impl Iterator<Item = DataAttribute<'a>>) {
         for entry in list {
             self.push(' ');
             let DataAttribute { tag, val } = entry;

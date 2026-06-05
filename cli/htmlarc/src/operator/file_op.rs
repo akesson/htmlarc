@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::Result;
 use htmlarc_dom::prelude::*;
-use htmlarc_format::HtmlArchive;
 use sanitize_filename::sanitize;
 use termion::{
     event::Key,
@@ -15,6 +14,7 @@ use termion::{
 };
 
 use super::{DataOperator, OperationError};
+use crate::source::ArchiveSource;
 
 pub struct FileOperator;
 
@@ -23,7 +23,7 @@ impl FileOperator {
         Self
     }
 
-    fn navigate<F>(action: F, indexes: &[usize], archive: &HtmlArchive) -> Result<()>
+    fn navigate<F>(action: F, indexes: &[usize], archive: &ArchiveSource) -> Result<()>
     where
         F: Fn(usize) -> Result<()>,
     {
@@ -72,14 +72,14 @@ impl FileOperator {
         stdout: &mut RawTerminal<Stdout>,
         index: usize,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
     ) -> Result<()> {
         let count = indexes.len();
         let prev_idx = (index + count - 1) % count;
         let next_idx = (index + 1) % count;
-        let prev_word = &archive[prev_idx].key;
-        let curr_word = &archive[index].key;
-        let next_word = &archive[next_idx].key;
+        let prev_word = archive.key(prev_idx);
+        let curr_word = archive.key(index);
+        let next_word = archive.key(next_idx);
 
         write!(
             stdout,
@@ -128,8 +128,8 @@ impl DataOperator for FileOperator {
         &mut self,
         folder: &Path,
         indexes: &[usize],
-        list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         fs::create_dir_all(folder)?;
@@ -140,21 +140,17 @@ impl DataOperator for FileOperator {
             return Ok(());
         }
 
+        let fmt = HtmlFormat::raw_else_pretty(raw_html);
         for i in indexes {
-            let entry_2 = &diff_arch[*i];
-            let word = &entry_2.key;
-            let entry_1 = list_arch
-                .get(word)
-                .ok_or(OperationError::GetEntry(word.clone(), "list archive"))?;
+            let word = diff_arch.key(*i);
+            let html_1 = list_arch
+                .html_for_key(word, fmt)
+                .ok_or_else(|| OperationError::GetEntry(word.to_string(), "list archive"))?;
+            let html_2 = diff_arch.to_html(*i, fmt);
 
             let sanitized = sanitize(word);
-
             let word_path_1 = folder.join(format!("{}.1.html", sanitized));
             let word_path_2 = folder.join(format!("{}.2.html", sanitized));
-
-            let fmt = HtmlFormat::raw_else_pretty(raw_html);
-            let html_1 = entry_1.html.to_html(fmt);
-            let html_2 = entry_2.html.to_html(fmt);
 
             fs::write(word_path_1, html_1)?;
             fs::write(word_path_2, html_2)?;
@@ -167,7 +163,7 @@ impl DataOperator for FileOperator {
         &mut self,
         folder: &Path,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         fs::create_dir_all(folder)?;
@@ -178,17 +174,11 @@ impl DataOperator for FileOperator {
             return Ok(());
         }
 
+        let fmt = HtmlFormat::raw_else_pretty(raw_html);
         for i in indexes {
-            let entry = &archive[*i];
-
-            let sanitized = sanitize(&entry.key);
-
+            let sanitized = sanitize(archive.key(*i));
             let word_path = folder.join(format!("{}.html", sanitized));
-
-            let fmt = HtmlFormat::raw_else_pretty(raw_html);
-            let html = entry.html.to_html(fmt);
-
-            fs::write(word_path, html)?;
+            fs::write(word_path, archive.to_html(*i, fmt))?;
         }
 
         Ok(())
@@ -197,22 +187,19 @@ impl DataOperator for FileOperator {
     fn navigate_diff(
         &mut self,
         indexes: &[usize],
-        list_arch: &HtmlArchive,
-        diff_arch: &HtmlArchive,
+        list_arch: &ArchiveSource,
+        diff_arch: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         Self::navigate(
             |index| {
                 let i = indexes[index];
-                let entry_2 = &diff_arch[i];
-                let word = &entry_2.key;
-                let entry_1 = list_arch
-                    .get(word)
-                    .ok_or(OperationError::GetEntry(word.clone(), "archive 1"))?;
-
+                let word = diff_arch.key(i);
                 let fmt = HtmlFormat::raw_else_pretty(raw_html);
-                let html_1 = entry_1.html.to_html(fmt);
-                let html_2 = entry_2.html.to_html(fmt);
+                let html_1 = list_arch
+                    .html_for_key(word, fmt)
+                    .ok_or_else(|| OperationError::GetEntry(word.to_string(), "archive 1"))?;
+                let html_2 = diff_arch.to_html(i, fmt);
 
                 fs::write("diff.1.html", html_1)?;
                 fs::write("diff.2.html", html_2)?;
@@ -229,18 +216,14 @@ impl DataOperator for FileOperator {
     fn navigate_list(
         &mut self,
         indexes: &[usize],
-        archive: &HtmlArchive,
+        archive: &ArchiveSource,
         raw_html: bool,
     ) -> Result<()> {
         Self::navigate(
             |index| {
                 let i = indexes[index];
-                let entry = &archive[i];
-
                 let fmt = HtmlFormat::raw_else_pretty(raw_html);
-                let html = entry.html.to_html(fmt);
-
-                fs::write("word.html", html)?;
+                fs::write("word.html", archive.to_html(i, fmt))?;
 
                 Ok(())
             },
@@ -251,14 +234,14 @@ impl DataOperator for FileOperator {
         Ok(())
     }
 
-    fn list(&mut self, indexes: &[usize], archive: &HtmlArchive) {
+    fn list(&mut self, indexes: &[usize], archive: &ArchiveSource) {
         if indexes.is_empty() {
             println!("No words found");
 
             return;
         }
         for index in indexes {
-            println!("{}", archive[*index].key);
+            println!("{}", archive.key(*index));
         }
         println!("Found {} word(s):", indexes.len());
     }
