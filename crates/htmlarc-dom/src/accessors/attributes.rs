@@ -33,7 +33,7 @@ pub struct Attributes<'dom, Dom: DomRef> {
 
 impl<'dom, Dom: DomRef> Attributes<'dom, Dom> {
     pub fn new(dom: &'dom Dom, node_index: u16) -> Self {
-        let index = dom.as_ref().nodes.attr_list_index(node_index);
+        let index = dom.dom_view().nodes.attr_list_index(node_index);
         Self { dom, index }
     }
 
@@ -46,7 +46,7 @@ impl<'dom, Dom: DomRef> Iterator for Attributes<'dom, Dom> {
     type Item = Attribute<'dom>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        attr_list::next(&self.dom.as_ref().attrs, &mut self.index)
+        self.dom.dom_view().attrs.next_in_list(&mut self.index)
     }
 }
 

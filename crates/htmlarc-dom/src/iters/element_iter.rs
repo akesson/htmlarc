@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::ops::RangeBounds;
 
+use crate::dom::NodesView;
 use crate::prelude::*;
 
 use super::exactly_iter::Exactly;
@@ -26,7 +27,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
     /// Iterates through all the descendants of the given element
     pub(crate) fn descendants<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_dom(|dom| VisitedStack::from_element(dom, *index));
+        let stack = dom.with_view(|view| VisitedStack::from_element(view.nodes, *index));
         Self {
             dom,
             stack: stack.into(),
@@ -39,7 +40,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
     /// the document, which means it will also include the parent's siblings.
     pub(crate) fn forwards<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_dom(|dom| VisitedStack::from_root_to_element(dom, *index));
+        let stack = dom.with_view(|view| VisitedStack::from_root_to_element(view.nodes, *index));
         Self {
             dom,
             stack: stack.into(),
@@ -65,16 +66,16 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
-    pub(super) fn find_next(&self, dom: &DomInner, go_deeper: bool) -> Option<u16> {
+    pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<u16> {
         // update the stack for any changes to the current (already visited) element.
 
-        let index = match self.stack.borrow_mut().last_updated(dom) {
+        let index = match self.stack.borrow_mut().last_updated(nodes) {
             VisitedStatus::StackEmpty => return None,
             VisitedStatus::Changed(i) => return Some(i),
             VisitedStatus::Same(i) => i,
         };
 
-        if go_deeper && let Some(child) = dom.nodes.first_child_index(index) {
+        if go_deeper && let Some(child) = nodes.first_child_index(index) {
             self.stack.borrow_mut().push_first_child(child);
             return Some(child);
         }
@@ -83,7 +84,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
             return None;
         }
 
-        if let Some(sibling) = dom.nodes.next_sibling_index(index) {
+        if let Some(sibling) = nodes.next_sibling_index(index) {
             self.stack.borrow_mut().set_next_sibling(sibling);
             return Some(sibling);
         }
@@ -92,7 +93,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
             if self.stack.borrow().len() <= 1 {
                 return None;
             }
-            if let Some(sibling) = dom.nodes.next_sibling_index(index) {
+            if let Some(sibling) = nodes.next_sibling_index(index) {
                 self.stack.borrow_mut().set_next_sibling(sibling);
                 return Some(sibling);
             }
@@ -138,7 +139,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for ElementIter<'dom, Dom> {
     }
 
     fn next_index_and_depth(&self) -> Option<(u16, i16)> {
-        let vals = self.dom.with_dom(|dom| self.find_next(dom, true));
+        let vals = self.dom.with_view(|view| self.find_next(view.nodes, true));
         let depth = self.stack.borrow().len() as i16;
         vals.map(|v| (v, depth))
     }

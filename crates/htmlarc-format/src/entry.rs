@@ -45,6 +45,33 @@ impl HtmlEntry {
     }
 }
 
+/// Zero-copy accessors on the rkyv-archived entry, so a memory-mapped archive reads
+/// keys, checksums, and renders documents without deserializing anything.
+impl ArchivedHtmlEntry {
+    pub fn key(&self) -> &str {
+        self.key.as_str()
+    }
+
+    pub fn checksum(&self) -> u64 {
+        self.checksum.to_native()
+    }
+
+    pub fn root(&self) -> HtmlElement<'_, ArchivedDomInner> {
+        self.html.root()
+    }
+
+    pub fn body(&self) -> Option<HtmlElement<'_, ArchivedDomInner>> {
+        self.html
+            .root()
+            .forwards()
+            .find(|element| element.tag() == HtmlTag::body)
+    }
+
+    pub fn to_html(&self, fmt: HtmlFormat) -> String {
+        self.html.to_html(fmt)
+    }
+}
+
 impl Eq for HtmlEntry {}
 
 impl PartialEq for HtmlEntry {

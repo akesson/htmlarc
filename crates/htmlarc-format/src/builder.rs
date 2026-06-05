@@ -23,7 +23,11 @@ impl HtmlArchiveBuilder {
         let entries = self.entries.into_iter().collect::<Vec<HtmlEntry>>();
         let data =
             rkyv::to_bytes::<Error>(&entries).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        fs::write(path, data).map_err(ArchiveErr::FileWrite)?;
+        let header = crate::header::header_bytes();
+        let mut out = Vec::with_capacity(header.len() + data.len());
+        out.extend_from_slice(&header);
+        out.extend_from_slice(&data);
+        fs::write(path, out).map_err(ArchiveErr::FileWrite)?;
 
         Ok(())
     }

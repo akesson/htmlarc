@@ -35,7 +35,7 @@ pub struct Classes<'dom, Dom: DomRef> {
 
 impl<'dom, Dom: DomRef> Classes<'dom, Dom> {
     pub fn new(dom: &'dom Dom, node_index: u16) -> Self {
-        let index = dom.as_ref().nodes.class_list_index(node_index);
+        let index = dom.dom_view().nodes.class_list_index(node_index);
         Self { dom, index }
     }
 }
@@ -44,7 +44,11 @@ impl<'dom, Dom: DomRef> Iterator for Classes<'dom, Dom> {
     type Item = &'dom str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        class_list::next(&self.dom.as_ref().classes, &mut self.index).map(|c| c.0)
+        self.dom
+            .dom_view()
+            .classes
+            .next_in_list(&mut self.index)
+            .map(|c| c.0)
     }
 }
 

@@ -40,7 +40,7 @@ pub struct DataAttributes<'dom, Dom: DomRef> {
 
 impl<'dom, Dom: DomRef> DataAttributes<'dom, Dom> {
     pub fn new(dom: &'dom Dom, node_index: u16) -> Self {
-        let index = dom.as_ref().nodes.data_attr_list_index(node_index);
+        let index = dom.dom_view().nodes.data_attr_list_index(node_index);
         Self { dom, index }
     }
 
@@ -53,7 +53,10 @@ impl<'dom, Dom: DomRef> Iterator for DataAttributes<'dom, Dom> {
     type Item = DataAttribute<'dom>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        data_attr_list::next(&self.dom.as_ref().dataattrs, &mut self.index)
+        self.dom
+            .dom_view()
+            .dataattrs
+            .next_in_list(&mut self.index)
     }
 }
 

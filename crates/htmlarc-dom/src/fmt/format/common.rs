@@ -1,12 +1,15 @@
 use crate::{
-    dom::DomInner,
+    dom::DomView,
     fmt::{fmt_buf::FmtBuf, spaces::Spaces},
 };
 
 use super::pretty::Inline;
 
-pub trait CommonFormatting {
-    fn dom_and_buf(&mut self) -> (&DomInner, &mut FmtBuf);
+pub trait CommonFormatting<'dom> {
+    /// The (Copy) document view and the output buffer. The view carries the document
+    /// data lifetime `'dom` (not the `&mut self` borrow) so the borrowed list
+    /// iterators it yields don't clash with mutating `buf`.
+    fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf);
 
     fn add_doctype(&mut self, index: u16) {
         let (dom, buf) = self.dom_and_buf();

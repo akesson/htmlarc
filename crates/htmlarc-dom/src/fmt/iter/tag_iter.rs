@@ -39,12 +39,12 @@ fn open(index: u16, depth: u16) -> ElementStage {
 }
 
 pub struct TagIter<'a> {
-    pub dom: &'a DomInner,
+    pub dom: DomView<'a>,
     stack: TinyVec<[ElementStage; 32]>,
 }
 
 impl<'a> TagIter<'a> {
-    pub fn new(dom: &'a DomInner, index: u16) -> Self {
+    pub fn new(dom: DomView<'a>, index: u16) -> Self {
         let mut stack = TinyVec::new();
         if index == 0 {
             if let Some(root_child) = dom.nodes.first_child_index(index) {
@@ -96,7 +96,7 @@ use crate::{dom::DomOwn, html::HtmlDoc};
 fn tag_string(iter: TagIter<'_>, dom: &DomOwn) -> String {
     use TagStage::*;
     iter.map(|el| {
-        let tag = dom.as_ref().nodes.tag(el.index);
+        let tag = dom.dom_view().nodes.tag(el.index);
         let indent = "  ".repeat(el.depth as usize);
         let stage = match el.stage {
             Open => "+",
@@ -118,7 +118,7 @@ fn tag_iter_plain() {
     .trim();
 
     let dom = HtmlDoc::parse(html).unwrap().dom();
-    let iter = TagIter::new(dom.as_ref(), 0);
+    let iter = TagIter::new(dom.dom_view(), 0);
 
     insta::assert_snapshot!(tag_string(iter, &dom), @r###"
     +div

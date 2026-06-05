@@ -48,10 +48,12 @@ impl HtmlArchive {
 
     pub fn read_from<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveErr> {
         let data = fs::read(path).map_err(ArchiveErr::FileRead)?;
-        let entries = unsafe {
-            rkyv::from_bytes_unchecked::<Vec<HtmlEntry>, Error>(&data)
-                .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?
-        };
+        let offset = crate::header::payload_offset(&data)?;
+        // Safe, validated deserialize (bytecheck) — rejects a corrupt archive with an
+        // `Err` instead of the unsoundness of the previous unchecked load. Handles
+        // both modern (header-prefixed) and legacy (header-less) files.
+        let entries = rkyv::from_bytes::<Vec<HtmlEntry>, Error>(&data[offset..])
+            .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
         Ok(Self { entries })
     }
 
@@ -90,11 +92,16 @@ impl HtmlArchive {
         HtmlArchive { entries }
     }
 
-    /// Serialize the archive to `path` (the `.htmlarc` binary format).
+    /// Serialize the archive to `path` (the `.htmlarc` binary format): a 16-byte
+    /// header followed by the rkyv payload.
     pub fn write_to<P: AsRef<Path>>(&self, path: P) -> Result<(), ArchiveErr> {
         let data = rkyv::to_bytes::<Error>(&self.entries)
             .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        fs::write(path, data).map_err(ArchiveErr::FileWrite)?;
+        let header = crate::header::header_bytes();
+        let mut out = Vec::with_capacity(header.len() + data.len());
+        out.extend_from_slice(&header);
+        out.extend_from_slice(&data);
+        fs::write(path, out).map_err(ArchiveErr::FileWrite)?;
         Ok(())
     }
 }
