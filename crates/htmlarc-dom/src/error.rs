@@ -27,7 +27,8 @@ impl HtmlParseError {
 
 pub type HtmlParseResult<T> = std::result::Result<T, HtmlParseError>;
 
-pub trait Context {
+/// Internal helper for attaching context to an [`HtmlParseError`] during parsing.
+pub(crate) trait Context {
     fn context<S: ToString>(self, context: S) -> Self;
     fn with_context<F: FnOnce() -> String>(self, context: F) -> Self;
 }

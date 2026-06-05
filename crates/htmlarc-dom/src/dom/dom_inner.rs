@@ -4,9 +4,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{
-    Attribute, AttributeStore, ClassStore, DataAttributeStore, ListIndex, StringStack,
-};
+use crate::stores::{AttributeStore, ClassStore, DataAttributeStore, StringStack};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -42,36 +40,21 @@ impl DomInner {
         )
     }
 
-    pub fn append_text_child(&mut self, tag: HtmlTag, index: NodeIndex, text: &str) -> NodeIndex {
+    pub(crate) fn append_text_child(&mut self, tag: HtmlTag, index: NodeIndex, text: &str) -> NodeIndex {
         debug_assert!(matches!(tag, HtmlTag::sys_comment | HtmlTag::sys_text));
         self.add_string_child(index, tag, text)
     }
 
-    pub fn add_classes(&mut self, index: NodeIndex, classes: &str) -> Option<ListIndex> {
-        let list_index = self.classes.add_class_list(classes)?;
-        self.nodes
-            .set_class_list_index(index, Some(list_index.as_u16()));
-        Some(list_index)
-    }
-
-    pub fn add_attribute(
-        &mut self,
-        index: NodeIndex,
-        list_index: Option<ListIndex>,
-        attr: &Attribute,
-    ) -> Option<ListIndex> {
-        if let Some(attr_index) = list_index {
-            self.attrs.list_mut_at(attr_index).insert(attr);
-            list_index
-        } else {
-            let attr_index = self.attrs.add_list(attr);
+    /// Test helper: attach a class list to a node. Used only by node tests.
+    #[cfg(test)]
+    pub(crate) fn add_classes(&mut self, index: NodeIndex, classes: &str) {
+        if let Some(list_index) = self.classes.add_class_list(classes) {
             self.nodes
-                .set_attr_list_index(index, Some(attr_index.as_u16()));
-            Some(attr_index)
+                .set_class_list_index(index, Some(list_index.as_u16()));
         }
     }
 
-    pub fn replace_text(&mut self, index: NodeIndex, string: &str) {
+    pub(crate) fn replace_text(&mut self, index: NodeIndex, string: &str) {
         let range = self.strings.push(string);
         self.nodes.set_text_range(index, range);
     }
@@ -111,7 +94,7 @@ impl DomInner {
         }
     }
 
-    pub fn insert_space_node_if_needed(
+    pub(crate) fn insert_space_node_if_needed(
         &mut self,
         prev_sibling: Option<NodeIndex>,
         next_sibling: Option<NodeIndex>,
@@ -129,7 +112,7 @@ impl DomInner {
     }
 
     /// Replaces the current node with another one from the tree,
-    pub fn replace_with(&mut self, index: NodeIndex, new_index: NodeIndex) {
+    pub(crate) fn replace_with(&mut self, index: NodeIndex, new_index: NodeIndex) {
         let is_block = self.nodes.is_block_element(index);
         let is_substitute_inline = self.nodes.is_inline_element(new_index);
         let prev_sibling = self.nodes.prev_sibling_index(index);
@@ -159,7 +142,7 @@ impl DomInner {
 
     /// Unwraps the current node, moving its children to its parent
     /// The cursor is moved to the next sibling if it exists, otherwise to the previous sibling
-    pub fn unwrap_element(&mut self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn unwrap_element(&mut self, index: NodeIndex) -> Option<NodeIndex> {
         let Some(parent) = self.nodes.parent_index(index) else {
             panic!("Element is the root or is not in the tree and cannot be unwrapped");
         };
@@ -210,7 +193,7 @@ impl DomInner {
         }
     }
 
-    pub fn prune(&mut self, cursor: &mut NodeIndex, index: NodeIndex) -> NodeIndex {
+    pub(crate) fn prune(&mut self, cursor: &mut NodeIndex, index: NodeIndex) -> NodeIndex {
         let Some(parent) = self.nodes.parent_index(index) else {
             return index;
         };
@@ -265,7 +248,7 @@ impl DomInner {
         index
     }
 
-    pub fn remove(&mut self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn remove(&mut self, index: NodeIndex) -> Option<NodeIndex> {
         let Some(parent) = self.nodes.parent_index(index) else {
             panic!("Element is the root or is not in the tree and cannot be removed");
         };
@@ -293,6 +276,10 @@ impl DomInner {
         }
     }
 
+    /// Strip formatting-only whitespace text nodes and collapse indentation.
+    ///
+    /// A high-level whole-document mutation (no node indices), callable via
+    /// [`DomRefCell::with_mut`](crate::dom::DomRefCell::with_mut).
     pub fn remove_formatting(&mut self) {
         let mut iter = TagIter::new(self);
         while let Some(elem) = iter.next(self) {

@@ -2,7 +2,7 @@ use crate::{
     accessors::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
-    css::{self, AttributeSelector, ParseError, SelectorList},
+    css::{self, AttributeSelector, ParseError, Selector, SelectorList},
     dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -196,7 +196,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.ancestors().count() as u16
     }
 
-    pub fn html_string(&self, fmt: HtmlFormat) -> String {
+    pub fn to_html(&self, fmt: HtmlFormat) -> String {
         self.dom.to_html(fmt)
     }
 
@@ -332,6 +332,16 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, ParseError> {
         let selector = css::parse_css(selector)?;
         Ok(MatchIter::new(self.forwards(), selector))
+    }
+
+    /// Whether this element matches the (pre-parsed) selector.
+    pub fn matches(&self, selector: &SelectorList<'dom>) -> bool {
+        selector.matches(self)
+    }
+
+    /// Parse `selector` and report whether this element matches it.
+    pub fn matches_css(&self, selector: &str) -> Result<bool, ParseError> {
+        Ok(css::parse_css(selector)?.matches(self))
     }
 }
 
