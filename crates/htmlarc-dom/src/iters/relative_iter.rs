@@ -1,6 +1,9 @@
 use std::cell::Cell;
 
-use crate::{dom::DomRead, html::HtmlElement};
+use crate::{
+    dom::{DomRead, NodeIndex},
+    html::HtmlElement,
+};
 
 use super::DomIterator;
 
@@ -15,7 +18,7 @@ pub struct RelativeIter<'dom, Dom> {
     dom: &'dom Dom,
     relatives: Relatives,
     depth: Cell<i16>,
-    cursor: Cell<u16>,
+    cursor: Cell<NodeIndex>,
     first: Cell<bool>,
     include_text: bool,
     include_comment: bool,
@@ -68,7 +71,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RelativeIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(u16, i16)> {
+    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
         let current = HtmlElement::new(self.dom, self.cursor.get());
 
         if let Some(next) = match self.relatives {

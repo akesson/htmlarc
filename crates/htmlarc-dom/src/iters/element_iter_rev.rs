@@ -19,7 +19,7 @@ pub struct RevElementIter<'dom, Dom> {
     pub(super) dom: &'dom Dom,
     stack: SimpleStack,
     operation: Cell<NodeOperation>,
-    pub(super) current_index: Cell<Option<u16>>,
+    pub(super) current_index: Cell<Option<NodeIndex>>,
     include_comment: bool,
     include_text: bool,
 }
@@ -48,7 +48,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
-    fn next_dom_inner(&self, nodes: NodesView) -> Option<(u16, i16)> {
+    fn next_dom_inner(&self, nodes: NodesView) -> Option<(NodeIndex, i16)> {
         if self.operation.get() == NodeOperation::ExcludeStart {
             // we remove the excluded item
             let Some(index) = self.stack.pop() else {
@@ -127,7 +127,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RevElementIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(u16, i16)> {
+    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
         self.dom().with_view(|view| self.next_dom_inner(view.nodes))
     }
 

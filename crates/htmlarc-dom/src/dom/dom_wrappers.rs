@@ -2,7 +2,7 @@ use std::cell::{RefCell, RefMut};
 use std::fmt::Debug;
 
 use crate::{
-    dom::{DomInner, DomView},
+    dom::{DomInner, DomView, NodeIndex},
     fmt::HtmlFormat,
 };
 
@@ -46,7 +46,7 @@ impl DomRead for DomInner {
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {
-        HtmlElement::new(self, 0)
+        HtmlElement::new(self, NodeIndex::ROOT)
     }
 
     fn repackage(&self) -> DomInner {
@@ -82,7 +82,7 @@ impl DomRead for DomOwn {
     }
 
     fn root(&self) -> HtmlElement<'_, DomOwn> {
-        HtmlElement::new(self, 0)
+        HtmlElement::new(self, NodeIndex::ROOT)
     }
 
     fn repackage(&self) -> DomInner {
@@ -116,7 +116,7 @@ impl DomRead for DomRefCell {
     }
 
     fn root(&self) -> HtmlElement<'_, DomRefCell> {
-        HtmlElement::new(self, 0)
+        HtmlElement::new(self, NodeIndex::ROOT)
     }
 
     fn repackage(&self) -> DomInner {

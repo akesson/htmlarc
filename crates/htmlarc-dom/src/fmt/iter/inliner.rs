@@ -1,4 +1,7 @@
-use crate::{dom::DomView, html::HtmlTag};
+use crate::{
+    dom::{DomView, NodeIndex},
+    html::HtmlTag,
+};
 
 use super::{
     queue_iter::QueueIter,
@@ -19,7 +22,7 @@ pub struct Inliner<'dom> {
 }
 
 impl<'dom> Inliner<'dom> {
-    pub fn new(dom: DomView<'dom>, index: u16) -> Self {
+    pub fn new(dom: DomView<'dom>, index: NodeIndex) -> Self {
         Self {
             iter: TagIter::new(dom, index),
             queued: None,
@@ -78,14 +81,14 @@ impl<'dom> Iterator for Inliner<'dom> {
 
 pub struct ElementInfo<'dom> {
     dom: DomView<'dom>,
-    index: u16,
+    index: NodeIndex,
     pub stage: TagStage,
     pub in_inline_sequence: bool,
     pub depth: u16,
 }
 
 impl ElementInfo<'_> {
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> NodeIndex {
         self.index
     }
 
@@ -97,17 +100,10 @@ impl ElementInfo<'_> {
 use crate::prelude::*;
 
 #[cfg(test)]
-fn inline_vec(html: &str, index: u16) -> Vec<(HtmlTag, TagStage, bool, u16)> {
+fn inline_vec(html: &str, index: NodeIndex) -> Vec<(HtmlTag, TagStage, bool, u16)> {
     let dom = HtmlDoc::parse(html).unwrap().inner();
     Inliner::new(dom.view(), index)
-        .map(|info| {
-            (
-                info.tag(),
-                info.stage,
-                info.in_inline_sequence,
-                info.depth,
-            )
-        })
+        .map(|info| (info.tag(), info.stage, info.in_inline_sequence, info.depth))
         .collect()
 }
 
@@ -117,7 +113,7 @@ fn test() {
 
     let html = r#"<div><i>hello</i><span>there</span></div>"#;
 
-    let out = inline_vec(html, 0);
+    let out = inline_vec(html, NodeIndex::ROOT);
     assert_eq!(
         out,
         vec![
@@ -141,7 +137,7 @@ fn case1() {
 
     let html = r#"<li><sup><a>(de)</a></sup><b>f</b></li>"#;
 
-    let out = inline_vec(html, 0);
+    let out = inline_vec(html, NodeIndex::ROOT);
     assert_eq!(
         out,
         vec![

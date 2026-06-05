@@ -21,7 +21,9 @@ pub use error::{ParseResult, SelectorError};
 pub use logging::debug;
 
 pub mod prelude {
-    pub use crate::dom::{ArchivedDomInner, DomInner, DomOwn, DomRead, DomRef, DomRefCell, DomView};
+    pub use crate::dom::{
+        ArchivedDomInner, DomInner, DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
+    };
     pub use crate::error::{ElementError, Locatable, LocatedError};
     pub use crate::fmt::HtmlFormat;
     pub use crate::here;
@@ -81,7 +83,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:83 fn location_test"
+        "htmlarc-dom::lib.rs:85 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

@@ -1,5 +1,5 @@
 use crate::{
-    dom::DomView,
+    dom::{DomView, NodeIndex},
     fmt::{
         fmt_buf::FmtBuf,
         iter::{ElementInfo, Inliner, TagStage},
@@ -38,7 +38,7 @@ pub struct PrettyFormat<'dom> {
     dom: DomView<'dom>,
     buf: FmtBuf,
     inline: Inline,
-    prev_index: u16,
+    prev_index: NodeIndex,
 }
 impl<'dom> CommonFormatting<'dom> for PrettyFormat<'dom> {
     fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf) {
@@ -52,11 +52,11 @@ impl<'dom> PrettyFormat<'dom> {
             dom,
             buf: Default::default(),
             inline: Inline::None,
-            prev_index: 0,
+            prev_index: NodeIndex::ROOT,
         }
     }
 
-    pub fn html(mut self, index: u16) -> String {
+    pub fn html(mut self, index: NodeIndex) -> String {
         for info in Inliner::new(self.dom, index) {
             let tag = info.tag();
             let index = info.index();

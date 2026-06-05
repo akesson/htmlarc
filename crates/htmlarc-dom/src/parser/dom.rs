@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::dom::NodeIndex;
 use crate::html::{HtmlAttr, HtmlTag};
 
 use crate::{ParseResult, SelectorError};
@@ -50,11 +51,11 @@ pub trait DomStack<'a> {
 
 const LOG: bool = false;
 
-pub(super) fn log<F: FnOnce() -> String>(index: u16, f: F) {
+pub(super) fn log<F: FnOnce() -> String>(index: NodeIndex, f: F) {
     LOG.then(|| println!("DOM[{index:>4}    ] {}", f()));
 }
 
-pub(super) fn log_opt_i<F: FnOnce() -> String>(index: Option<u16>, f: F) {
+pub(super) fn log_opt_i<F: FnOnce() -> String>(index: Option<NodeIndex>, f: F) {
     LOG.then(|| {
         let index = index
             .map(|i| i.to_string())
@@ -63,7 +64,7 @@ pub(super) fn log_opt_i<F: FnOnce() -> String>(index: Option<u16>, f: F) {
     });
 }
 
-pub(super) fn log_list<I: Display, F: FnOnce() -> String>(index: u16, list: Option<I>, f: F) {
+pub(super) fn log_list<I: Display, F: FnOnce() -> String>(index: NodeIndex, list: Option<I>, f: F) {
     LOG.then(|| {
         let list = list
             .map(|i| i.to_string())
