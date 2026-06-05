@@ -9,13 +9,13 @@ pub enum TagStage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ElementStage {
-    pub index: u16,
+    pub index: NodeIndex,
     pub depth: u16,
     pub stage: TagStage,
 }
 
 impl ElementStage {
-    pub fn new(index: u16, depth: u16, stage: TagStage) -> Self {
+    pub fn new(index: NodeIndex, depth: u16, stage: TagStage) -> Self {
         Self {
             index,
             depth,
@@ -26,15 +26,15 @@ impl ElementStage {
 
 impl Default for ElementStage {
     fn default() -> Self {
-        Self::new(0, 0, TagStage::Open)
+        Self::new(NodeIndex::ROOT, 0, TagStage::Open)
     }
 }
 
-fn close(index: u16, depth: u16) -> ElementStage {
+fn close(index: NodeIndex, depth: u16) -> ElementStage {
     ElementStage::new(index, depth, TagStage::Close)
 }
 
-fn open(index: u16, depth: u16) -> ElementStage {
+fn open(index: NodeIndex, depth: u16) -> ElementStage {
     ElementStage::new(index, depth, TagStage::Open)
 }
 
@@ -44,14 +44,14 @@ pub struct TagIter<'a> {
 }
 
 impl<'a> TagIter<'a> {
-    pub fn new(dom: DomView<'a>, index: u16) -> Self {
+    pub fn new(dom: DomView<'a>, index: NodeIndex) -> Self {
         let mut stack = TinyVec::new();
-        if index == 0 {
+        if index == NodeIndex::ROOT {
             if let Some(root_child) = dom.nodes.first_child_index(index) {
                 // We never include the root node, so we start with the first child
                 // but since we need to iterate through the child siblings, which is
                 // not done for the last element in the stack, we need to include
-                stack.push(close(0, 0));
+                stack.push(close(NodeIndex::ROOT, 0));
                 stack.push(open(root_child, 0));
             }
         } else {
@@ -76,7 +76,7 @@ impl Iterator for TagIter<'_> {
                 Some(open(info.index, info.depth))
             }
             TagStage::Close => {
-                if info.index == 0 {
+                if info.index == NodeIndex::ROOT {
                     return None;
                 } else if self.stack.is_empty() {
                     // we don't iterate through the last element's siblings
@@ -118,7 +118,7 @@ fn tag_iter_plain() {
     .trim();
 
     let dom = HtmlDoc::parse(html).unwrap().dom();
-    let iter = TagIter::new(dom.dom_view(), 0);
+    let iter = TagIter::new(dom.dom_view(), NodeIndex::ROOT);
 
     insta::assert_snapshot!(tag_string(iter, &dom), @r###"
     +div

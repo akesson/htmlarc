@@ -8,9 +8,9 @@ use crate::{
 impl DomInner {
     pub fn rebuild(&self) -> Self {
         // index lookup where index[old_index] => new_index
-        let mut indexes: Vec<Option<u16>> = vec![None; self.nodes.len()];
+        let mut indexes: Vec<Option<NodeIndex>> = vec![None; self.nodes.len()];
         // pairs of new & old indexes in the order they are traversed by the element iterator
-        let mut ordered_pairs: Vec<(u16, u16)> = Vec::with_capacity(self.nodes.len());
+        let mut ordered_pairs: Vec<(NodeIndex, NodeIndex)> = Vec::with_capacity(self.nodes.len());
 
         let mut attr_rebuilder = AttributeReBuilder::new(&self.attrs);
         let mut nodes = Nodes::new_based_on(&self.nodes);
@@ -18,27 +18,27 @@ impl DomInner {
         let mut dataattrs_rebuilder = DataAttributeRebuilder::new(&self.dataattrs);
         let mut strings = StringStack::with_capacity(self.strings.size());
 
-        let iter = HtmlElement::new(self, 0)
+        let iter = HtmlElement::new(self, NodeIndex::ROOT)
             .forwards()
             .set_include_text()
             .set_include_comment();
 
         // the iter doesn't do root
-        indexes[0] = Some(0);
-        ordered_pairs.push((0, 0));
+        indexes[0] = Some(NodeIndex::ROOT);
+        ordered_pairs.push((NodeIndex::ROOT, NodeIndex::ROOT));
 
         for (new_index, el) in iter.enumerate() {
-            let new_index = new_index as u16 + 1;
-            let old_index = el.index() as usize;
-            indexes[old_index] = Some(new_index);
-            ordered_pairs.push((new_index, old_index as u16));
-            if let Some(i) = self.nodes.attr_list_index(old_index as u16) {
+            let new_index = NodeIndex::new(new_index as u32 + 1);
+            let old_index = el.index();
+            indexes[old_index.as_usize()] = Some(new_index);
+            ordered_pairs.push((new_index, old_index));
+            if let Some(i) = self.nodes.attr_list_index(old_index) {
                 attr_rebuilder.mark_list_used(&self.attrs, i);
             }
-            if let Some(i) = self.nodes.class_list_index(old_index as u16) {
+            if let Some(i) = self.nodes.class_list_index(old_index) {
                 class_rebuilder.mark_list_used(&self.classes, i);
             }
-            if let Some(i) = self.nodes.data_attr_list_index(old_index as u16) {
+            if let Some(i) = self.nodes.data_attr_list_index(old_index) {
                 dataattrs_rebuilder.mark_list_used(&self.dataattrs, i);
             }
         }
@@ -53,15 +53,15 @@ impl DomInner {
             let parent_index = self
                 .nodes
                 .parent_index(old_index)
-                .and_then(|i| indexes[i as usize]);
+                .and_then(|i| indexes[i.as_usize()]);
             let prev_sibling = self
                 .nodes
                 .prev_sibling_index(old_index)
-                .and_then(|i| indexes[i as usize]);
+                .and_then(|i| indexes[i.as_usize()]);
             let next_sibling = self
                 .nodes
                 .next_sibling_index(old_index)
-                .and_then(|i| indexes[i as usize]);
+                .and_then(|i| indexes[i.as_usize()]);
 
             nodes.add_node(tag, parent_index, prev_sibling, next_sibling);
 
@@ -75,13 +75,13 @@ impl DomInner {
                 let first_child = self
                     .nodes
                     .first_child_index(old_index)
-                    .and_then(|i| indexes[i as usize]);
+                    .and_then(|i| indexes[i.as_usize()]);
                 nodes.set_first_child_index(new_index, first_child);
 
                 let last_child = self
                     .nodes
                     .last_child_index(old_index)
-                    .and_then(|i| indexes[i as usize]);
+                    .and_then(|i| indexes[i.as_usize()]);
                 nodes.set_last_child_index(new_index, last_child);
 
                 if let Some(list_index) = self.nodes.class_list_index(old_index) {

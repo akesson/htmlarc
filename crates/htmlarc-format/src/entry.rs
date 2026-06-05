@@ -20,7 +20,8 @@ pub struct HtmlEntry {
 
 impl HtmlEntry {
     pub fn new(key: String, html: HtmlDoc) -> Self {
-        let dom = html.inner();
+        // store the most compact node width; the checksum then covers the stored form
+        let dom = html.inner().into_optimal_width();
         let mut hasher = seahash::SeaHasher::new();
         dom.hash(&mut hasher);
         let checksum = hasher.finish();

@@ -1,5 +1,5 @@
 use crate::{
-    dom::DomView,
+    dom::{DomView, NodeIndex},
     fmt::{
         fmt_buf::FmtBuf,
         iter::{TagIter, TagStage},
@@ -27,7 +27,7 @@ impl<'dom> RawFormat<'dom> {
         }
     }
 
-    pub fn html(mut self, index: u16) -> String {
+    pub fn html(mut self, index: NodeIndex) -> String {
         for elem in TagIter::new(self.dom, index) {
             let tag = self.dom.nodes.tag(elem.index);
 
@@ -44,7 +44,7 @@ impl<'dom> RawFormat<'dom> {
         self.buf.inner()
     }
 
-    fn add_start_tag(&mut self, index: u16, tag: HtmlTag) {
+    fn add_start_tag(&mut self, index: NodeIndex, tag: HtmlTag) {
         self.buf.push('<');
         self.buf.push_str(tag.into());
         self.push_attributes(index);
@@ -60,7 +60,7 @@ impl<'dom> RawFormat<'dom> {
     //     (tag.is_foreign_element() && !has_children) || tag.is_void_element()
     // }
 
-    fn add_close_tag(&mut self, index: u16) {
+    fn add_close_tag(&mut self, index: NodeIndex) {
         let tag = self.dom.nodes.tag(index);
 
         if tag.no_close() {

@@ -1,4 +1,4 @@
-use crate::dom::{DomRead, DomRefCell};
+use crate::dom::{DomRead, DomRefCell, NodeIndex};
 use crate::html::{HtmlElement, HtmlTag};
 
 use super::DomIterator;
@@ -13,7 +13,7 @@ where
     iter: Iter,
     chars: NodeChars,
     include_comments: bool,
-    current: Option<u16>,
+    current: Option<NodeIndex>,
 }
 
 impl<'dom, Dom, Iter> CharsIter<'dom, Dom, Iter>

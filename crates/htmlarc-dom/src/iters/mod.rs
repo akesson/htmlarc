@@ -10,7 +10,7 @@ mod tag_iter;
 
 use crate::{
     css::SelectorList,
-    dom::DomRead,
+    dom::{DomRead, NodeIndex},
     error::IterationError,
     html::{HtmlElement, HtmlTag},
 };
@@ -28,7 +28,7 @@ const MAX_DEPTH: usize = 32;
 pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'dom, Dom>> {
     fn dom(&self) -> &'dom Dom;
     /// returns the next element index and the depth if any
-    fn next_index_and_depth(&self) -> Option<(u16, i16)>;
+    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)>;
     fn set_include_comment(self) -> Self;
     fn include_comment(&self) -> bool;
     fn set_include_text(self) -> Self;

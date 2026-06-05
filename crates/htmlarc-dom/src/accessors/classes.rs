@@ -34,7 +34,7 @@ pub struct Classes<'dom, Dom: DomRef> {
 }
 
 impl<'dom, Dom: DomRef> Classes<'dom, Dom> {
-    pub fn new(dom: &'dom Dom, node_index: u16) -> Self {
+    pub fn new(dom: &'dom Dom, node_index: NodeIndex) -> Self {
         let index = dom.dom_view().nodes.class_list_index(node_index);
         Self { dom, index }
     }

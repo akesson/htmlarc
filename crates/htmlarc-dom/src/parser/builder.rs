@@ -1,7 +1,7 @@
 use tinyvec::ArrayVec;
 
 use crate::{
-    dom::{DomInner, Nodes},
+    dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
         Attribute, AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStore,
@@ -21,7 +21,7 @@ pub struct DomBuilder<'a> {
 }
 
 impl DomBuilder<'_> {
-    pub fn add_text_child(&mut self, tag: HtmlTag, index: u16, text: &str) -> u16 {
+    pub fn add_text_child(&mut self, tag: HtmlTag, index: NodeIndex, text: &str) -> NodeIndex {
         let range = self.strings.push(text);
         let index = self.nodes.add_as_last_child(index, tag);
         self.nodes.set_text_range(index, range);
@@ -45,16 +45,16 @@ const MAX_DEPTH: usize = 64;
 pub struct DomBuilderCursor<'a> {
     pub dom: DomBuilder<'a>,
     pub tag_stack: ArrayVec<[HtmlTag; MAX_DEPTH]>,
-    pub index_stack: ArrayVec<[u16; MAX_DEPTH]>,
+    pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
     pub attr_list_index: Option<ListIndex>,
     pub dataattr_list_index: Option<ListIndex>,
 }
 
 impl DomBuilderCursor<'_> {
-    fn index(&self) -> u16 {
-        *self.index_stack.last().unwrap_or(&0)
+    fn index(&self) -> NodeIndex {
+        *self.index_stack.last().unwrap_or(&NodeIndex::ROOT)
     }
-    fn push_index(&mut self, index: u16) {
+    fn push_index(&mut self, index: NodeIndex) {
         self.index_stack.push(index)
     }
 }

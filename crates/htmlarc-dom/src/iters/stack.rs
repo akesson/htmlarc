@@ -3,12 +3,12 @@ use std::{cell::RefCell, fmt::Display};
 use tinyvec::TinyVec;
 
 use super::{DBG, MAX_DEPTH};
-use crate::dom::NodesView;
+use crate::dom::{NodeIndex, NodesView};
 #[derive(Clone)]
-pub struct SimpleStack(RefCell<TinyVec<[u16; 32]>>);
+pub struct SimpleStack(RefCell<TinyVec<[NodeIndex; 32]>>);
 
 impl SimpleStack {
-    pub fn from_root_to_element(nodes: NodesView, mut index: u16) -> Self {
+    pub fn from_root_to_element(nodes: NodesView, mut index: NodeIndex) -> Self {
         let mut stack = TinyVec::new();
         stack.push(index);
         while let Some(parent) = nodes.parent_index(index) {
@@ -21,7 +21,7 @@ impl SimpleStack {
         Self(RefCell::new(stack))
     }
 
-    pub fn push(&self, index: u16) {
+    pub fn push(&self, index: NodeIndex) {
         let stack = &mut *self.0.borrow_mut();
         stack.push(index);
         DBG.then(|| println!("push {stack}"));
@@ -31,14 +31,14 @@ impl SimpleStack {
         self.0.borrow().len()
     }
 
-    pub fn pop(&self) -> Option<u16> {
+    pub fn pop(&self) -> Option<NodeIndex> {
         let stack = &mut *self.0.borrow_mut();
         let popped = stack.pop();
         DBG.then(|| println!("pop {stack}"));
         popped
     }
 
-    pub fn last(&self) -> Option<u16> {
+    pub fn last(&self) -> Option<NodeIndex> {
         self.0.borrow().last().copied()
     }
 }
@@ -46,7 +46,7 @@ impl SimpleStack {
 #[derive(Default, Clone, Copy)]
 struct Visited {
     /// index of the node
-    index: u16,
+    index: NodeIndex,
     /// this is the nth sibling
     ordinal: u16,
 }
@@ -57,8 +57,8 @@ impl Display for Visited {
 }
 
 pub enum VisitedStatus {
-    Changed(u16),
-    Same(u16),
+    Changed(NodeIndex),
+    Same(NodeIndex),
     StackEmpty,
 }
 
@@ -82,7 +82,7 @@ impl Display for VisitedStack {
 }
 
 impl VisitedStack {
-    pub fn from_element(nodes: NodesView, index: u16) -> Self {
+    pub fn from_element(nodes: NodesView, index: NodeIndex) -> Self {
         let mut stack = TinyVec::new();
         let ordinal = Self::ordinal(nodes, index);
         stack.push(Visited { index, ordinal });
@@ -90,7 +90,7 @@ impl VisitedStack {
         Self(stack)
     }
 
-    pub fn from_root_to_element(nodes: NodesView, mut index: u16) -> Self {
+    pub fn from_root_to_element(nodes: NodesView, mut index: NodeIndex) -> Self {
         let mut me = Self::from_element(nodes, index);
         while let Some(parent) = nodes.parent_index(index) {
             DBG.then(|| println!("parent {}", parent));
@@ -103,7 +103,7 @@ impl VisitedStack {
         me
     }
 
-    fn ordinal(nodes: NodesView, mut index: u16) -> u16 {
+    fn ordinal(nodes: NodesView, mut index: NodeIndex) -> u16 {
         let mut ord = 0;
         while let Some(i) = nodes.prev_sibling_index(index) {
             index = i;
@@ -112,12 +112,12 @@ impl VisitedStack {
         ord
     }
 
-    pub fn push_first_child(&mut self, index: u16) {
+    pub fn push_first_child(&mut self, index: NodeIndex) {
         self.0.push(Visited { index, ordinal: 0 });
         DBG.then(|| println!("push_first_child  {}", self.0));
     }
 
-    pub fn set_next_sibling(&mut self, index: u16) {
+    pub fn set_next_sibling(&mut self, index: NodeIndex) {
         if let Some(visited) = self.0.last_mut() {
             visited.index = index;
             visited.ordinal += 1;
@@ -143,7 +143,8 @@ impl VisitedStack {
             if Some(stack_parent) == nodes.parent_index(element.index) {
                 // the element's parent is the same
                 return VisitedStatus::Same(element.index);
-            } else if let Some(new_index) = Self::nth_child_of(nodes, stack_parent, element.ordinal) {
+            } else if let Some(new_index) = Self::nth_child_of(nodes, stack_parent, element.ordinal)
+            {
                 // the element was removed or replaced, but we found another element at the same position
                 // relative to the parent
                 self.0[last_index].index = new_index;
@@ -163,7 +164,7 @@ impl VisitedStack {
         }
     }
 
-    fn nth_child_of(nodes: NodesView, parent: u16, n: u16) -> Option<u16> {
+    fn nth_child_of(nodes: NodesView, parent: NodeIndex, n: u16) -> Option<NodeIndex> {
         let mut index = nodes.first_child_index(parent)?;
         for _ in 0..n {
             index = nodes.next_sibling_index(index)?;
@@ -171,13 +172,13 @@ impl VisitedStack {
         Some(index)
     }
 
-    pub fn pop(&mut self) -> Option<u16> {
+    pub fn pop(&mut self) -> Option<NodeIndex> {
         let popped = self.0.pop().map(|visited| visited.index);
         DBG.then(|| println!("pop               {}", self.0));
         popped
     }
 
-    pub fn last(&self) -> Option<u16> {
+    pub fn last(&self) -> Option<NodeIndex> {
         self.0.last().map(|visited| visited.index)
     }
 

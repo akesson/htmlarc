@@ -1,5 +1,5 @@
 use crate::{
-    dom::DomView,
+    dom::{DomView, NodeIndex},
     fmt::{fmt_buf::FmtBuf, spaces::Spaces},
 };
 
@@ -11,7 +11,7 @@ pub trait CommonFormatting<'dom> {
     /// iterators it yields don't clash with mutating `buf`.
     fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf);
 
-    fn add_doctype(&mut self, index: u16) {
+    fn add_doctype(&mut self, index: NodeIndex) {
         let (dom, buf) = self.dom_and_buf();
         buf.push_str("<!DOCTYPE");
         if let Some(list_index) = dom.nodes.attr_list_index(index) {
@@ -20,7 +20,7 @@ pub trait CommonFormatting<'dom> {
         buf.push('>');
     }
 
-    fn push_attributes(&mut self, index: u16) {
+    fn push_attributes(&mut self, index: NodeIndex) {
         let (dom, buf) = self.dom_and_buf();
         if let Some(list_index) = dom.nodes.class_list_index(index) {
             buf.add_classes(dom.classes.list_at(list_index));
@@ -33,7 +33,7 @@ pub trait CommonFormatting<'dom> {
         }
     }
 
-    fn push_trimmed_text(&mut self, index: u16, inline: Inline) -> bool {
+    fn push_trimmed_text(&mut self, index: NodeIndex, inline: Inline) -> bool {
         let (dom, buf) = self.dom_and_buf();
 
         let text = dom.string_at(index);

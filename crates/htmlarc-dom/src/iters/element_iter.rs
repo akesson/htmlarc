@@ -66,7 +66,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
-    pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<u16> {
+    pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<NodeIndex> {
         // update the stack for any changes to the current (already visited) element.
 
         let index = match self.stack.borrow_mut().last_updated(nodes) {
@@ -138,7 +138,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for ElementIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(u16, i16)> {
+    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
         let vals = self.dom.with_view(|view| self.find_next(view.nodes, true));
         let depth = self.stack.borrow().len() as i16;
         vals.map(|v| (v, depth))

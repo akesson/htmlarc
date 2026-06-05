@@ -16,7 +16,7 @@
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 1;
+pub(crate) const VERSION: u8 = 2;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 
