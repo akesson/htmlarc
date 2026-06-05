@@ -28,12 +28,6 @@ fn full_doc_with_dom() {
             Ok(val) => val,
         };
         assert_snapshot!(html.to_html(HtmlFormat::Raw));
-
-        if false {
-            let mut outpath = path.to_path_buf();
-            outpath.set_extension("out.html");
-            html.write_to(&outpath);
-        }
     });
 }
 
