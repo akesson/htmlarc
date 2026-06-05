@@ -12,6 +12,7 @@ pub(crate) use builder::ClassStoreBuilder;
 pub(crate) use lists::{ClassList, class_list};
 pub(crate) use rebuilder::ClassReBuilder;
 pub use store::ClassStore;
+pub(crate) use store::ClassStoreView;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Class<'a>(pub(crate) &'a str);

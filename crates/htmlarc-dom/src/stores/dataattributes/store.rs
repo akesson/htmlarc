@@ -131,4 +131,92 @@ impl DataAttributeStore {
     ) -> std::iter::Map<crate::stores::listvec::List<'_>, fn(u16) -> DataAttrIndex> {
         self.lists.list_at(index).map(DataAttrIndex)
     }
+
+    pub(crate) fn view(&self) -> DataAttributeStoreView<'_> {
+        DataAttributeStoreView {
+            lists: self.lists.view(),
+            attributes: DataAttrTableView::Owned(&self.attributes),
+            strings: self.strings.view(),
+        }
+    }
+}
+
+/// The sorted `(tag_string_index, val_string_index)` table: owned native `u16`
+/// pairs, or archived little-endian ones read via `.to_native()`.
+#[derive(Clone, Copy)]
+enum DataAttrTableView<'a> {
+    Owned(&'a [(u16, u16)]),
+    Archived(&'a [rkyv::Archived<(u16, u16)>]),
+}
+
+impl DataAttrTableView<'_> {
+    fn at(&self, index: usize) -> (u16, u16) {
+        match self {
+            Self::Owned(s) => s[index],
+            Self::Archived(s) => (s[index].0.to_native(), s[index].1.to_native()),
+        }
+    }
+}
+
+/// Borrowed, read-only view over a [`DataAttributeStore`], backed by either the
+/// owned or the rkyv-archived representation.
+#[derive(Clone, Copy)]
+pub(crate) struct DataAttributeStoreView<'a> {
+    lists: super::super::listvec::ListVecView<'a>,
+    attributes: DataAttrTableView<'a>,
+    strings: super::super::stringheap::StringHeapView<'a>,
+}
+
+impl<'a> DataAttributeStoreView<'a> {
+    pub(crate) fn attribute_at(&self, index: DataAttrIndex) -> DataAttribute<'a> {
+        let (tag, val) = self.attributes.at(index.as_u16() as usize);
+        DataAttribute {
+            tag: self.strings.get(tag),
+            val: self.strings.get(val),
+        }
+    }
+
+    pub(crate) fn list_at(&self, index: ListIndex) -> DataAttributeListView<'a> {
+        DataAttributeListView {
+            store: *self,
+            index: self.lists.head_index_at(index),
+        }
+    }
+
+    /// Advance an externally-held list cursor — used by the
+    /// [`crate::accessors::DataAttributes`] iterator.
+    pub(crate) fn next_in_list(&self, index: &mut Option<ListIndex>) -> Option<DataAttribute<'a>> {
+        let i = (*index)?;
+        let (next, val) = self.lists.next(i);
+        let attr = self.attribute_at(val.into());
+        *index = next;
+        Some(attr)
+    }
+}
+
+impl ArchivedDataAttributeStore {
+    pub(crate) fn view(&self) -> DataAttributeStoreView<'_> {
+        DataAttributeStoreView {
+            lists: self.lists.view(),
+            attributes: DataAttrTableView::Archived(self.attributes.as_slice()),
+            strings: self.strings.view(),
+        }
+    }
+}
+
+pub(crate) struct DataAttributeListView<'a> {
+    store: DataAttributeStoreView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl<'a> Iterator for DataAttributeListView<'a> {
+    type Item = DataAttribute<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.store.lists.next(index);
+        let attr = self.store.attribute_at(val.into());
+        self.index = next;
+        Some(attr)
+    }
 }

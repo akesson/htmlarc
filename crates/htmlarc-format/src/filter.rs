@@ -15,7 +15,7 @@ impl Filter {
         Ok(Self { include, exclude })
     }
 
-    pub fn keep(&self, word: &str, dom: &DomInner) -> bool {
+    pub fn keep<Dom: DomRead>(&self, word: &str, dom: &Dom) -> bool {
         let included = if self.include.is_empty() {
             true
         } else {
@@ -78,7 +78,7 @@ impl WordFilter {
         Ok(Self { css, words })
     }
 
-    pub fn matches(&self, word: &str, dom: &DomInner) -> bool {
+    pub fn matches<Dom: DomRead>(&self, word: &str, dom: &Dom) -> bool {
         let match_css = if self.css.is_empty() {
             true
         } else {

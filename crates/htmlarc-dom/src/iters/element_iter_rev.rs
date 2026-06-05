@@ -1,5 +1,6 @@
 use std::{cell::Cell, ops::RangeBounds};
 
+use crate::dom::NodesView;
 use crate::prelude::*;
 
 use super::{CharsIter, DomIterator, exactly_iter::Exactly, stack::SimpleStack};
@@ -26,7 +27,7 @@ pub struct RevElementIter<'dom, Dom> {
 impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
     pub(crate) fn reverse(element: &HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_dom(|dom| SimpleStack::from_root_to_element(dom, *index));
+        let stack = dom.with_view(|view| SimpleStack::from_root_to_element(view.nodes, *index));
 
         Self {
             dom: *dom,
@@ -47,7 +48,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
-    fn next_dom_inner(&self, dom: &DomInner) -> Option<(u16, i16)> {
+    fn next_dom_inner(&self, nodes: NodesView) -> Option<(u16, i16)> {
         if self.operation.get() == NodeOperation::ExcludeStart {
             // we remove the excluded item
             let Some(index) = self.stack.pop() else {
@@ -55,12 +56,12 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
                 return None;
             };
 
-            if let Some(mut prev_sibling) = dom.nodes.prev_sibling_index(index) {
+            if let Some(mut prev_sibling) = nodes.prev_sibling_index(index) {
                 // we add the previous sibling to the stack
                 self.stack.push(prev_sibling);
 
                 // now we have to check if the previous sibling has children
-                while let Some(last_child) = dom.nodes.last_child_index(prev_sibling) {
+                while let Some(last_child) = nodes.last_child_index(prev_sibling) {
                     // add every last child of the current item to the stack
                     self.stack.push(last_child);
                     prev_sibling = last_child;
@@ -72,7 +73,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
                 return None;
             };
 
-            while let Some(last_child) = dom.nodes.last_child_index(index) {
+            while let Some(last_child) = nodes.last_child_index(index) {
                 // add every last child of the current item to the stack
                 self.stack.push(last_child);
                 index = last_child;
@@ -91,7 +92,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
             return None;
         };
 
-        if let Some(prev_sibling) = dom.nodes.prev_sibling_index(index) {
+        if let Some(prev_sibling) = nodes.prev_sibling_index(index) {
             // if the current item has a previous sibling, add it to the stack
             self.stack.push(prev_sibling);
             // and set the next operation to check its children
@@ -127,7 +128,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RevElementIter<'dom, Dom> {
     }
 
     fn next_index_and_depth(&self) -> Option<(u16, i16)> {
-        self.dom().with_dom(|dom| self.next_dom_inner(dom))
+        self.dom().with_view(|view| self.next_dom_inner(view.nodes))
     }
 
     fn set_include_comment(mut self) -> Self {

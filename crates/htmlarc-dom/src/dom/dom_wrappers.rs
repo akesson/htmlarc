@@ -1,44 +1,61 @@
 use std::cell::{RefCell, RefMut};
 use std::fmt::Debug;
 
-use crate::{dom::DomInner, fmt::HtmlFormat};
+use crate::{
+    dom::{DomInner, DomView},
+    fmt::HtmlFormat,
+};
 
 use crate::html::HtmlElement;
 
+/// Read access to a DOM document, abstracting over *where the bytes live* —
+/// owned in memory ([`DomInner`], [`DomOwn`], [`DomRefCell`]) or zero-copy in a
+/// memory-mapped rkyv archive (`ArchivedDomInner`). All query code (iterators, CSS,
+/// the formatter, [`HtmlElement`]) goes through [`DomView`] via [`Self::with_view`],
+/// so it never needs to know which.
 pub trait DomRead
 where
     Self: Sized + Debug,
 {
-    fn with_dom<F: FnOnce(&DomInner) -> R, R>(&self, f: F) -> R;
+    /// Run `f` with a borrowed [`DomView`]. The closure form (rather than returning
+    /// the view) is what lets [`DomRefCell`] scope its `RefCell` borrow guard.
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R;
 
     fn root(&self) -> HtmlElement<'_, Self>;
 
+    /// Materialise an owned, compacted [`DomInner`]. Owned backings rebuild in place;
+    /// the archived backing deserializes out of the archive.
+    fn repackage(&self) -> DomInner;
+
     fn to_html(&self, fmt: HtmlFormat) -> String {
         let index = self.root().index();
-        self.with_dom(|dom| fmt.to_html(dom, index))
-    }
-
-    fn repackage(&self) -> DomInner {
-        self.with_dom(|dom| dom.rebuild())
+        self.with_view(|view| fmt.to_html(view, index))
     }
 }
 
+/// A [`DomRead`] that can additionally hand out a [`DomView`] bound to the *full*
+/// `&self` lifetime (not just a closure scope). Implemented by every backing whose
+/// bytes outlive a single call — i.e. all except [`DomRefCell`].
 pub trait DomRef: DomRead {
-    fn as_ref(&self) -> &DomInner;
+    fn dom_view(&self) -> DomView<'_>;
 }
 
 impl DomRead for DomInner {
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.view())
+    }
+
     fn root(&self) -> HtmlElement<'_, Self> {
         HtmlElement::new(self, 0)
     }
 
-    fn with_dom<F: FnOnce(&DomInner) -> R, R>(&self, f: F) -> R {
-        f(self)
+    fn repackage(&self) -> DomInner {
+        self.rebuild()
     }
 }
 impl DomRef for DomInner {
-    fn as_ref(&self) -> &DomInner {
-        self
+    fn dom_view(&self) -> DomView<'_> {
+        self.view()
     }
 }
 
@@ -54,18 +71,22 @@ impl From<DomInner> for DomOwn {
 }
 
 impl DomRef for DomOwn {
-    fn as_ref(&self) -> &DomInner {
-        &self.dom
+    fn dom_view(&self) -> DomView<'_> {
+        self.dom.view()
     }
 }
 
 impl DomRead for DomOwn {
-    fn with_dom<F: FnOnce(&DomInner) -> R, R>(&self, f: F) -> R {
-        f(&self.dom)
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.dom.view())
     }
 
     fn root(&self) -> HtmlElement<'_, DomOwn> {
         HtmlElement::new(self, 0)
+    }
+
+    fn repackage(&self) -> DomInner {
+        self.dom.rebuild()
     }
 }
 
@@ -90,11 +111,15 @@ impl DomRefCell {
 }
 
 impl DomRead for DomRefCell {
-    fn with_dom<F: FnOnce(&DomInner) -> R, R>(&self, f: F) -> R {
-        f(&self.dom.borrow())
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.dom.borrow().view())
     }
 
     fn root(&self) -> HtmlElement<'_, DomRefCell> {
         HtmlElement::new(self, 0)
+    }
+
+    fn repackage(&self) -> DomInner {
+        self.dom.borrow().rebuild()
     }
 }

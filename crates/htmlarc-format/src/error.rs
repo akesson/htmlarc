@@ -8,6 +8,10 @@ pub enum ArchiveErr {
     Serialize(String),
     #[error("Failed to deserialize archive: {0}")]
     Deserialize(String),
+    #[error("Invalid .htmlarc header: {0}")]
+    Header(String),
+    #[error("Failed to validate archive: {0}")]
+    Validate(String),
     #[error("Failed to read archive: {0}")]
     FileRead(std::io::Error),
     #[error("Failed to write archive: {0}")]

@@ -11,9 +11,10 @@ use std::fmt::Display;
 use crate::html::HtmlAttr;
 
 pub(crate) use builder::AttributeStoreBuilder;
-pub(crate) use lists::{AttributeList, attr_list};
+pub(crate) use lists::attr_list;
 pub(crate) use rebuilder::AttributeReBuilder;
 pub use store::AttributeStore;
+pub(crate) use store::AttributeStoreView;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Attribute<'a> {

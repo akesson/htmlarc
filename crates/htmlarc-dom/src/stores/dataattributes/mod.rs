@@ -4,9 +4,10 @@ mod store;
 
 use std::fmt::Display;
 
-pub(crate) use lists::{DataAttributeList, data_attr_list};
+pub(crate) use lists::data_attr_list;
 pub(crate) use rebuilder::DataAttributeRebuilder;
 pub use store::DataAttributeStore;
+pub(crate) use store::DataAttributeStoreView;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DataAttribute<'a> {

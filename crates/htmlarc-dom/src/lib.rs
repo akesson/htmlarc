@@ -21,7 +21,7 @@ pub use error::{ParseResult, SelectorError};
 pub use logging::debug;
 
 pub mod prelude {
-    pub use crate::dom::{DomInner, DomOwn, DomRead, DomRef, DomRefCell};
+    pub use crate::dom::{ArchivedDomInner, DomInner, DomOwn, DomRead, DomRef, DomRefCell, DomView};
     pub use crate::error::{ElementError, Locatable, LocatedError};
     pub use crate::fmt::HtmlFormat;
     pub use crate::here;

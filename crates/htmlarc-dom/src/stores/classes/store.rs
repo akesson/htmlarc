@@ -145,4 +145,88 @@ impl ClassStore {
     ) -> std::iter::Map<crate::stores::listvec::List<'_>, fn(u16) -> ClassIndex> {
         self.lists.list_at(index).map(ClassIndex)
     }
+
+    pub(crate) fn view(&self) -> ClassStoreView<'_> {
+        ClassStoreView {
+            lists: self.lists.view(),
+            classes: ClassTableView::Owned(&self.classes),
+            strings: self.strings.view(),
+        }
+    }
+}
+
+/// The sorted class-string-index table: owned native `u16`s, or archived
+/// little-endian ones read via `.to_native()`.
+#[derive(Clone, Copy)]
+enum ClassTableView<'a> {
+    Owned(&'a [u16]),
+    Archived(&'a [rkyv::Archived<u16>]),
+}
+
+impl ClassTableView<'_> {
+    fn at(&self, index: usize) -> u16 {
+        match self {
+            Self::Owned(s) => s[index],
+            Self::Archived(s) => s[index].to_native(),
+        }
+    }
+}
+
+/// Borrowed, read-only view over a [`ClassStore`], backed by either the owned or
+/// the rkyv-archived representation.
+#[derive(Clone, Copy)]
+pub(crate) struct ClassStoreView<'a> {
+    lists: super::super::listvec::ListVecView<'a>,
+    classes: ClassTableView<'a>,
+    strings: super::super::stringheap::StringHeapView<'a>,
+}
+
+impl<'a> ClassStoreView<'a> {
+    pub(crate) fn class_at(&self, index: ClassIndex) -> Class<'a> {
+        Class(self.strings.get(self.classes.at(index.as_u16() as usize)))
+    }
+
+    pub(crate) fn list_at(&self, index: ListIndex) -> ClassListView<'a> {
+        ClassListView {
+            store: *self,
+            index: self.lists.head_index_at(index),
+        }
+    }
+
+    /// Advance an externally-held list cursor — used by the
+    /// [`crate::accessors::Classes`] iterator.
+    pub(crate) fn next_in_list(&self, index: &mut Option<ListIndex>) -> Option<Class<'a>> {
+        let i = (*index)?;
+        let (next, val) = self.lists.next(i);
+        let class = self.class_at(val.into());
+        *index = next;
+        Some(class)
+    }
+}
+
+impl ArchivedClassStore {
+    pub(crate) fn view(&self) -> ClassStoreView<'_> {
+        ClassStoreView {
+            lists: self.lists.view(),
+            classes: ClassTableView::Archived(self.classes.as_slice()),
+            strings: self.strings.view(),
+        }
+    }
+}
+
+pub(crate) struct ClassListView<'a> {
+    store: ClassStoreView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl<'a> Iterator for ClassListView<'a> {
+    type Item = Class<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.store.lists.next(index);
+        let class = self.store.class_at(val.into());
+        self.index = next;
+        Some(class)
+    }
 }

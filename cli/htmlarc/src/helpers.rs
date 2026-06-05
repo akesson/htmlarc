@@ -6,17 +6,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use anyhow::{Context, Result};
-use htmlarc_format::HtmlArchive;
-
+use anyhow::Result;
 use htmlarc_format::Filter;
 
-pub fn read_arch(path: &str) -> Result<HtmlArchive> {
-    HtmlArchive::read_from(path).context(format!("Failed to read archive: {path}"))
-}
+use crate::source::ArchiveSource;
 
 pub fn create_list_indexes(
-    archive: &Arc<HtmlArchive>,
+    archive: &Arc<ArchiveSource>,
     include: Vec<String>,
     exclude: Vec<String>,
     first_n: Option<usize>,
@@ -45,9 +41,7 @@ pub fn create_list_indexes(
                         break;
                     }
 
-                    let entry = &archive[i];
-
-                    if filters.keep(&entry.key, &entry.html) {
+                    if archive.keep(i, &filters) {
                         let count: usize = count.fetch_add(1, Ordering::Relaxed);
                         if count >= first_n {
                             break;
@@ -71,19 +65,15 @@ pub fn create_list_indexes(
 }
 
 pub fn create_diff_indexes(
-    list_archive: &Arc<HtmlArchive>,
-    diff_archive: &HtmlArchive,
+    list_archive: &Arc<ArchiveSource>,
+    diff_archive: &ArchiveSource,
 ) -> Vec<usize> {
-    diff_archive
-        .entries()
-        .enumerate()
-        .filter_map(|(i, entry)| {
-            if let Some(e) = list_archive.get(&entry.key) {
-                entry.checksum != e.checksum
-            } else {
-                false
-            }
-            .then_some(i)
+    (0..diff_archive.len())
+        .filter(|&i| {
+            let key = diff_archive.key(i);
+            list_archive
+                .checksum_for_key(key)
+                .is_some_and(|listed| listed != diff_archive.checksum(i))
         })
-        .collect::<Vec<_>>()
+        .collect()
 }

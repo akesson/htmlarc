@@ -31,6 +31,17 @@ impl ListEntry {
     }
 }
 
+impl ArchivedListEntry {
+    /// Decode an archived entry into an owned (Copy) [`ListEntry`] so the read logic
+    /// above is reused verbatim by the zero-copy view.
+    pub(crate) fn decode(&self) -> ListEntry {
+        ListEntry {
+            info: ListInfo::from_bits(self.info.bits()),
+            value: self.value.to_native(),
+        }
+    }
+}
+
 /// If first bit is 1, then it's the start of a list.
 /// The remaining bits carries the index of next value,
 /// and if those bits are 0 then there is no next set.
@@ -38,6 +49,12 @@ impl ListEntry {
 pub(crate) struct ListInfo(u16);
 
 impl ListInfo {
+    /// Reconstruct from a raw bit pattern. Lets a borrowed view rebuild a `ListInfo`
+    /// from either owned or archived bytes and reuse the bit logic below.
+    pub(crate) fn from_bits(bits: u16) -> Self {
+        Self(bits)
+    }
+
     pub(crate) fn head() -> Self {
         Self(0b1000_0000_0000_0000)
     }
@@ -86,6 +103,12 @@ impl ListInfo {
         let head = self.0 & 0b1000_0000_0000_0000;
         let new_num = reindex[num as usize].expect("Invalid reindex");
         Self(new_num | head)
+    }
+}
+
+impl ArchivedListInfo {
+    pub(crate) fn bits(&self) -> u16 {
+        self.0.to_native()
     }
 }
 

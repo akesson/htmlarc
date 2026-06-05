@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 fs-err = { workspace = true }
 htmlarc-dom = { workspace = true }
+memmap2 = "0.9"
 rkyv = { workspace = true }
 seahash = { workspace = true }
 thiserror = { workspace = true }

@@ -1,13 +1,13 @@
 pub(crate) use super::nodes::Nodes;
-use crate::css::AttributeSelector;
+use super::{DomRead, DomRef, DomView};
 use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
 use crate::stores::{
-    Attribute, AttributeStore, Class, ClassStore, DataAttributeStore, ListIndex, StringStack,
+    Attribute, AttributeStore, ClassStore, DataAttributeStore, ListIndex, StringStack,
 };
-use crate::{fmt::Spaces, html::HtmlAttr, html::HtmlTag};
+use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -30,67 +30,16 @@ impl Debug for DomInner {
 }
 
 impl DomInner {
-    /// Checks if the given node has the specified attributes
-    ///
-    /// # Arguments
-    /// - `node`: The index of the node to check
-    /// - `attrs`: The attributes to check for
-    pub(crate) fn has_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
-        if let Some(list_index) = self.nodes.attr_list_index(node) {
-            attrs
-                .iter()
-                .all(|a| self.attrs.list_at(list_index).any(|v| *a == v))
-        } else {
-            false
-        }
-    }
-
-    /// Checks if the given node has the specified classes
-    ///
-    /// # Arguments
-    /// - `node`: The index of the node to check
-    /// - `classes`: The classes to check for
-    pub(crate) fn has_classes<P>(&self, node: u16, classes: &[P]) -> bool
-    where
-        P: for<'a> PartialEq<Class<'a>>,
-    {
-        if let Some(list_index) = self.nodes.class_list_index(node) {
-            classes
-                .iter()
-                .all(|c| self.classes.list_at(list_index).any(|v| *c == v))
-        } else {
-            false
-        }
-    }
-
-    /// Checks if the given node has the specified data attributes
-    ///
-    /// # Arguments
-    /// - `node`: The index of the node to check
-    /// - `attrs`: The data attributes to check for
-    pub(crate) fn has_data_attributes(&self, node: u16, attrs: &[AttributeSelector]) -> bool {
-        if let Some(list_index) = self.nodes.data_attr_list_index(node) {
-            attrs
-                .iter()
-                .all(|a| self.dataattrs.list_at(list_index).any(|v| *a == v))
-        } else {
-            false
-        }
-    }
-
-    /// Checks if the given node has the specified id
-    ///
-    /// # Arguments
-    /// - `node`: The index of the node to check
-    /// - `id`: The id to check for
-    pub(crate) fn has_id(&self, index: u16, id: &str) -> bool {
-        if let Some(list_index) = self.nodes.attr_list_index(index) {
-            self.attrs
-                .list_at(list_index)
-                .any(|v| v.tag == HtmlAttr::id && v.val == id)
-        } else {
-            false
-        }
+    /// A borrowed read-only view over this document. The query layer reads through
+    /// [`DomView`] so it is agnostic to owned vs. archived storage.
+    pub(crate) fn view(&self) -> DomView<'_> {
+        DomView::new(
+            self.nodes.view(),
+            self.attrs.view(),
+            self.dataattrs.view(),
+            self.classes.view(),
+            self.strings.view(),
+        )
     }
 
     pub fn append_text_child(&mut self, tag: HtmlTag, index: u16, text: &str) -> u16 {
@@ -134,17 +83,8 @@ impl DomInner {
         index
     }
 
-    pub(crate) fn text(&self, index: u16) -> Option<&str> {
-        let tag = self.nodes.tag(index);
-        if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
-            Some(self.string_at(index))
-        } else {
-            None
-        }
-    }
     pub(crate) fn string_at(&self, index: u16) -> &str {
-        let r = self.nodes.text_range(index);
-        &self.strings[r]
+        self.view().string_at(index)
     }
 
     pub(crate) fn starts_with_space(&self, index: u16) -> bool {
@@ -382,7 +322,50 @@ impl DomInner {
     }
 
     pub fn to_html(&self, fmt: HtmlFormat) -> String {
-        fmt.to_html(self, 0)
+        fmt.to_html(self.view(), 0)
+    }
+}
+
+impl ArchivedDomInner {
+    /// A zero-copy [`DomView`] over the rkyv-archived document — every sub-view
+    /// borrows directly from the (mmap'd) archived bytes.
+    pub(crate) fn view(&self) -> DomView<'_> {
+        DomView::new(
+            self.nodes.view(),
+            self.attrs.view(),
+            self.dataattrs.view(),
+            self.classes.view(),
+            self.strings.view(),
+        )
+    }
+}
+
+impl Debug for ArchivedDomInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedDomInner")
+            .field("node count", &self.nodes.view().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl DomRead for ArchivedDomInner {
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.view())
+    }
+
+    fn root(&self) -> HtmlElement<'_, Self> {
+        HtmlElement::new(self, 0)
+    }
+
+    fn repackage(&self) -> DomInner {
+        rkyv::deserialize::<DomInner, rkyv::rancor::Error>(self)
+            .expect("archived DomInner must deserialize")
+    }
+}
+
+impl DomRef for ArchivedDomInner {
+    fn dom_view(&self) -> DomView<'_> {
+        self.view()
     }
 }
 
@@ -525,6 +508,66 @@ fn prune_empty_elements() {
         html.to_html(HtmlFormat::Raw),
         "",
         "Empty elements should be pruned along with all their ancestors that are empty"
+    );
+}
+
+// ============================================================================
+// [SPIKE] Zero-copy mmap feasibility — Part 1 (htmlarc-dom internals)
+//
+// Proves the load-bearing claim of the plan: the rkyv-*archived* form of a
+// `DomInner` exposes the very same byte slices the owned form uses, so a future
+// `DomView`/`NodesView` over `&[u8]`/`&str` works identically for both — no
+// per-document deserialization required to read.
+// ============================================================================
+#[test]
+fn spike_zero_copy_archived_dom() {
+    use rkyv::rancor::Error;
+
+    let html = r#"<body><h1 class="title" id="t">Hello</h1><p>world &amp; more</p></body>"#;
+    let dom: DomInner = HtmlDoc::parse(html).unwrap().inner();
+
+    // Serialize exactly as the archive does (`rkyv::to_bytes`).
+    let bytes = rkyv::to_bytes::<Error>(&dom).unwrap();
+
+    // SAFE, validated, zero-copy access. bytecheck is already compiled in
+    // (workspace does not set default-features=false), so this needs NO new
+    // flags/derives and returns Err — never UB — on a malformed buffer.
+    let archived: &ArchivedDomInner =
+        rkyv::access::<ArchivedDomInner, Error>(&bytes[..]).expect("safe access must succeed");
+
+    // (1) THE proof: the node-topology blob is byte-identical owned vs archived.
+    //     Every `Nodes` read accessor is `from_le_bytes` over this slice, so if the
+    //     bytes match, a view over `&[u8]` decodes identically for both backings.
+    assert_eq!(
+        dom.nodes.view().as_bytes(),
+        archived.nodes.view().as_bytes(),
+        "archived node blob must be byte-identical to owned"
+    );
+
+    // (2) Same for the text/comment string pool.
+    assert_eq!(
+        dom.strings.view().as_bytes(),
+        archived.strings.view().as_bytes()
+    );
+
+    // (3) Decode straight off the archived &[u8] with the real layout constants and
+    //     confirm it agrees with the owned accessor — i.e. a view would Just Work.
+    const NODE_SIZE: usize = 17;
+    let ab = archived.nodes.view().as_bytes();
+    assert!(ab.len().is_multiple_of(NODE_SIZE), "blob is a whole number of nodes");
+    assert_eq!(ab[0], dom.nodes.view().as_bytes()[0], "root tag byte matches");
+    assert_eq!(
+        ab[NODE_SIZE], dom.nodes.tag(1) as u8,
+        "node 1 (body) tag decodes identically off the archived slice"
+    );
+
+    // (4) Escape hatch for mutation: archived -> owned via rkyv::deserialize, and the
+    //     round-trip renders identically (this is what rebuild()/repackage() back).
+    let owned_again: DomInner = rkyv::deserialize::<DomInner, Error>(archived).unwrap();
+    assert_eq!(
+        dom.to_html(HtmlFormat::Raw),
+        owned_again.to_html(HtmlFormat::Raw),
+        "deserialized round-trip is identical"
     );
 }
 

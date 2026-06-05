@@ -1,5 +1,5 @@
 use crate::{
-    dom::DomInner,
+    dom::DomView,
     fmt::{
         fmt_buf::FmtBuf,
         iter::{ElementInfo, Inliner, TagStage},
@@ -35,19 +35,19 @@ impl Inline {
 }
 
 pub struct PrettyFormat<'dom> {
-    dom: &'dom DomInner,
+    dom: DomView<'dom>,
     buf: FmtBuf,
     inline: Inline,
     prev_index: u16,
 }
-impl CommonFormatting for PrettyFormat<'_> {
-    fn dom_and_buf(&mut self) -> (&DomInner, &mut FmtBuf) {
+impl<'dom> CommonFormatting<'dom> for PrettyFormat<'dom> {
+    fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf) {
         (self.dom, &mut self.buf)
     }
 }
 
 impl<'dom> PrettyFormat<'dom> {
-    pub fn new(dom: &'dom DomInner) -> Self {
+    pub fn new(dom: DomView<'dom>) -> Self {
         Self {
             dom,
             buf: Default::default(),
@@ -58,8 +58,8 @@ impl<'dom> PrettyFormat<'dom> {
 
     pub fn html(mut self, index: u16) -> String {
         for info in Inliner::new(self.dom, index) {
-            let tag = info.element.tag();
-            let index = info.element.index();
+            let tag = info.tag();
+            let index = info.index();
             self.inline.next(info.in_inline_sequence);
 
             match info.stage {
@@ -89,7 +89,7 @@ impl<'dom> PrettyFormat<'dom> {
     }
 
     fn add_start_tag(&mut self, info: ElementInfo, tag: HtmlTag) {
-        let index = info.element.index();
+        let index = info.index();
         match self.inline {
             Inline::Start => {
                 self.buf.newline();
@@ -114,7 +114,7 @@ impl<'dom> PrettyFormat<'dom> {
         if tag.no_close() {
             return;
         }
-        let no_children = self.prev_index == info.element.index();
+        let no_children = self.prev_index == info.index();
 
         if matches!(self.inline, Inline::Ended | Inline::None) && !no_children {
             self.buf.newline_and_indent(info.depth);
