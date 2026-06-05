@@ -133,3 +133,34 @@ fn select_css() {
         assert_snapshot!(print_elements(selected));
     });
 }
+
+#[test]
+fn select_css_surfaces_positional_parse_error() {
+    use crate::css::Diagnostic;
+
+    let doc = HtmlDoc::parse("<body><a></a></body>").unwrap().dom();
+    // A malformed selector returns the rich `css::ParseError` directly, not a
+    // flattened string — so `diagnosis()` can still render the offending input
+    // with an ANSI underline at the error position.
+    let err = match doc.root().select_css("a[") {
+        Ok(_) => panic!("expected a parse error for malformed selector"),
+        Err(e) => e,
+    };
+    let diag = err.diagnosis("a[");
+    assert!(
+        diag.contains('\u{1b}'),
+        "expected an ANSI-underlined positional diagnostic, got: {diag:?}"
+    );
+
+    // The convenience boolean matcher threads the same error type, and returns a
+    // bool for a valid selector.
+    assert!(doc.root().matches_css("a[").is_err());
+    let a = doc
+        .root()
+        .select_css("a")
+        .unwrap()
+        .next()
+        .expect("an <a> element");
+    assert!(a.matches_css("a").unwrap());
+    assert!(!a.matches_css("p").unwrap());
+}
