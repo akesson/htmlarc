@@ -147,3 +147,32 @@ fn mmap_archive_is_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<MmapArchive>();
 }
+
+#[test]
+fn archive_trait_and_filter_work_generically() {
+    use htmlarc_format::{Archive, ArchiveEntry, Filter};
+
+    // One generic routine over the shared trait runs against both backings.
+    fn keys_with_h1<A: Archive>(archive: &A) -> Vec<String> {
+        let filter = Filter::new(vec!["css:h1".to_string()], vec![]).unwrap();
+        archive
+            .entries_matching(&filter)
+            .map(|e| e.key().to_string())
+            .collect()
+    }
+
+    let path = temp_path("trait_filter");
+    sample_archive().write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    // Only the `alpha` document has an <h1>; both backings agree via the trait.
+    assert_eq!(keys_with_h1(&owned), vec!["alpha".to_string()]);
+    assert_eq!(keys_with_h1(&mmap), vec!["alpha".to_string()]);
+
+    // is_empty parity (HtmlArchive gained it; MmapArchive already had it).
+    assert!(!owned.is_empty() && !mmap.is_empty());
+
+    std::fs::remove_file(&path).ok();
+}

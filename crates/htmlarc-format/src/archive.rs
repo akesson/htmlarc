@@ -65,8 +65,8 @@ impl HtmlArchive {
         self.entries.into_iter()
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.entries.iter().map(|e| &e.key)
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|e| e.key.as_str())
     }
 
     pub fn get(&self, key: &str) -> Option<&HtmlEntry> {
@@ -83,9 +83,12 @@ impl HtmlArchive {
         Some(&self.entries[found])
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     pub fn from_vec(entries: Vec<HtmlEntry>) -> Self {
@@ -131,5 +134,21 @@ impl Index<usize> for HtmlArchive {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.entries[index]
+    }
+}
+
+impl crate::Archive for HtmlArchive {
+    type Entry = HtmlEntry;
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn get(&self, key: &str) -> Option<&HtmlEntry> {
+        HtmlArchive::get(self, key)
+    }
+
+    fn entries(&self) -> impl Iterator<Item = &HtmlEntry> {
+        self.entries.iter()
     }
 }

@@ -34,6 +34,14 @@ impl HtmlEntry {
         }
     }
 
+    pub fn key(&self) -> &str {
+        self.key.as_str()
+    }
+
+    pub fn checksum(&self) -> u64 {
+        self.checksum
+    }
+
     pub fn root(&self) -> HtmlElement<'_, DomInner> {
         self.html.root()
     }
@@ -43,6 +51,10 @@ impl HtmlEntry {
             .root()
             .forwards()
             .find(|element| element.tag() == HtmlTag::body)
+    }
+
+    pub fn to_html(&self, fmt: HtmlFormat) -> String {
+        self.html.to_html(fmt)
     }
 }
 
@@ -92,5 +104,37 @@ impl Ord for HtmlEntry {
 impl PartialOrd for HtmlEntry {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl crate::ArchiveEntry for HtmlEntry {
+    type Dom = DomInner;
+
+    fn key(&self) -> &str {
+        self.key.as_str()
+    }
+
+    fn checksum(&self) -> u64 {
+        self.checksum
+    }
+
+    fn dom(&self) -> &DomInner {
+        &self.html
+    }
+}
+
+impl crate::ArchiveEntry for ArchivedHtmlEntry {
+    type Dom = ArchivedDomInner;
+
+    fn key(&self) -> &str {
+        self.key.as_str()
+    }
+
+    fn checksum(&self) -> u64 {
+        self.checksum.to_native()
+    }
+
+    fn dom(&self) -> &ArchivedDomInner {
+        &self.html
     }
 }
