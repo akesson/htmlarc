@@ -1,5 +1,5 @@
 use super::lines::Lines;
-use crate::error::{ParseResult, SelectorError};
+use crate::error::{HtmlParseResult, HtmlParseError};
 use std::{ops::Range, str::CharIndices};
 
 #[derive(Debug)]
@@ -53,9 +53,9 @@ impl<'a> Chars<'a> {
         &self.string[start..self.index]
     }
 
-    pub fn err<S: ToString>(&self, msg: S) -> SelectorError {
+    pub fn err<S: ToString>(&self, msg: S) -> HtmlParseError {
         let err_info = self.location_info();
-        SelectorError::Parsing(format!("{}, at:\n{err_info}", msg.to_string()))
+        HtmlParseError::Parsing(format!("{}, at:\n{err_info}", msg.to_string()))
     }
 
     pub fn location_info(&self) -> String {
@@ -75,7 +75,7 @@ impl<'a> Chars<'a> {
         }
         s
     }
-    pub fn find_sequence<const N: usize>(&mut self, seq: [char; N]) -> ParseResult<usize> {
+    pub fn find_sequence<const N: usize>(&mut self, seq: [char; N]) -> HtmlParseResult<usize> {
         let mut start = self.index;
         let mut sequence_index = 0;
         let mut c = self.current;
@@ -97,7 +97,7 @@ impl<'a> Chars<'a> {
         Err(self.err(format!("Sequence not found: {:?}", seq)))
     }
 
-    pub fn find<F: Fn(char) -> bool>(&mut self, cond: F) -> ParseResult<usize> {
+    pub fn find<F: Fn(char) -> bool>(&mut self, cond: F) -> HtmlParseResult<usize> {
         if cond(self.current()) {
             return Ok(self.index);
         }
@@ -109,7 +109,7 @@ impl<'a> Chars<'a> {
         Err(self.err("Not found"))
     }
 
-    pub fn assert_sequence<const N: usize>(&mut self, seq: [char; N]) -> ParseResult<()> {
+    pub fn assert_sequence<const N: usize>(&mut self, seq: [char; N]) -> HtmlParseResult<()> {
         let mut c = self.current;
         let mut sequence_index = 0;
         loop {
@@ -129,7 +129,7 @@ impl<'a> Chars<'a> {
         Err(self.err("Not found"))
     }
 
-    pub fn assert_next<F: Fn(char) -> bool>(&mut self, cond: F) -> ParseResult<()> {
+    pub fn assert_next<F: Fn(char) -> bool>(&mut self, cond: F) -> HtmlParseResult<()> {
         let Some(c) = self.next() else {
             return Err(self.err("Unexpected end"));
         };
@@ -142,7 +142,7 @@ impl<'a> Chars<'a> {
     }
 
     /// assert current char
-    pub fn assert_curr<F: Fn(char) -> bool>(&mut self, cond: F) -> ParseResult<()> {
+    pub fn assert_curr<F: Fn(char) -> bool>(&mut self, cond: F) -> HtmlParseResult<()> {
         let c = self.current;
         if !cond(c) {
             Err(self.err(format!("Unexpected character '{c}'")))
@@ -179,7 +179,7 @@ impl<'a> Chars<'a> {
         self.next().map(|_| self.index())
     }
 
-    pub fn str_until<F: Fn(char) -> bool>(&mut self, from: usize, cond: F) -> ParseResult<&'a str> {
+    pub fn str_until<F: Fn(char) -> bool>(&mut self, from: usize, cond: F) -> HtmlParseResult<&'a str> {
         self.find(cond).map(|_| self.str_from(from))
     }
 

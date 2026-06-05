@@ -12,30 +12,30 @@ use crate::{
 };
 
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum SelectorError {
+pub enum HtmlParseError {
     #[error("{0}")]
     Parsing(String),
     #[error("{0}\n{1}")]
     WithContext(String, Box<Self>),
 }
 
-impl SelectorError {
+impl HtmlParseError {
     pub fn new<S: ToString>(msg: S) -> Self {
-        SelectorError::Parsing(msg.to_string())
+        HtmlParseError::Parsing(msg.to_string())
     }
 }
 
-pub type ParseResult<T> = std::result::Result<T, SelectorError>;
+pub type HtmlParseResult<T> = std::result::Result<T, HtmlParseError>;
 
 pub trait Context {
     fn context<S: ToString>(self, context: S) -> Self;
     fn with_context<F: FnOnce() -> String>(self, context: F) -> Self;
 }
 
-impl<T> Context for ParseResult<T> {
+impl<T> Context for HtmlParseResult<T> {
     fn context<S: ToString>(self, context: S) -> Self {
         if let Err(e) = self {
-            Err(SelectorError::WithContext(context.to_string(), Box::new(e)))
+            Err(HtmlParseError::WithContext(context.to_string(), Box::new(e)))
         } else {
             self
         }
@@ -43,7 +43,7 @@ impl<T> Context for ParseResult<T> {
 
     fn with_context<F: FnOnce() -> String>(self, context: F) -> Self {
         if let Err(e) = self {
-            Err(SelectorError::WithContext(context(), Box::new(e)))
+            Err(HtmlParseError::WithContext(context(), Box::new(e)))
         } else {
             self
         }

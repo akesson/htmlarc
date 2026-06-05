@@ -1,5 +1,5 @@
 use crate::{
-    ParseResult,
+    HtmlParseResult,
     parser::{Chars, DomBuilder, DomBuilderCursor, parse_doc},
     prelude::*,
 };
@@ -24,7 +24,7 @@ impl HtmlDoc {
         self.dom
     }
 
-    pub fn parse(input: &str) -> ParseResult<Self> {
+    pub fn parse(input: &str) -> HtmlParseResult<Self> {
         let mut builder = DomBuilderCursor::default();
         let mut chars = Chars::new(input);
         parse_doc(&mut builder, &mut chars)?;
@@ -32,7 +32,7 @@ impl HtmlDoc {
     }
 
     #[cfg(test)]
-    pub fn test_parse(input: &str) -> ParseResult<String> {
+    pub fn test_parse(input: &str) -> HtmlParseResult<String> {
         let mut dom = crate::parser::TestDom::default();
         let mut chars = Chars::new(input);
         parse_doc(&mut dom, &mut chars)?;

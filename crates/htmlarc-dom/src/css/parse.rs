@@ -1,4 +1,4 @@
-use crate::{SelectorError, css::Diagnostic, html::HtmlTag};
+use crate::{css::Diagnostic, html::HtmlTag};
 
 use super::{
     ClassSelector, Combinator, ComplexSelector, CompoundSelector, IdSelector, ParseResult,

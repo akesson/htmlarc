@@ -3,7 +3,7 @@
 //!
 use super::{DomStack, chars::Chars};
 use crate::html::HtmlAttr;
-use crate::{Context, ParseResult};
+use crate::{Context, HtmlParseResult};
 
 /// Pre-condition: chars is positioned on the first character after the tag.
 ///
@@ -12,7 +12,7 @@ use crate::{Context, ParseResult};
 pub fn parse_attributes<'a, Dom: DomStack<'a>>(
     dom: &mut Dom,
     chars: &mut Chars<'a>,
-) -> ParseResult<()> {
+) -> HtmlParseResult<()> {
     loop {
         chars.skip_whitespaces();
         let mut c = chars.current();
@@ -35,7 +35,7 @@ pub fn parse_attributes<'a, Dom: DomStack<'a>>(
 /// Pre-condition: chars is positioned on the first character of the attribute name.
 ///
 /// Post-condition: chars is positioned on the first character after the attribute.
-fn parse_attribute<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars<'a>) -> ParseResult<()> {
+fn parse_attribute<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars<'a>) -> HtmlParseResult<()> {
     let start = chars.index();
     chars
         .find(attr_name_end)

@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::dom::NodeIndex;
 use crate::html::{HtmlAttr, HtmlTag};
 
-use crate::{ParseResult, SelectorError};
+use crate::{HtmlParseResult, HtmlParseError};
 
 pub trait DomStack<'a> {
     fn push_tag(&mut self, tag: HtmlTag) {
@@ -31,10 +31,10 @@ pub trait DomStack<'a> {
 
     fn add_data_attribute(&mut self, attribute: &str, value: &str);
 
-    fn pop_tag(&mut self, tag: HtmlTag) -> ParseResult<()> {
+    fn pop_tag(&mut self, tag: HtmlTag) -> HtmlParseResult<()> {
         let popped = self
             ._pop_tag()
-            .ok_or(SelectorError::new("Closing a tag, but none open"))?;
+            .ok_or(HtmlParseError::new("Closing a tag, but none open"))?;
         if tag == popped {
             return Ok(());
         }
@@ -42,7 +42,7 @@ pub trait DomStack<'a> {
         if parent == tag && popped.auto_close_when_parent(parent) {
             return Ok(());
         }
-        Err(SelectorError::new(format!(
+        Err(HtmlParseError::new(format!(
             "Expected tag '{tag}', but found stack '{} > {popped}'",
             self.stack_info()
         )))
