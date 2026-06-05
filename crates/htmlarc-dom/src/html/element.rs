@@ -4,7 +4,7 @@ use crate::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
     css::{self, AttributeSelector, SelectorList},
-    dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, Nodes, NodesView},
+    dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
     html::HtmlTag,
@@ -26,16 +26,19 @@ pub enum ElementType<'dom> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HtmlElement<'dom, Dom> {
     pub(crate) dom: &'dom Dom,
-    pub(crate) index: u16,
+    pub(crate) index: NodeIndex,
 }
 
 impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
-    pub fn new(dom: &'dom Dom, index: u16) -> Self {
+    pub fn new(dom: &'dom Dom, index: NodeIndex) -> Self {
         Self { dom, index }
     }
 
     pub fn root(dom: &'dom Dom) -> Self {
-        Self { dom, index: 0 }
+        Self {
+            dom,
+            index: NodeIndex::ROOT,
+        }
     }
 
     pub fn dom(&self) -> &'dom Dom {
@@ -46,7 +49,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.dom.with_view(|view| f(view.nodes))
     }
 
-    fn with_nodes_new<F: Fn(NodesView) -> Option<u16>>(&self, f: F) -> Option<Self> {
+    fn with_nodes_new<F: Fn(NodesView) -> Option<NodeIndex>>(&self, f: F) -> Option<Self> {
         self.dom
             .with_view(|view| f(view.nodes).map(|index| self.new_with_index(index)))
     }
@@ -55,11 +58,11 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.dom.with_view(f)
     }
 
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> NodeIndex {
         self.index
     }
 
-    fn new_with_index(&self, index: u16) -> Self {
+    fn new_with_index(&self, index: NodeIndex) -> Self {
         Self::new(self.dom, index)
     }
 
@@ -258,7 +261,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     pub fn is_root(&self) -> bool {
-        self.index() == 0
+        self.index() == NodeIndex::ROOT
     }
 
     pub fn has_no_children(&self) -> bool {
@@ -388,7 +391,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         HtmlElement::new(dom, self.index())
     }
 
-    fn edit<F: Fn(&mut Nodes) -> u16>(&self, f: F) -> Self {
+    fn edit<F: Fn(&mut Nodes) -> NodeIndex>(&self, f: F) -> Self {
         self.dom
             .with_mut(|dom| self.new_with_index(f(&mut dom.nodes)))
     }
@@ -409,7 +412,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         self.edit(|nodes| nodes.add_as_last_child(self.index(), tag))
     }
 
-    pub fn append_text_child(&self, text: &str) -> u16 {
+    pub fn append_text_child(&self, text: &str) -> NodeIndex {
         self.dom
             .with_mut(|dom| dom.append_text_child(HtmlTag::sys_text, self.index(), text))
     }
@@ -419,7 +422,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
             .with_mut(|dom| dom.replace_text(self.index(), text))
     }
 
-    pub fn append_comment_child(&self, text: &str) -> u16 {
+    pub fn append_comment_child(&self, text: &str) -> NodeIndex {
         self.dom
             .with_mut(|dom| dom.append_text_child(HtmlTag::sys_comment, self.index(), text))
     }
@@ -441,7 +444,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
     }
 
     /// Replaces the current node with another one from the tree,
-    pub fn replace_with(&self, new_index: u16) -> Option<Self> {
+    pub fn replace_with(&self, new_index: NodeIndex) -> Option<Self> {
         let index = self.index();
         self.dom.with_mut(|dom| dom.replace_with(index, new_index));
 

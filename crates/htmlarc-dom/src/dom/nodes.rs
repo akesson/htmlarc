@@ -5,56 +5,176 @@ use std::{
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::dom::NodeIndex;
 use crate::html::HtmlTag;
 use crate::stores::ListIndex;
 
-/// An html node consists of bytes:
-/// 0  HtmlTag
-/// 1-2 parent index
-/// 3-4 prev sibling index
-/// 5-6 next sibling index
-/// 7-8 first child index
-/// 9-10 last child index
-/// 11-12 class list index
-/// 13-14 attr list index
-/// 15-16 data attr list index
+/// Per-document node-index width.
 ///
-/// A text or comment node consists of bytes:
-/// 0   255: text, 254: comment
-/// 1-2 parent index
-/// 3-4 prev sibling index
-/// 5-6 next sibling index
-/// 7-10 text start
-/// 11-14 text end
-/// 15-16 not used
-const PARENT_OFFSET: usize = 1;
-const PREV_SIBLING_OFFSET: usize = 3;
-const NEXT_SIBLING_OFFSET: usize = 5;
-const FIRST_CHILD_OFFSET: usize = 7;
-const LAST_CHILD_OFFSET: usize = 9;
-const CLASS_LIST_OFFSET: usize = 11;
-const ATTR_LIST_OFFSET: usize = 13;
-const DATA_ATTR_OFFSET: usize = 15;
-const TEXT_START_OFFSET: usize = 7;
-const TEXT_END_OFFSET: usize = 11;
-const NODE_SIZE: usize = 17;
+/// Node links (parent/prev/next/first-child/last-child) are packed either 2 bytes
+/// (`U16`) or 3 bytes (`U24`) wide. Documents are *always built* at [`NodeWidth::U24`]
+/// (lifting the old 65,535-node ceiling to ~16.7M); at serialize time small ones are
+/// down-packed to `U16` (see [`Nodes::into_optimal_width`]). Store-list indices
+/// (class/attr/data) and the text-node `u32` offsets keep their own fixed widths —
+/// only their *byte offsets* shift with the node width.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum NodeWidth {
+    U16,
+    U24,
+}
 
-/// Encapsulates a byte vector, which is manipulated with index,
-/// where each index represents a node in the tree.
+const WIDTH_U16: u8 = 0;
+const WIDTH_U24: u8 = 1;
+
+impl NodeWidth {
+    const fn from_u8(v: u8) -> Self {
+        if v == WIDTH_U24 {
+            NodeWidth::U24
+        } else {
+            NodeWidth::U16
+        }
+    }
+
+    const fn as_u8(self) -> u8 {
+        match self {
+            NodeWidth::U16 => WIDTH_U16,
+            NodeWidth::U24 => WIDTH_U24,
+        }
+    }
+
+    /// Bytes per node-link slot.
+    const fn slot(self) -> usize {
+        match self {
+            NodeWidth::U16 => 2,
+            NodeWidth::U24 => 3,
+        }
+    }
+
+    /// The all-ones "no node" sentinel for this width.
+    const fn sentinel(self) -> u32 {
+        match self {
+            NodeWidth::U16 => 0xFFFF,
+            NodeWidth::U24 => 0x00FF_FFFF,
+        }
+    }
+
+    /// Total bytes per node record. Driven by the (larger) element layout:
+    /// `tag(1) + 5 link slots + 3 store slots (2 bytes each)` = `7 + 5*slot`.
+    /// (`U16` → 17, `U24` → 22.) Text/comment nodes fit within this stride.
+    const fn node_size(self) -> usize {
+        7 + 5 * self.slot()
+    }
+
+    const fn parent(self) -> usize {
+        1
+    }
+    const fn prev(self) -> usize {
+        1 + self.slot()
+    }
+    const fn next(self) -> usize {
+        1 + 2 * self.slot()
+    }
+    const fn first(self) -> usize {
+        1 + 3 * self.slot()
+    }
+    const fn last(self) -> usize {
+        1 + 4 * self.slot()
+    }
+    const fn class(self) -> usize {
+        1 + 5 * self.slot()
+    }
+    const fn attr(self) -> usize {
+        1 + 5 * self.slot() + 2
+    }
+    const fn data(self) -> usize {
+        1 + 5 * self.slot() + 4
+    }
+    // Text/comment nodes overlay a u32 start/end onto the first-child slot region.
+    const fn text_start(self) -> usize {
+        1 + 3 * self.slot()
+    }
+    const fn text_end(self) -> usize {
+        1 + 3 * self.slot() + 4
+    }
+}
+
+/// Save as `U16` only with a 10% margin under the `u16` ceiling (= 58,981), so a
+/// loaded compact document keeps edit headroom before it would need `U24`.
+const DOWNPACK_MARGIN: usize = (0xFFFF * 9) / 10;
+
+// ---- width-aware byte (un)packing over a flat node blob ----
+
+fn read_node_slot(bytes: &[u8], pos: usize, width: NodeWidth) -> Option<NodeIndex> {
+    // explicit fixed-size reads per width let the compiler emit a single load
+    // rather than a byte-at-a-time loop (this is the read hot path).
+    let v = match width {
+        NodeWidth::U16 => u16::from_le_bytes([bytes[pos], bytes[pos + 1]]) as u32,
+        NodeWidth::U24 => {
+            (bytes[pos] as u32) | ((bytes[pos + 1] as u32) << 8) | ((bytes[pos + 2] as u32) << 16)
+        }
+    };
+    if v == width.sentinel() {
+        None
+    } else {
+        Some(NodeIndex::new(v))
+    }
+}
+
+fn write_node_slot(bytes: &mut [u8], pos: usize, width: NodeWidth, val: Option<NodeIndex>) {
+    let v = match val {
+        Some(n) => n.as_u32(),
+        None => width.sentinel(),
+    };
+    match width {
+        NodeWidth::U16 => {
+            bytes[pos] = v as u8;
+            bytes[pos + 1] = (v >> 8) as u8;
+        }
+        NodeWidth::U24 => {
+            bytes[pos] = v as u8;
+            bytes[pos + 1] = (v >> 8) as u8;
+            bytes[pos + 2] = (v >> 16) as u8;
+        }
+    }
+}
+
+fn read_u16_slot(bytes: &[u8], pos: usize) -> Option<u16> {
+    opt_u16([bytes[pos], bytes[pos + 1]])
+}
+
+fn write_u16_slot(bytes: &mut [u8], pos: usize, val: Option<u16>) {
+    let v = val.unwrap_or(u16::MAX);
+    bytes[pos] = v as u8;
+    bytes[pos + 1] = (v >> 8) as u8;
+}
+
+fn read_u32_slot(bytes: &[u8], pos: usize) -> u32 {
+    u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+}
+
+fn write_u32_slot(bytes: &mut [u8], pos: usize, v: u32) {
+    bytes[pos..pos + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Encapsulates a byte vector, manipulated by index, where each index represents a
+/// node in the tree. `width` records whether node links are packed 2 or 3 bytes wide.
 #[derive(Archive, Deserialize, Serialize, PartialEq, Hash, Clone)]
 pub(crate) struct Nodes {
+    /// Node-link width: [`WIDTH_U16`] or [`WIDTH_U24`].
+    width: u8,
     bytes: Vec<u8>,
 }
 
 /// A borrowed, read-only view over the node-topology blob.
 ///
-/// The blob is a flat `[u8]` of fixed-width 17-byte records read with
-/// `from_le_bytes`, so the exact same view serves the owned `Nodes` (via
-/// [`Nodes::view`]) and the rkyv-archived `ArchivedNodes` (whose `ArchivedVec<u8>`
-/// derefs to the byte-identical `&[u8]`). This is what makes zero-copy querying of
-/// an mmap'd archive possible without re-parsing or deserializing.
+/// The blob is a flat `[u8]` of fixed-width node records read with `from_le_bytes`,
+/// so the exact same view serves the owned `Nodes` (via [`Nodes::view`]) and the
+/// rkyv-archived `ArchivedNodes` (whose `ArchivedVec<u8>` derefs to the
+/// byte-identical `&[u8]`). This is what makes zero-copy querying of an mmap'd
+/// archive possible without re-parsing or deserializing — at either width.
 #[derive(Clone, Copy)]
 pub(crate) struct NodesView<'a> {
+    width: NodeWidth,
     bytes: &'a [u8],
 }
 
@@ -64,100 +184,98 @@ impl<'a> NodesView<'a> {
         self.bytes
     }
 
-    pub fn len(&self) -> usize {
-        self.bytes.len() / NODE_SIZE
+    fn base(&self, index: NodeIndex) -> usize {
+        index.as_usize() * self.width.node_size()
     }
 
-    pub fn is_string_node(&self, index: u16) -> bool {
+    pub fn len(&self) -> usize {
+        self.bytes.len() / self.width.node_size()
+    }
+
+    pub fn is_string_node(&self, index: NodeIndex) -> bool {
         let tag = self.tag(index);
         tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment
     }
 
-    pub fn is_inline_element(&self, index: u16) -> bool {
+    pub fn is_inline_element(&self, index: NodeIndex) -> bool {
         self.tag(index).is_inline_element()
     }
 
-    pub fn is_block_element(&self, index: u16) -> bool {
+    pub fn is_block_element(&self, index: NodeIndex) -> bool {
         self.tag(index).is_block_element()
     }
 
-    pub fn tag(&self, index: u16) -> HtmlTag {
-        HtmlTag::from_repr(self.bytes[index as usize * NODE_SIZE]).unwrap()
+    pub fn tag(&self, index: NodeIndex) -> HtmlTag {
+        HtmlTag::from_repr(self.bytes[self.base(index)]).unwrap()
     }
 
-    pub fn parent_index(&self, index: u16) -> Option<u16> {
-        self.opt_u16_at(index, PARENT_OFFSET)
+    pub fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+        read_node_slot(
+            self.bytes,
+            self.base(index) + self.width.parent(),
+            self.width,
+        )
     }
 
-    pub fn prev_sibling_index(&self, index: u16) -> Option<u16> {
-        self.opt_u16_at(index, PREV_SIBLING_OFFSET)
+    pub fn prev_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+        read_node_slot(self.bytes, self.base(index) + self.width.prev(), self.width)
     }
 
-    pub fn next_sibling_index(&self, index: u16) -> Option<u16> {
-        self.opt_u16_at(index, NEXT_SIBLING_OFFSET)
+    pub fn next_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+        read_node_slot(self.bytes, self.base(index) + self.width.next(), self.width)
     }
 
-    pub fn first_child_index(&self, index: u16) -> Option<u16> {
+    pub fn first_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         match self.is_string_node(index) {
             true => None,
-            false => self.opt_u16_at(index, FIRST_CHILD_OFFSET),
+            false => read_node_slot(
+                self.bytes,
+                self.base(index) + self.width.first(),
+                self.width,
+            ),
         }
     }
 
-    pub fn last_child_index(&self, index: u16) -> Option<u16> {
+    pub fn last_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         match self.is_string_node(index) {
             true => None,
-            false => self.opt_u16_at(index, LAST_CHILD_OFFSET),
+            false => read_node_slot(self.bytes, self.base(index) + self.width.last(), self.width),
         }
     }
 
-    pub fn text_range(&self, index: u16) -> Range<u32> {
+    pub fn text_range(&self, index: NodeIndex) -> Range<u32> {
         debug_assert!(self.is_string_node(index));
-        let start = self.u32_at(index, TEXT_START_OFFSET);
-        let end = self.u32_at(index, TEXT_END_OFFSET);
+        let base = self.base(index);
+        let start = read_u32_slot(self.bytes, base + self.width.text_start());
+        let end = read_u32_slot(self.bytes, base + self.width.text_end());
         start..end
     }
 
-    pub fn class_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn class_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, CLASS_LIST_OFFSET).map(ListIndex::from)
+            read_u16_slot(self.bytes, self.base(index) + self.width.class()).map(ListIndex::from)
         }
     }
 
-    pub fn attr_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, ATTR_LIST_OFFSET).map(ListIndex::from)
+            read_u16_slot(self.bytes, self.base(index) + self.width.attr()).map(ListIndex::from)
         }
     }
 
-    pub fn data_attr_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn data_attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         if self.is_string_node(index) {
             None
         } else {
-            self.opt_u16_at(index, DATA_ATTR_OFFSET).map(ListIndex::from)
+            read_u16_slot(self.bytes, self.base(index) + self.width.data()).map(ListIndex::from)
         }
     }
 
-    fn u32_at(&self, index: u16, offset: usize) -> u32 {
-        let pos = index as usize * NODE_SIZE + offset;
-        u32::from_le_bytes([
-            self.bytes[pos],
-            self.bytes[pos + 1],
-            self.bytes[pos + 2],
-            self.bytes[pos + 3],
-        ])
-    }
-
-    fn opt_u16_at(&self, index: u16, offset: usize) -> Option<u16> {
-        let pos = index as usize * NODE_SIZE + offset;
-        opt_u16([self.bytes[pos], self.bytes[pos + 1]])
-    }
-
-    pub(crate) fn dbg_table_string(&self, index: u16) -> String {
+    pub(crate) fn dbg_table_string(&self, index: NodeIndex) -> String {
         format!(
             "[{:2}] {ps}  {ns}  {fc}  {lc}   {level}{tag:?}",
             index,
@@ -170,7 +288,7 @@ impl<'a> NodesView<'a> {
         )
     }
 
-    fn parent_list(&self, mut index: u16) -> Vec<String> {
+    fn parent_list(&self, mut index: NodeIndex) -> Vec<String> {
         let mut list = Vec::new();
         while let Some(parent) = self.parent_index(index) {
             list.push(format!("{parent:<2} > "));
@@ -188,78 +306,95 @@ impl Default for Nodes {
 }
 
 impl Nodes {
-    /// create a new nodevec with a root node
+    /// create a new nodevec with a root node (always at u24 width)
     pub fn new() -> Self {
-        let mut me = Self { bytes: Vec::new() };
+        let mut me = Self {
+            width: NodeWidth::U24.as_u8(),
+            bytes: Vec::new(),
+        };
         me.add_node(HtmlTag::sys_root, None, None, None);
         me
     }
 
     pub(crate) fn new_based_on(nodes: &Nodes) -> Self {
         let bytes = Vec::with_capacity(nodes.bytes.len());
-        Self { bytes }
+        Self {
+            width: NodeWidth::U24.as_u8(),
+            bytes,
+        }
+    }
+
+    fn width(&self) -> NodeWidth {
+        NodeWidth::from_u8(self.width)
+    }
+
+    fn base(&self, index: NodeIndex) -> usize {
+        index.as_usize() * self.width().node_size()
     }
 
     /// A borrowed read-only view over the node blob. All read accessors live on
     /// [`NodesView`] so the identical logic serves both the owned `Vec<u8>` and the
     /// rkyv-archived `ArchivedVec<u8>` (which is byte-identical).
     pub(crate) fn view(&self) -> NodesView<'_> {
-        NodesView { bytes: &self.bytes }
+        NodesView {
+            width: self.width(),
+            bytes: &self.bytes,
+        }
     }
 
     pub fn len(&self) -> usize {
         self.view().len()
     }
 
-    pub fn is_string_node(&self, index: u16) -> bool {
+    pub fn is_string_node(&self, index: NodeIndex) -> bool {
         self.view().is_string_node(index)
     }
 
-    pub fn is_inline_element(&self, index: u16) -> bool {
+    pub fn is_inline_element(&self, index: NodeIndex) -> bool {
         self.view().is_inline_element(index)
     }
 
-    pub fn is_block_element(&self, index: u16) -> bool {
+    pub fn is_block_element(&self, index: NodeIndex) -> bool {
         self.view().is_block_element(index)
     }
 
-    pub fn tag(&self, index: u16) -> HtmlTag {
+    pub fn tag(&self, index: NodeIndex) -> HtmlTag {
         self.view().tag(index)
     }
 
-    pub fn parent_index(&self, index: u16) -> Option<u16> {
+    pub fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().parent_index(index)
     }
 
-    pub fn prev_sibling_index(&self, index: u16) -> Option<u16> {
+    pub fn prev_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().prev_sibling_index(index)
     }
 
-    pub fn next_sibling_index(&self, index: u16) -> Option<u16> {
+    pub fn next_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().next_sibling_index(index)
     }
 
-    pub fn first_child_index(&self, index: u16) -> Option<u16> {
+    pub fn first_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().first_child_index(index)
     }
 
-    pub fn last_child_index(&self, index: u16) -> Option<u16> {
+    pub fn last_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().last_child_index(index)
     }
 
-    pub fn class_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn class_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         self.view().class_list_index(index)
     }
 
-    pub fn attr_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         self.view().attr_list_index(index)
     }
 
-    pub fn data_attr_list_index(&self, index: u16) -> Option<ListIndex> {
+    pub fn data_attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
         self.view().data_attr_list_index(index)
     }
 
-    pub fn add_as_next_sibling(&mut self, index: u16, tag: HtmlTag) -> u16 {
+    pub fn add_as_next_sibling(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
         let parent_index = self.parent_index(index);
         let prev_sibling = Some(index);
         let next_sibling = self.next_sibling_index(index);
@@ -283,7 +418,7 @@ impl Nodes {
         new_next_sibling
     }
 
-    pub fn add_as_prev_sibling(&mut self, index: u16, tag: HtmlTag) -> u16 {
+    pub fn add_as_prev_sibling(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
         let parent_index = self.parent_index(index);
         let prev_sibling = self.prev_sibling_index(index);
         let next_sibling = Some(index);
@@ -307,7 +442,7 @@ impl Nodes {
         new_prev_node
     }
 
-    pub fn add_as_first_child(&mut self, index: u16, tag: HtmlTag) -> u16 {
+    pub fn add_as_first_child(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
         let parent_index = Some(index);
         let next_sibling = self.first_child_index(index);
 
@@ -328,7 +463,7 @@ impl Nodes {
         new_index
     }
 
-    pub fn add_as_last_child(&mut self, index: u16, tag: HtmlTag) -> u16 {
+    pub fn add_as_last_child(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
         // the added node parent is the current node and the previous sibling is the current last child
         let parent_index = Some(index);
         let prev_sibling = self.last_child_index(index);
@@ -348,12 +483,12 @@ impl Nodes {
         new_index
     }
 
-    fn join(&mut self, prev_sibling: u16, next_sibling: u16) {
+    fn join(&mut self, prev_sibling: NodeIndex, next_sibling: NodeIndex) {
         self.set_prev_sibling_index(next_sibling, Some(prev_sibling));
         self.set_next_sibling_index(prev_sibling, Some(next_sibling));
     }
 
-    fn update_children_parent(&mut self, first_child: u16, parent: u16) {
+    fn update_children_parent(&mut self, first_child: NodeIndex, parent: NodeIndex) {
         let mut current = first_child;
         loop {
             self.set_parent_index(current, Some(parent));
@@ -365,7 +500,7 @@ impl Nodes {
             }
         }
     }
-    pub fn remove_children(&mut self, index: u16) {
+    pub fn remove_children(&mut self, index: NodeIndex) {
         self.set_first_child_index(index, None);
         self.set_last_child_index(index, None);
     }
@@ -373,7 +508,7 @@ impl Nodes {
     /// Remove a node by removing all references to it and removing
     /// it's parent reference. The node itself keeps the current
     /// sibling references which is useful when iterating
-    pub fn remove(&mut self, index: u16) -> Option<u16> {
+    pub fn remove(&mut self, index: NodeIndex) -> Option<NodeIndex> {
         // node A : previous sibling
         // node B : current node
         // node C : next sibling
@@ -428,7 +563,7 @@ impl Nodes {
         new_index
     }
 
-    pub fn unwrap_node(&mut self, index: u16) -> Option<u16> {
+    pub fn unwrap_node(&mut self, index: NodeIndex) -> Option<NodeIndex> {
         let prev_sibling = self.prev_sibling_index(index);
         let next_sibling = self.next_sibling_index(index);
         let parent_index = self.parent_index(index).unwrap();
@@ -513,7 +648,7 @@ impl Nodes {
         first_child
     }
     /// Replaces the current node with another one from the tree,
-    pub fn replace_with(&mut self, index: u16, new_index: u16) {
+    pub fn replace_with(&mut self, index: NodeIndex, new_index: NodeIndex) {
         // node A : previous sibling
         // node B : current node
         // node C : next sibling
@@ -588,114 +723,190 @@ impl Nodes {
         self.set_next_sibling_index(index, None);
     }
 
-    fn set_u32_at(&mut self, index: u16, offset: usize, value: u32) {
-        let pos = index as usize * NODE_SIZE + offset;
-        let bytes = value.to_le_bytes();
-        self.bytes[pos] = bytes[0];
-        self.bytes[pos + 1] = bytes[1];
-        self.bytes[pos + 2] = bytes[2];
-        self.bytes[pos + 3] = bytes[3];
+    fn set_node_at(&mut self, index: NodeIndex, offset: usize, value: Option<NodeIndex>) {
+        let width = self.width();
+        let pos = self.base(index) + offset;
+        write_node_slot(&mut self.bytes, pos, width, value);
     }
 
-    fn set_opt_u16_at(&mut self, index: u16, offset: usize, value: Option<u16>) {
-        let pos = index as usize * NODE_SIZE + offset;
-        if let Some(val) = value {
-            let bytes = val.to_le_bytes();
-            self.bytes[pos] = bytes[0];
-            self.bytes[pos + 1] = bytes[1];
-        } else {
-            self.bytes[pos] = u8::MAX;
-            self.bytes[pos + 1] = u8::MAX;
-        }
+    fn set_u16_at(&mut self, index: NodeIndex, offset: usize, value: Option<u16>) {
+        let pos = self.base(index) + offset;
+        write_u16_slot(&mut self.bytes, pos, value);
     }
 
-    pub(crate) fn set_parent_index(&mut self, index: u16, value: Option<u16>) {
-        self.set_opt_u16_at(index, PARENT_OFFSET, value);
+    pub(crate) fn set_parent_index(&mut self, index: NodeIndex, value: Option<NodeIndex>) {
+        let offset = self.width().parent();
+        self.set_node_at(index, offset, value);
     }
 
-    pub(crate) fn set_prev_sibling_index(&mut self, index: u16, value: Option<u16>) {
-        self.set_opt_u16_at(index, PREV_SIBLING_OFFSET, value);
+    pub(crate) fn set_prev_sibling_index(&mut self, index: NodeIndex, value: Option<NodeIndex>) {
+        let offset = self.width().prev();
+        self.set_node_at(index, offset, value);
     }
 
-    pub(crate) fn set_next_sibling_index(&mut self, index: u16, value: Option<u16>) {
-        self.set_opt_u16_at(index, NEXT_SIBLING_OFFSET, value);
+    pub(crate) fn set_next_sibling_index(&mut self, index: NodeIndex, value: Option<NodeIndex>) {
+        let offset = self.width().next();
+        self.set_node_at(index, offset, value);
     }
 
-    pub(crate) fn set_first_child_index(&mut self, index: u16, value: Option<u16>) {
+    pub(crate) fn set_first_child_index(&mut self, index: NodeIndex, value: Option<NodeIndex>) {
         debug_assert!(!self.is_string_node(index));
-        self.set_opt_u16_at(index, FIRST_CHILD_OFFSET, value);
+        let offset = self.width().first();
+        self.set_node_at(index, offset, value);
     }
 
-    pub(crate) fn set_last_child_index(&mut self, index: u16, value: Option<u16>) {
+    pub(crate) fn set_last_child_index(&mut self, index: NodeIndex, value: Option<NodeIndex>) {
         debug_assert!(!self.is_string_node(index));
-        self.set_opt_u16_at(index, LAST_CHILD_OFFSET, value);
+        let offset = self.width().last();
+        self.set_node_at(index, offset, value);
     }
 
-    pub(crate) fn set_class_list_index(&mut self, index: u16, value: Option<u16>) {
+    pub(crate) fn set_class_list_index(&mut self, index: NodeIndex, value: Option<u16>) {
         debug_assert!(!self.is_string_node(index));
-        self.set_opt_u16_at(index, CLASS_LIST_OFFSET, value);
+        let offset = self.width().class();
+        self.set_u16_at(index, offset, value);
     }
 
-    pub(crate) fn set_attr_list_index(&mut self, index: u16, value: Option<u16>) {
+    pub(crate) fn set_attr_list_index(&mut self, index: NodeIndex, value: Option<u16>) {
         debug_assert!(!self.is_string_node(index));
-        self.set_opt_u16_at(index, ATTR_LIST_OFFSET, value);
+        let offset = self.width().attr();
+        self.set_u16_at(index, offset, value);
     }
 
-    pub(crate) fn set_data_attr_list_index(&mut self, index: u16, value: Option<u16>) {
+    pub(crate) fn set_data_attr_list_index(&mut self, index: NodeIndex, value: Option<u16>) {
         debug_assert!(!self.is_string_node(index));
-        self.set_opt_u16_at(index, DATA_ATTR_OFFSET, value);
+        let offset = self.width().data();
+        self.set_u16_at(index, offset, value);
     }
 
-    pub(crate) fn set_text_range(&mut self, index: u16, range: Range<u32>) {
+    pub(crate) fn set_text_range(&mut self, index: NodeIndex, range: Range<u32>) {
         debug_assert!(self.is_string_node(index));
-        self.set_u32_at(index, TEXT_START_OFFSET, range.start);
-        self.set_u32_at(index, TEXT_END_OFFSET, range.end);
-    }
-
-    fn push_opt_u16(&mut self, value: Option<u16>) {
-        if let Some(val) = value {
-            self.bytes.push(val as u8);
-            self.bytes.push((val >> 8) as u8);
-        } else {
-            self.bytes.push(u8::MAX);
-            self.bytes.push(u8::MAX);
-        }
+        let width = self.width();
+        let base = self.base(index);
+        write_u32_slot(&mut self.bytes, base + width.text_start(), range.start);
+        write_u32_slot(&mut self.bytes, base + width.text_end(), range.end);
     }
 
     pub(crate) fn add_node(
         &mut self,
         tag: HtmlTag,
-        parent_index: Option<u16>,
-        prev_sibling: Option<u16>,
-        next_sibling: Option<u16>,
-    ) -> u16 {
-        let index = (self.bytes.len() / NODE_SIZE) as u16;
-        self.bytes.push(tag as u8); // 0
-        self.push_opt_u16(parent_index); // 1-2
-        self.push_opt_u16(prev_sibling); // 3-4
-        self.push_opt_u16(next_sibling); // 5-6
-        self.push_opt_u16(None); // 7-8
-        self.push_opt_u16(None); // 9-10
+        parent_index: Option<NodeIndex>,
+        prev_sibling: Option<NodeIndex>,
+        next_sibling: Option<NodeIndex>,
+    ) -> NodeIndex {
+        let width = self.width();
+        let node_size = width.node_size();
+        let new = self.bytes.len() / node_size;
+        assert!(
+            (new as u64) < width.sentinel() as u64,
+            "htmlarc: document exceeds the maximum of {} nodes",
+            width.sentinel()
+        );
+        let index = NodeIndex::new(new as u32);
+
+        // append a zeroed record, then fill it; node-link slots must be written
+        // explicitly because a zeroed slot would read back as node 0, not `None`.
+        self.bytes.resize(self.bytes.len() + node_size, 0);
+        let base = self.base(index);
+        self.bytes[base] = tag as u8;
+        self.set_parent_index(index, parent_index);
+        self.set_prev_sibling_index(index, prev_sibling);
+        self.set_next_sibling_index(index, next_sibling);
         if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
-            self.bytes.resize(self.bytes.len() + 4, 0);
+            self.set_text_range(index, 0..0);
         } else {
-            self.push_opt_u16(None); // 11-12
-            self.push_opt_u16(None); // 13-14
+            self.set_first_child_index(index, None);
+            self.set_last_child_index(index, None);
+            self.set_class_list_index(index, None);
+            self.set_attr_list_index(index, None);
+            self.set_data_attr_list_index(index, None);
         }
-        self.push_opt_u16(None); // 15-16
         index
     }
 
-    pub(crate) fn dbg_table_string(&self, index: u16) -> String {
+    /// Choose the most compact on-disk node width. Owned/edited documents are always
+    /// built at u24; this is called at serialize time to down-pack small documents to
+    /// u16 (`count <= 58,981`). Documents above the margin (or already u16) are
+    /// returned unchanged. The owned form is unaffected — only the serialized copy.
+    pub(crate) fn into_optimal_width(self) -> Nodes {
+        if self.width() == NodeWidth::U24 && self.len() <= DOWNPACK_MARGIN {
+            let bytes = repack(self.view(), NodeWidth::U16);
+            Nodes {
+                width: NodeWidth::U16.as_u8(),
+                bytes,
+            }
+        } else {
+            self
+        }
+    }
+
+    pub(crate) fn dbg_table_string(&self, index: NodeIndex) -> String {
         self.view().dbg_table_string(index)
     }
+}
+
+/// Re-pack a node blob from its current width into `dst` width. Reads every field
+/// through the (width-aware) source view and writes it at the destination layout.
+fn repack(src: NodesView, dst: NodeWidth) -> Vec<u8> {
+    let n = src.len();
+    let mut out = vec![0u8; n * dst.node_size()];
+    for i in 0..n {
+        let idx = NodeIndex::new(i as u32);
+        let base = i * dst.node_size();
+        out[base] = src.tag(idx) as u8;
+        write_node_slot(&mut out, base + dst.parent(), dst, src.parent_index(idx));
+        write_node_slot(
+            &mut out,
+            base + dst.prev(),
+            dst,
+            src.prev_sibling_index(idx),
+        );
+        write_node_slot(
+            &mut out,
+            base + dst.next(),
+            dst,
+            src.next_sibling_index(idx),
+        );
+        if src.is_string_node(idx) {
+            let r = src.text_range(idx);
+            write_u32_slot(&mut out, base + dst.text_start(), r.start);
+            write_u32_slot(&mut out, base + dst.text_end(), r.end);
+        } else {
+            write_node_slot(
+                &mut out,
+                base + dst.first(),
+                dst,
+                src.first_child_index(idx),
+            );
+            write_node_slot(&mut out, base + dst.last(), dst, src.last_child_index(idx));
+            write_u16_slot(
+                &mut out,
+                base + dst.class(),
+                src.class_list_index(idx).map(|l| l.as_u16()),
+            );
+            write_u16_slot(
+                &mut out,
+                base + dst.attr(),
+                src.attr_list_index(idx).map(|l| l.as_u16()),
+            );
+            write_u16_slot(
+                &mut out,
+                base + dst.data(),
+                src.data_attr_list_index(idx).map(|l| l.as_u16()),
+            );
+        }
+    }
+    out
 }
 
 impl ArchivedNodes {
     /// Zero-copy view over the archived node blob — the `ArchivedVec<u8>` derefs to
     /// the same `&[u8]` the owned path uses, so query code is representation-agnostic.
     pub(crate) fn view(&self) -> NodesView<'_> {
-        NodesView { bytes: &self.bytes }
+        NodesView {
+            width: NodeWidth::from_u8(self.width),
+            bytes: &self.bytes,
+        }
     }
 }
 
@@ -706,13 +917,13 @@ impl Debug for Nodes {
             "idx  prev-sib, next-sib, first-ch, last-ch,  parents and tag"
         )?;
         for i in 0..self.len() {
-            writeln!(f, "{}", self.dbg_table_string(i as u16))?;
+            writeln!(f, "{}", self.dbg_table_string(NodeIndex::new(i as u32)))?;
         }
         Ok(())
     }
 }
 
-fn dbg_w(val: Option<u16>, width: usize) -> String {
+fn dbg_w(val: Option<NodeIndex>, width: usize) -> String {
     val.map(|v| format!("{v:width$}"))
         .unwrap_or_else(|| " ".repeat(width))
 }
@@ -733,25 +944,69 @@ fn test_opt_u16() {
 fn test_single_node_empy() {
     let mut vec = Nodes::new();
     // check the values
-    assert_eq!(vec.tag(0), HtmlTag::sys_root);
-    assert_eq!(vec.parent_index(0), None);
-    assert_eq!(vec.prev_sibling_index(0), None);
-    assert_eq!(vec.next_sibling_index(0), None);
-    assert_eq!(vec.first_child_index(0), None);
-    assert_eq!(vec.last_child_index(0), None);
-    assert_eq!(vec.class_list_index(0), None);
-    assert_eq!(vec.attr_list_index(0), None);
+    assert_eq!(vec.tag(NodeIndex::ROOT), HtmlTag::sys_root);
+    assert_eq!(vec.parent_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.prev_sibling_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.next_sibling_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.first_child_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.last_child_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.class_list_index(NodeIndex::ROOT), None);
+    assert_eq!(vec.attr_list_index(NodeIndex::ROOT), None);
 
-    let index = vec.add_node(HtmlTag::abbr, Some(1), Some(2), Some(3));
-    vec.set_first_child_index(index, Some(4));
-    vec.set_last_child_index(index, Some(5));
+    let index = vec.add_node(
+        HtmlTag::abbr,
+        Some(NodeIndex::new(1)),
+        Some(NodeIndex::new(2)),
+        Some(NodeIndex::new(3)),
+    );
+    vec.set_first_child_index(index, Some(NodeIndex::new(4)));
+    vec.set_last_child_index(index, Some(NodeIndex::new(5)));
 
     println!("{:?}", vec.bytes);
-    assert_eq!(index, 1);
-    assert_eq!(vec.tag(1), HtmlTag::abbr);
-    assert_eq!(vec.parent_index(1), Some(1));
-    assert_eq!(vec.prev_sibling_index(1), Some(2));
-    assert_eq!(vec.next_sibling_index(1), Some(3));
-    assert_eq!(vec.first_child_index(1), Some(4));
-    assert_eq!(vec.last_child_index(1), Some(5));
+    assert_eq!(index, NodeIndex::new(1));
+    assert_eq!(vec.tag(NodeIndex::new(1)), HtmlTag::abbr);
+    assert_eq!(vec.parent_index(NodeIndex::new(1)), Some(NodeIndex::new(1)));
+    assert_eq!(
+        vec.prev_sibling_index(NodeIndex::new(1)),
+        Some(NodeIndex::new(2))
+    );
+    assert_eq!(
+        vec.next_sibling_index(NodeIndex::new(1)),
+        Some(NodeIndex::new(3))
+    );
+    assert_eq!(
+        vec.first_child_index(NodeIndex::new(1)),
+        Some(NodeIndex::new(4))
+    );
+    assert_eq!(
+        vec.last_child_index(NodeIndex::new(1)),
+        Some(NodeIndex::new(5))
+    );
+}
+
+#[test]
+fn test_adaptive_width_roundtrip() {
+    // small tree built at u24 down-packs to u16 losslessly
+    let mut u24 = Nodes::new();
+    let body = u24.add_as_last_child(NodeIndex::ROOT, HtmlTag::body);
+    let div = u24.add_as_last_child(body, HtmlTag::div);
+    let p = u24.add_as_last_child(div, HtmlTag::p);
+    u24.add_as_last_child(body, HtmlTag::span);
+
+    let u16 = u24.clone().into_optimal_width();
+    assert_eq!(u16.width(), NodeWidth::U16);
+    assert_eq!(u16.len(), u24.len());
+    // identical topology at both widths
+    for i in 0..u24.len() as u32 {
+        let idx = NodeIndex::new(i);
+        assert_eq!(u24.tag(idx), u16.tag(idx));
+        assert_eq!(u24.parent_index(idx), u16.parent_index(idx));
+        assert_eq!(u24.prev_sibling_index(idx), u16.prev_sibling_index(idx));
+        assert_eq!(u24.next_sibling_index(idx), u16.next_sibling_index(idx));
+        assert_eq!(u24.first_child_index(idx), u16.first_child_index(idx));
+        assert_eq!(u24.last_child_index(idx), u16.last_child_index(idx));
+    }
+    // u16 records are smaller
+    assert!(u16.bytes.len() < u24.bytes.len());
+    assert_eq!(p.as_u32(), 3);
 }

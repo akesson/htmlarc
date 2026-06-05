@@ -1,6 +1,15 @@
 use super::tag_iter::{ElementStage, TagStage};
 use std::ops::Range;
 
+#[cfg(test)]
+use crate::dom::NodeIndex;
+
+/// test helper: build an `ElementStage` from a plain index literal
+#[cfg(test)]
+fn es(index: u32, depth: u16, stage: TagStage) -> ElementStage {
+    ElementStage::new(NodeIndex::new(index), depth, stage)
+}
+
 pub struct QueueIter {
     /// any element that is at same or higher depth than the non_inlineable element
     /// and also closed.
@@ -69,10 +78,10 @@ fn queue_iter_from_last_elem() {
      */
 
     let vec = vec![
-        ElementStage::new(0, 0, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Close),
-        ElementStage::new(0, 0, TagStage::Close),
+        es(0, 0, TagStage::Open),
+        es(1, 1, TagStage::Open),
+        es(1, 1, TagStage::Close),
+        es(0, 0, TagStage::Close),
     ];
 
     let iter = QueueIter::new(vec, None);
@@ -82,10 +91,10 @@ fn queue_iter_from_last_elem() {
     assert_eq!(
         returned,
         vec![
-            (ElementStage::new(0, 0, TagStage::Open), true),
-            (ElementStage::new(1, 1, TagStage::Open), true),
-            (ElementStage::new(1, 1, TagStage::Close), true),
-            (ElementStage::new(0, 0, TagStage::Close), true),
+            (es(0, 0, TagStage::Open), true),
+            (es(1, 1, TagStage::Open), true),
+            (es(1, 1, TagStage::Close), true),
+            (es(0, 0, TagStage::Close), true),
         ]
     );
 }
@@ -98,12 +107,12 @@ fn non_inlineable_on_last_child_level() {
       - 2!
      */
     let vec = vec![
-        ElementStage::new(0, 0, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Close),
+        es(0, 0, TagStage::Open),
+        es(1, 1, TagStage::Open),
+        es(1, 1, TagStage::Close),
     ];
 
-    let last = ElementStage::new(2, 1, TagStage::Open);
+    let last = es(2, 1, TagStage::Open);
     let iter = QueueIter::new(vec, Some(last));
     assert_eq!(iter.inlineable, 1..3);
     let returned = iter.collect::<Vec<_>>();
@@ -111,10 +120,10 @@ fn non_inlineable_on_last_child_level() {
     assert_eq!(
         returned,
         vec![
-            (ElementStage::new(0, 0, TagStage::Open), false),
-            (ElementStage::new(1, 1, TagStage::Open), true),
-            (ElementStage::new(1, 1, TagStage::Close), true),
-            (ElementStage::new(2, 1, TagStage::Open), false),
+            (es(0, 0, TagStage::Open), false),
+            (es(1, 1, TagStage::Open), true),
+            (es(1, 1, TagStage::Close), true),
+            (es(2, 1, TagStage::Open), false),
         ]
     );
 }
@@ -128,15 +137,15 @@ fn non_inlineable_as_top_level_sibling() {
     - 3!
      */
     let vec = vec![
-        ElementStage::new(0, 0, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Close),
-        ElementStage::new(0, 0, TagStage::Close),
-        ElementStage::new(2, 0, TagStage::Open),
-        ElementStage::new(2, 0, TagStage::Close),
+        es(0, 0, TagStage::Open),
+        es(1, 1, TagStage::Open),
+        es(1, 1, TagStage::Close),
+        es(0, 0, TagStage::Close),
+        es(2, 0, TagStage::Open),
+        es(2, 0, TagStage::Close),
     ];
 
-    let last = ElementStage::new(3, 0, TagStage::Open);
+    let last = es(3, 0, TagStage::Open);
     let iter = QueueIter::new(vec, Some(last));
     assert_eq!(iter.inlineable, 0..6);
     let returned = iter.collect::<Vec<_>>();
@@ -144,13 +153,13 @@ fn non_inlineable_as_top_level_sibling() {
     assert_eq!(
         returned,
         vec![
-            (ElementStage::new(0, 0, TagStage::Open), true),
-            (ElementStage::new(1, 1, TagStage::Open), true),
-            (ElementStage::new(1, 1, TagStage::Close), true),
-            (ElementStage::new(0, 0, TagStage::Close), true),
-            (ElementStage::new(2, 0, TagStage::Open), true),
-            (ElementStage::new(2, 0, TagStage::Close), true),
-            (ElementStage::new(3, 0, TagStage::Open), false),
+            (es(0, 0, TagStage::Open), true),
+            (es(1, 1, TagStage::Open), true),
+            (es(1, 1, TagStage::Close), true),
+            (es(0, 0, TagStage::Close), true),
+            (es(2, 0, TagStage::Open), true),
+            (es(2, 0, TagStage::Close), true),
+            (es(3, 0, TagStage::Open), false),
         ]
     );
 }
@@ -164,12 +173,12 @@ fn none_inlineable() {
           - 3!
      */
     let vec = vec![
-        ElementStage::new(0, 0, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Open),
-        ElementStage::new(2, 2, TagStage::Open),
+        es(0, 0, TagStage::Open),
+        es(1, 1, TagStage::Open),
+        es(2, 2, TagStage::Open),
     ];
 
-    let non_inlineable = ElementStage::new(3, 3, TagStage::Open);
+    let non_inlineable = es(3, 3, TagStage::Open);
 
     let iter = QueueIter::new(vec, Some(non_inlineable));
     assert_eq!(iter.inlineable, 0..0);
@@ -178,10 +187,10 @@ fn none_inlineable() {
     assert_eq!(
         returned,
         vec![
-            (ElementStage::new(0, 0, TagStage::Open), false),
-            (ElementStage::new(1, 1, TagStage::Open), false),
-            (ElementStage::new(2, 2, TagStage::Open), false),
-            (ElementStage::new(3, 3, TagStage::Open), false),
+            (es(0, 0, TagStage::Open), false),
+            (es(1, 1, TagStage::Open), false),
+            (es(2, 2, TagStage::Open), false),
+            (es(3, 3, TagStage::Open), false),
         ]
     );
 }
@@ -197,21 +206,21 @@ fn none_inlineable_2() {
           - 5!
      */
     let vec = vec![
-        ElementStage::new(0, 0, TagStage::Open),
-        ElementStage::new(1, 1, TagStage::Open),
-        ElementStage::new(2, 2, TagStage::Open),
-        ElementStage::new(3, 3, TagStage::Open),
-        ElementStage::new(3, 3, TagStage::Close),
-        ElementStage::new(2, 2, TagStage::Close),
-        ElementStage::new(4, 2, TagStage::Open),
+        es(0, 0, TagStage::Open),
+        es(1, 1, TagStage::Open),
+        es(2, 2, TagStage::Open),
+        es(3, 3, TagStage::Open),
+        es(3, 3, TagStage::Close),
+        es(2, 2, TagStage::Close),
+        es(4, 2, TagStage::Open),
     ];
 
-    let non_inlineable = ElementStage::new(5, 3, TagStage::Open);
+    let non_inlineable = es(5, 3, TagStage::Open);
 
     let iter = QueueIter::new(vec, Some(non_inlineable));
     // assert_eq!(iter.inlineable, 2..6);
     let returned = iter
-        .map(|(stage, inline)| (stage.index, stage.depth, stage.stage, inline))
+        .map(|(stage, inline)| (stage.index.as_u32(), stage.depth, stage.stage, inline))
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -231,9 +240,9 @@ fn none_inlineable_2() {
 
 #[test]
 fn first_child_not_inlineable() {
-    let vec = vec![ElementStage::new(0, 0, TagStage::Open)];
+    let vec = vec![es(0, 0, TagStage::Open)];
 
-    let last = ElementStage::new(1, 1, TagStage::Open);
+    let last = es(1, 1, TagStage::Open);
     let iter = QueueIter::new(vec, Some(last));
     assert_eq!(iter.inlineable, 0..0);
     let returned = iter.collect::<Vec<_>>();
@@ -241,8 +250,8 @@ fn first_child_not_inlineable() {
     assert_eq!(
         returned,
         vec![
-            (ElementStage::new(0, 0, TagStage::Open), false),
-            (ElementStage::new(1, 1, TagStage::Open), false),
+            (es(0, 0, TagStage::Open), false),
+            (es(1, 1, TagStage::Open), false),
         ]
     );
 }
