@@ -20,7 +20,7 @@ pub(crate) use doc::parse_doc;
 pub use testdom::TestDom;
 
 #[cfg(test)]
-use crate::{ParseResult, SelectorError};
+use crate::{HtmlParseResult, HtmlParseError};
 
 #[cfg(test)]
 fn with_chars<R, F: Fn(&mut Chars) -> R>(html: &str, f: F) -> R {
@@ -28,15 +28,15 @@ fn with_chars<R, F: Fn(&mut Chars) -> R>(html: &str, f: F) -> R {
 }
 
 #[cfg(test)]
-fn with_chars_check_last<R, F: FnMut(&mut Chars) -> ParseResult<R>>(
+fn with_chars_check_last<R, F: FnMut(&mut Chars) -> HtmlParseResult<R>>(
     html: &str,
     mut f: F,
     c: char,
-) -> ParseResult<R> {
+) -> HtmlParseResult<R> {
     let mut chars = Chars::new(html);
     let ret = f(&mut chars)?;
     if chars.current() != c {
-        Err(SelectorError::new(format!(
+        Err(HtmlParseError::new(format!(
             "Expected {c} but was: {}",
             chars.current()
         )))
@@ -46,7 +46,7 @@ fn with_chars_check_last<R, F: FnMut(&mut Chars) -> ParseResult<R>>(
 }
 
 #[cfg(test)]
-fn with_chars_and_dom<'a, F: Fn(&mut testdom::TestDom, &mut Chars<'a>) -> ParseResult<()>>(
+fn with_chars_and_dom<'a, F: Fn(&mut testdom::TestDom, &mut Chars<'a>) -> HtmlParseResult<()>>(
     s: &'a str,
     f: F,
     c: char,

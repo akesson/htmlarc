@@ -1,9 +1,8 @@
 use crate::{
-    SelectorError,
     accessors::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
-    css::{self, AttributeSelector, SelectorList},
+    css::{self, AttributeSelector, ParseError, SelectorList},
     dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -330,8 +329,8 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     pub fn select_css(
         &self,
         selector: &'dom str,
-    ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, SelectorError> {
-        let selector = css::parse_css(selector).map_err(|e| SelectorError::new(e.to_string()))?;
+    ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, ParseError> {
+        let selector = css::parse_css(selector)?;
         Ok(MatchIter::new(self.forwards(), selector))
     }
 }

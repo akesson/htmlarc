@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::{attributes::parse_attributes, chars::Chars, dom::DomStack};
-use crate::error::ParseResult;
+use crate::error::HtmlParseResult;
 use crate::html::{HtmlAttr, HtmlTag};
 #[cfg(test)]
 use insta::assert_snapshot;
@@ -9,7 +9,7 @@ use insta::assert_snapshot;
 /// Pre-condition: chars at the first '-' in <!--
 ///
 /// Post-condition: chars at the closing '>'
-pub fn parse_comment<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars) -> ParseResult<()> {
+pub fn parse_comment<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars) -> HtmlParseResult<()> {
     chars.assert_next(|c| c == '-')?;
     chars.next().unwrap();
     let start = chars.index();
@@ -33,7 +33,7 @@ fn test_parse_comment() {
 pub(super) fn parse_doctype<'a, Dom: DomStack<'a>>(
     dom: &mut Dom,
     chars: &mut Chars,
-) -> ParseResult<()> {
+) -> HtmlParseResult<()> {
     chars.assert_next(|c| c == 'o' || c == 'O')?;
     chars.assert_next(|c| c == 'c' || c == 'C')?;
     chars.assert_next(|c| c == 't' || c == 'T')?;
@@ -69,7 +69,7 @@ fn test_parse_doctype() {
 pub(super) fn parse_start_tag<'a, Dom: DomStack<'a>>(
     dom: &mut Dom,
     chars: &mut Chars<'a>,
-) -> ParseResult<()> {
+) -> HtmlParseResult<()> {
     let tag = parse_tag(chars)?;
 
     if foreign_element(tag, chars)? {
@@ -115,7 +115,7 @@ fn test_parse_start_tag() {
 /// in the domstack.
 ///
 /// Post-condition: chars positioned at '>'
-pub(super) fn parse_end_tag(chars: &mut Chars) -> ParseResult<HtmlTag> {
+pub(super) fn parse_end_tag(chars: &mut Chars) -> HtmlParseResult<HtmlTag> {
     chars.next().unwrap();
     let start = chars.index();
     let end = chars.find(|c| c.is_whitespace() || c == '>')?;
@@ -142,7 +142,7 @@ pub(super) fn parse_end_tag(chars: &mut Chars) -> ParseResult<HtmlTag> {
 
 #[test]
 fn test_parse_end_tag() {
-    let run = |s: &str, c: char| -> ParseResult<HtmlTag> {
+    let run = |s: &str, c: char| -> HtmlParseResult<HtmlTag> {
         super::with_chars_check_last(s, parse_end_tag, c)
     };
     assert_eq!(run("/div> ", '>'), Ok(HtmlTag::div));
@@ -157,7 +157,7 @@ fn test_parse_end_tag() {
 /// If the tag is a raw one, then returns the range of the text content
 /// with chars positioned at the end tags closing '>'.
 /// Otherwise return none with chars at the same position as when the function was called
-fn raw_element(tag: HtmlTag, chars: &mut Chars) -> ParseResult<Option<Range<usize>>> {
+fn raw_element(tag: HtmlTag, chars: &mut Chars) -> HtmlParseResult<Option<Range<usize>>> {
     let range = match tag {
         // raw text including escapable
         HtmlTag::script => raw_elem_seq(chars, ['<', '/', 's', 'c', 'r', 'i', 'p', 't'])?,
@@ -174,7 +174,7 @@ fn raw_element(tag: HtmlTag, chars: &mut Chars) -> ParseResult<Option<Range<usiz
     Ok(Some(range))
 }
 
-fn raw_elem_seq<const N: usize>(chars: &mut Chars, seq: [char; N]) -> ParseResult<Range<usize>> {
+fn raw_elem_seq<const N: usize>(chars: &mut Chars, seq: [char; N]) -> HtmlParseResult<Range<usize>> {
     chars.next();
     let start = chars.index();
     let end = chars.find_sequence(seq)?;
@@ -215,7 +215,7 @@ fn test_raw_element() {
 /// and forward to the ending '>'.
 ///
 /// Returns true if the provided tag is a foreign element.
-fn foreign_element(tag: HtmlTag, chars: &mut Chars) -> ParseResult<bool> {
+fn foreign_element(tag: HtmlTag, chars: &mut Chars) -> HtmlParseResult<bool> {
     let _ = match tag {
         // foreign elements svg and math
         HtmlTag::svg => chars.find_sequence(['<', '/', 's', 'v', 'g'])?,
@@ -229,7 +229,7 @@ fn foreign_element(tag: HtmlTag, chars: &mut Chars) -> ParseResult<bool> {
 
 #[test]
 fn test_foreign_element() {
-    let run = |string: &str, tag: HtmlTag| -> ParseResult<bool> {
+    let run = |string: &str, tag: HtmlTag| -> HtmlParseResult<bool> {
         super::with_chars_check_last(string, |chars| foreign_element(tag, chars), '>')
     };
 
@@ -244,7 +244,7 @@ fn test_foreign_element() {
 
 /// Skip any spaces and '/' and returns if the tag was closed
 /// with chars at the last '>'
-fn to_end_of_tag(chars: &mut Chars) -> ParseResult<bool> {
+fn to_end_of_tag(chars: &mut Chars) -> HtmlParseResult<bool> {
     chars.skip_whitespaces();
     let mut c = chars.current();
     let mut closed = false;
@@ -277,7 +277,7 @@ fn test_to_end_of_tag() {
 /// Pre-condition: chars positioned at the first character of the tag
 ///
 /// Post-condition: chars positioned at the first character after the tag
-fn parse_tag(chars: &mut Chars) -> ParseResult<HtmlTag> {
+fn parse_tag(chars: &mut Chars) -> HtmlParseResult<HtmlTag> {
     let start = chars.index();
     let end = chars.find(|c| c.is_whitespace() || c == '/' || c == '>')?;
     let tag_str = chars.str(start..end);

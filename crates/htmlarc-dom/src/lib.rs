@@ -17,7 +17,7 @@ mod logging {
 }
 
 use error::Context;
-pub use error::{ParseResult, SelectorError};
+pub use error::{HtmlParseResult, HtmlParseError};
 pub use logging::debug;
 
 pub mod prelude {
