@@ -17,8 +17,9 @@ thousands of small files.
 - **No filesystem overhead.** Hundreds of thousands of tiny `.html` files waste a huge amount
   of space and inodes, and are slow to traverse. One archive avoids all of that.
 - **No HTML parsing at query time.** Documents are parsed once into a compact, flat binary DOM
-  and stored with [rkyv]. Loading an archive is a cheap deserialize of contiguous buffers, not
-  an HTML parse — so repeated CSS queries over the whole corpus are fast.
+  and stored with [rkyv]. A packed `.htmlarc` is queried **zero-copy** straight from a
+  memory-map — no HTML parse, and no per-node deserialization — so repeated CSS queries over the
+  whole corpus are fast.
 - **A real CSS3 selector engine** runs over that DOM (compound/complex/relative selectors,
   `:has()`, `nth-*`, attribute operators), at speeds comparable to a pointer-tree DOM.
 
@@ -83,25 +84,27 @@ Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc 
 
 ## How it works
 
-The DOM (`htmlarc-dom`) is **structure-of-arrays**: each node is a fixed 17-byte record in a
-single `Vec<u8>`, with `u16` parent/sibling/child indices; text, attributes and classes are
-interned into side tables. The whole thing derives `rkyv::Archive`, so it serializes to disk
-and loads back without pointer fix-ups or per-node allocation. Traversal is array indexing
-into hot, contiguous memory rather than chasing heap pointers.
+The DOM (`htmlarc-dom`) is **structure-of-arrays**: each node is a fixed-stride record in a
+single `Vec<u8>`, with parent/sibling/child links packed as adaptive `u16` or `u24` indices
+(17- or 22-byte records); text, attributes and classes are interned into side tables. Documents
+are built at `u24` width and **down-packed to `u16`** on save when they fit comfortably under
+the `u16` ceiling. The whole thing derives `rkyv::Archive`, so it serializes to disk and is read
+back **without pointer fix-ups or per-node allocation** — traversal is array indexing into hot,
+contiguous memory rather than chasing heap pointers.
 
 An archive (`htmlarc-format`) is just a sorted `Vec` of `(key, dom)` entries written with rkyv;
-`get` binary-searches by key.
+`get` binary-searches by key, and `MmapArchive` reads the archived bytes **zero-copy** from a
+memory-map (no deserialization).
 
 ## Honest limitations
 
-- **Max 65,535 nodes per document.** Node indices are `u16` — deliberate, since the design
-  targets many *small* documents (dictionary entries, etc.). Large pages will overflow this.
+- **~16.7M nodes per document.** Node links are packed as `u24` (the public `NodeIndex` is a
+  `u32`), so the per-document ceiling is `2^24 − 1` nodes. The design still targets many *small*
+  documents (dictionary entries, etc.); documents that fit are stored at half the link width
+  (`u16`).
 - **The parser is pragmatic, not spec-compliant.** It is a stack-based builder validated
   against real-world (messy) Wiktionary HTML — it is *not* the WHATWG tree-construction
   algorithm and will not handle every adversarial/malformed input the way `html5ever` does.
-- **It deserializes, it does not mmap-in-place.** "No HTML parsing" is accurate — loading an
-  archive is a cheap rkyv deserialize of flat buffers. It is *not* zero-copy `mmap` querying
-  of the archived bytes (the SoA layout would make that a small change, but it isn't done).
 
 ## Workspace layout
 

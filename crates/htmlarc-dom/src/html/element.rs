@@ -131,9 +131,10 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
             .ok_or_else(|| ElementError::NoChild(self.cloned()))
     }
 
-    pub fn child(&self, _selector: SelectorList<'dom>) -> Result<Self, ElementError<'dom, Dom>> {
-        // self.select_child(selector).first()
-        todo!()
+    pub fn child(&self, selector: SelectorList<'dom>) -> Result<Self, ElementError<'dom, Dom>> {
+        self.select_child(selector)
+            .next()
+            .ok_or_else(|| ElementError::NoChild(self.cloned()))
     }
 
     pub fn children(&self) -> RelativeIter<'dom, Dom> {
