@@ -1,11 +1,14 @@
 mod archive;
 mod archive_trait;
 mod builder;
+mod directory;
 mod entry;
 mod error;
 mod filter;
 mod header;
 mod mmap;
+mod trailer;
+mod writer;
 
 pub use archive::HtmlArchive;
 pub use archive_trait::{Archive, ArchiveEntry};
@@ -14,3 +17,4 @@ pub use entry::{ArchivedHtmlEntry, HtmlEntry};
 pub use error::ArchiveErr;
 pub use filter::{Filter, FilterError};
 pub use mmap::MmapArchive;
+pub use writer::ArchiveWriter;

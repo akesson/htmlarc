@@ -43,10 +43,15 @@ fn mmap_matches_owned() {
 
     for owned_entry in owned.entries() {
         let key = owned_entry.key.as_str();
-        let archived = mmap.get(key).expect("key present in mmap archive");
+        let archived = mmap
+            .get(key)
+            .expect("valid blob")
+            .expect("key present in mmap archive");
 
         assert_eq!(archived.key(), key);
         assert_eq!(archived.checksum(), owned_entry.checksum);
+        // The directory's checksum (read without touching the blob) must agree too.
+        assert_eq!(mmap.checksum_for_key(key), Some(owned_entry.checksum));
 
         // The whole point: byte-identical rendering, zero-copy vs owned.
         assert_eq!(
@@ -84,6 +89,7 @@ fn mmap_css_select_matches_owned() {
     let mmap_hits: Vec<HtmlTag> = mmap
         .get("alpha")
         .unwrap()
+        .unwrap()
         .root()
         .select_css(".title")
         .unwrap()
@@ -97,33 +103,29 @@ fn mmap_css_select_matches_owned() {
 }
 
 #[test]
-fn mmap_reads_legacy_headerless_archive() {
-    use rkyv::rancor::Error;
+fn empty_archive_round_trips() {
+    let path = temp_path("empty");
+    HtmlArchiveBuilder::default().write_to(&path).unwrap();
 
-    // Simulate a pre-header archive: the raw rkyv payload with no 16-byte header.
-    let archive = sample_archive();
-    let payload = rkyv::to_bytes::<Error>(&archive.entries).unwrap();
-    let path = temp_path("legacy");
-    std::fs::write(&path, &payload).unwrap();
-
-    // Both the owned and mmap readers must transparently handle the legacy layout.
     let owned = HtmlArchive::read_from(&path).unwrap();
     let mmap = MmapArchive::open(&path).unwrap();
-    assert_eq!(mmap.len(), owned.len());
-    assert_eq!(
-        mmap.get("beta").unwrap().to_html(HtmlFormat::Raw),
-        owned.get("beta").unwrap().html.to_html(HtmlFormat::Raw)
-    );
+
+    assert_eq!(owned.len(), 0);
+    assert!(owned.is_empty());
+    assert_eq!(mmap.len(), 0);
+    assert!(mmap.is_empty());
+    assert!(mmap.get("anything").unwrap().is_none());
+    assert_eq!(mmap.keys().count(), 0);
 
     std::fs::remove_file(&path).ok();
 }
 
 #[test]
-fn mmap_rejects_corrupt_archive() {
-    let path = temp_path("corrupt");
+fn mmap_rejects_corrupt_footer() {
+    let path = temp_path("corrupt_footer");
     sample_archive().write_to(&path).unwrap();
 
-    // Corrupt the rkyv payload near the tail, where the root/relative-pointers live.
+    // Corrupt the very tail — the trailer magic — so the footer can't be bootstrapped.
     let mut bytes = std::fs::read(&path).unwrap();
     let n = bytes.len();
     for b in bytes[n - 8..].iter_mut() {
@@ -135,11 +137,63 @@ fn mmap_rejects_corrupt_archive() {
     // Safe validated open must reject it with an Err, not UB or a crash.
     assert!(
         MmapArchive::open(&bad).is_err(),
-        "corrupt archive must be rejected"
+        "corrupt footer must be rejected at open"
     );
+    assert!(HtmlArchive::read_from(&bad).is_err());
 
     std::fs::remove_file(&path).ok();
     std::fs::remove_file(&bad).ok();
+}
+
+#[test]
+fn mmap_rejects_corrupt_blob() {
+    let path = temp_path("corrupt_blob");
+    sample_archive().write_to(&path).unwrap();
+
+    // The footer (trailer + directory) stays intact, but every document blob is destroyed.
+    // `open` still succeeds (it validates only the footer), and a `get` that must materialize
+    // a blob surfaces the corruption as an `Err` — never UB, never confused with absence.
+    let mut bytes = std::fs::read(&path).unwrap();
+    let n = bytes.len();
+    let dir_offset = u64::from_le_bytes(bytes[n - 48..n - 40].try_into().unwrap()) as usize;
+    for b in bytes[16..dir_offset].iter_mut() {
+        *b ^= 0xFF;
+    }
+    let bad = path.with_extension("bad");
+    std::fs::write(&bad, &bytes).unwrap();
+
+    let mmap = MmapArchive::open(&bad).expect("footer is intact, so open succeeds");
+    // Keys/len come from the directory and are unaffected.
+    assert_eq!(mmap.len(), 3);
+    assert!(mmap.keys().any(|k| k == "beta"));
+    // Fetching a document validates its (corrupt) blob and returns an Err.
+    assert!(
+        matches!(mmap.get("beta"), Err(_)),
+        "a corrupt blob must surface as Err, not None"
+    );
+    // The owned reader deserializes every blob up front, so it fails outright.
+    assert!(HtmlArchive::read_from(&bad).is_err());
+
+    std::fs::remove_file(&path).ok();
+    std::fs::remove_file(&bad).ok();
+}
+
+#[test]
+fn rejects_truncated_file() {
+    let path = temp_path("truncated");
+    sample_archive().write_to(&path).unwrap();
+
+    // A file too short to even hold a header + trailer must be rejected, not panic-indexed.
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.truncate(40);
+    let short = path.with_extension("short");
+    std::fs::write(&short, &bytes).unwrap();
+
+    assert!(MmapArchive::open(&short).is_err());
+    assert!(HtmlArchive::read_from(&short).is_err());
+
+    std::fs::remove_file(&path).ok();
+    std::fs::remove_file(&short).ok();
 }
 
 #[test]
