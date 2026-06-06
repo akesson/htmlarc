@@ -144,7 +144,7 @@ impl DataOperator for FileOperator {
         for i in indexes {
             let word = diff_arch.key(*i);
             let html_1 = list_arch
-                .html_for_key(word, fmt)
+                .html_for_key(word, fmt)?
                 .ok_or_else(|| OperationError::GetEntry(word.to_string(), "list archive"))?;
             let html_2 = diff_arch.to_html(*i, fmt);
 
@@ -197,7 +197,7 @@ impl DataOperator for FileOperator {
                 let word = diff_arch.key(i);
                 let fmt = HtmlFormat::raw_else_pretty(raw_html);
                 let html_1 = list_arch
-                    .html_for_key(word, fmt)
+                    .html_for_key(word, fmt)?
                     .ok_or_else(|| OperationError::GetEntry(word.to_string(), "archive 1"))?;
                 let html_2 = diff_arch.to_html(i, fmt);
 

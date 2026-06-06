@@ -48,14 +48,16 @@ impl ArchiveSource {
     pub fn key(&self, i: usize) -> &str {
         match self {
             Self::Owned(a) => a[i].key.as_str(),
-            Self::Mapped(m) => m[i].key(),
+            // Served straight from the footer directory — no document blob is touched.
+            Self::Mapped(m) => m.key_at(i),
         }
     }
 
     pub fn checksum(&self, i: usize) -> u64 {
         match self {
             Self::Owned(a) => a[i].checksum,
-            Self::Mapped(m) => m[i].checksum(),
+            // Served straight from the footer directory — no document blob is touched.
+            Self::Mapped(m) => m.checksum_at(i),
         }
     }
 
@@ -71,22 +73,27 @@ impl ArchiveSource {
     pub fn keep(&self, i: usize, filter: &Filter) -> bool {
         match self {
             Self::Owned(a) => filter.keep(&a[i].key, &a[i].html),
-            Self::Mapped(m) => filter.keep(m[i].key(), &m[i].html),
+            Self::Mapped(m) => {
+                let e = &m[i];
+                filter.keep(e.key(), &e.html)
+            }
         }
     }
 
     pub fn checksum_for_key(&self, key: &str) -> Option<u64> {
         match self {
             Self::Owned(a) => a.get(key).map(|e| e.checksum),
-            Self::Mapped(m) => m.get(key).map(|e| e.checksum()),
+            // Footer-only lookup: the checksum lives in the directory, not the blob.
+            Self::Mapped(m) => m.checksum_for_key(key),
         }
     }
 
-    /// Render the document with the given `key`, if present.
-    pub fn html_for_key(&self, key: &str, fmt: HtmlFormat) -> Option<String> {
+    /// Render the document with the given `key`, if present. `Err` means the matching blob
+    /// failed validation (memory-mapped reads validate a document only when fetched).
+    pub fn html_for_key(&self, key: &str, fmt: HtmlFormat) -> Result<Option<String>> {
         match self {
-            Self::Owned(a) => a.get(key).map(|e| e.html.to_html(fmt)),
-            Self::Mapped(m) => m.get(key).map(|e| e.to_html(fmt)),
+            Self::Owned(a) => Ok(a.get(key).map(|e| e.html.to_html(fmt))),
+            Self::Mapped(m) => Ok(m.get(key)?.map(|e| e.to_html(fmt))),
         }
     }
 }

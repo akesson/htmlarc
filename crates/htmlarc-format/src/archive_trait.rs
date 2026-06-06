@@ -1,6 +1,6 @@
 use htmlarc_dom::prelude::{DomRead, HtmlElement, HtmlFormat, HtmlTag};
 
-use crate::Filter;
+use crate::{ArchiveErr, Filter};
 
 /// One entry — a key plus its DOM — in an [`Archive`].
 ///
@@ -47,9 +47,13 @@ pub trait Archive {
 
     /// Number of entries.
     fn len(&self) -> usize;
-    /// Look an entry up by key.
-    fn get(&self, key: &str) -> Option<&Self::Entry>;
-    /// Iterate all entries in key order.
+    /// Look an entry up by key. `Ok(None)` means absent; `Err` means the matching document
+    /// blob failed validation (distinguishing corruption from a missing key — the lazy
+    /// memory-mapped reader only validates a blob when it is actually fetched).
+    fn get(&self, key: &str) -> Result<Option<&Self::Entry>, ArchiveErr>;
+    /// Iterate all entries in key order. (Bulk iteration over a corrupt blob panics — every
+    /// index is valid by construction, so corruption here is an exceptional, abort-worthy
+    /// condition rather than a normal `None`.)
     fn entries(&self) -> impl Iterator<Item = &Self::Entry>;
 
     /// Whether the archive has no entries.
