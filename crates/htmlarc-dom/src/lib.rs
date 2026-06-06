@@ -1,11 +1,13 @@
-mod accessors;
+pub mod accessors;
 pub mod css;
-mod dom;
-mod error;
-mod fmt;
-mod html;
-mod iters;
+pub mod dom;
+pub mod error;
+pub mod fmt;
+pub mod html;
+pub mod iters;
 pub(crate) mod parser;
+// `stores` is internal plumbing; its only user-facing handles (`Attribute`,
+// `Class`, `DataAttribute`) are re-exported through the prelude.
 mod stores;
 
 mod logging {
@@ -17,18 +19,31 @@ mod logging {
 }
 
 use error::Context;
-pub use error::{ParseResult, SelectorError};
+pub use error::{HtmlParseResult, HtmlParseError};
 pub use logging::debug;
 
 pub mod prelude {
+    //! Convenience glob: everything needed to query a DOM, including the concrete
+    //! iterator/accessor/error types that the [`HtmlElement`](crate::html::HtmlElement)
+    //! methods return — so callers can name what the API hands back. The same items
+    //! are also reachable through their domain modules (`crate::iters`, `crate::css`, …).
+    pub use crate::accessors::{
+        Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
+    };
+    pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
         ArchivedDomInner, DomInner, DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
     };
-    pub use crate::error::{ElementError, Locatable, LocatedError};
+    pub use crate::error::{
+        ElementError, HtmlParseError, HtmlParseResult, IterationError, Locatable, LocatedError,
+    };
     pub use crate::fmt::HtmlFormat;
     pub use crate::here;
-    pub use crate::html::{AssertElement, HtmlAttr, HtmlDoc, HtmlElement, HtmlTag};
-    pub use crate::iters::{DomIterator, ElementIteration, Tag, TagIter};
+    pub use crate::html::{ElementType, HtmlAttr, HtmlDoc, HtmlElement, HtmlTag};
+    pub use crate::iters::{
+        CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
+        RevElementIter, Tag, TagIter,
+    };
     pub use crate::stores::{Attribute, Class, DataAttribute};
 }
 
@@ -83,7 +98,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:85 fn location_test"
+        "htmlarc-dom::lib.rs:100 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),
