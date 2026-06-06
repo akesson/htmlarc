@@ -1,7 +1,5 @@
-use crate::{archive::HtmlArchive, entry::HtmlEntry, error::ArchiveErr};
-use fs_err as fs;
+use crate::{archive::HtmlArchive, entry::HtmlEntry, error::ArchiveErr, writer::ArchiveWriter};
 use htmlarc_dom::prelude::HtmlDoc;
-use rkyv::rancor::Error;
 use std::{collections::BTreeSet, path::Path};
 
 #[derive(Default)]
@@ -20,15 +18,12 @@ impl HtmlArchiveBuilder {
     }
 
     pub fn write_to<P: AsRef<Path>>(self, path: P) -> Result<(), ArchiveErr> {
-        let entries = self.entries.into_iter().collect::<Vec<HtmlEntry>>();
-        let data =
-            rkyv::to_bytes::<Error>(&entries).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        let header = crate::header::header_bytes();
-        let mut out = Vec::with_capacity(header.len() + data.len());
-        out.extend_from_slice(&header);
-        out.extend_from_slice(&data);
-        fs::write(path, out).map_err(ArchiveErr::FileWrite)?;
-
-        Ok(())
+        // The BTreeSet already yields entries sorted and unique; stream them through the writer
+        // so there is exactly one serialization path and one on-disk format.
+        let mut writer = ArchiveWriter::create(path)?;
+        for entry in &self.entries {
+            writer.push_entry(entry)?;
+        }
+        writer.finish()
     }
 }

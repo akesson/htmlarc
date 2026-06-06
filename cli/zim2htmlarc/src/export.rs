@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use htmlarc_dom::prelude::HtmlDoc;
-use htmlarc_format::HtmlArchiveBuilder;
+use htmlarc_format::ArchiveWriter;
 use unicode_normalization::{UnicodeNormalization, is_nfc};
 use zim::{MimeType, Namespace, Target, Zim};
 
@@ -139,7 +139,7 @@ pub(crate) fn run(args: Export) -> Result<()> {
     // Pass 2: read grouped by cluster. Reading every blob of a cluster within one
     // `get_cluster` scope decompresses that cluster once (it memoizes), instead of
     // re-decompressing per article — ~hundreds of articles share a single zstd cluster.
-    let mut builder = HtmlArchiveBuilder::default();
+    let mut writer = ArchiveWriter::create(&output)?;
     for (cluster_idx, blobs) in &groups {
         let cluster = match zim.get_cluster(*cluster_idx) {
             Ok(cl) => cl,
@@ -168,7 +168,9 @@ pub(crate) fn run(args: Export) -> Result<()> {
             };
             match HtmlDoc::parse(html) {
                 Ok(doc) => {
-                    builder.add_html(key.clone(), doc);
+                    // Stream the parsed doc straight to disk and drop it — only one document
+                    // is resident at a time, so peak RSS no longer scales with the corpus.
+                    writer.push(key.clone(), doc)?;
                     counts.exported += 1;
                 }
                 Err(e) => {
@@ -179,11 +181,10 @@ pub(crate) fn run(args: Export) -> Result<()> {
         }
     }
 
-    // Archive keys are unique, so any same-keyed articles collapse on insert. Surface that.
-    let archive = builder.build();
-    let stored = archive.len() as u32;
-    let collapsed = counts.exported.saturating_sub(stored);
-    archive.write_to(&output)?;
+    // Archive keys are unique, so any same-keyed articles collapsed on push. Surface that.
+    let stored = writer.doc_count() as u32;
+    let collapsed = writer.collapsed() as u32;
+    writer.finish()?;
 
     println!("{counts}");
     if collapsed > 0 {

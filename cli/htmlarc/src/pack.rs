@@ -2,20 +2,14 @@ use crate::args::Pack;
 use anyhow::{Context, Result};
 use htmlarc_format::HtmlArchive;
 
-/// Parse a source (file or directory of HTML) and write it out as a single `.htmlarc`.
+/// Parse a source (file or directory of HTML) and write it out as a single `.htmlarc`,
+/// streaming one document at a time so a large directory never goes fully resident.
 pub fn run(args: Pack) -> Result<()> {
     let Pack { source, output } = args;
 
-    let archive = HtmlArchive::open(&source)
-        .with_context(|| format!("opening source {}", source.display()))?;
-    archive
-        .write_to(&output)
-        .with_context(|| format!("writing archive {}", output.display()))?;
+    let count = HtmlArchive::pack_to(&source, &output)
+        .with_context(|| format!("packing {} into {}", source.display(), output.display()))?;
 
-    println!(
-        "Packed {} document(s) into {}",
-        archive.len(),
-        output.display()
-    );
+    println!("Packed {count} document(s) into {}", output.display());
     Ok(())
 }
