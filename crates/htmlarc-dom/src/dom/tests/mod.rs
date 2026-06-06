@@ -1,6 +1,6 @@
 pub mod nodes_tests;
 
-use crate::{iters::ElementIter, prelude::*};
+use crate::{html::AssertElement, iters::ElementIter, prelude::*};
 use insta::{assert_snapshot, glob};
 use std::fs;
 

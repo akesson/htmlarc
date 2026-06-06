@@ -56,7 +56,6 @@ impl MmapArchive {
         unsafe { rkyv::access_unchecked::<ArchivedEntries>(&self.mmap[self.offset..]) }
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.archived().len()
     }
@@ -95,5 +94,21 @@ impl Index<usize> for MmapArchive {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.archived()[index]
+    }
+}
+
+impl crate::Archive for MmapArchive {
+    type Entry = ArchivedHtmlEntry;
+
+    fn len(&self) -> usize {
+        self.archived().len()
+    }
+
+    fn get(&self, key: &str) -> Option<&ArchivedHtmlEntry> {
+        MmapArchive::get(self, key)
+    }
+
+    fn entries(&self) -> impl Iterator<Item = &ArchivedHtmlEntry> {
+        self.archived().iter()
     }
 }

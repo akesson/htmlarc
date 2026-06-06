@@ -1,4 +1,4 @@
-use crate::{SelectorError, css::Diagnostic, html::HtmlTag};
+use crate::{css::Diagnostic, html::HtmlTag};
 
 use super::{
     ClassSelector, Combinator, ComplexSelector, CompoundSelector, IdSelector, ParseResult,
@@ -21,7 +21,7 @@ fn test_parse_round_trip() {
 
     let spaced_css =
         "div#header.blue    > p, h1.title   + span   , a:first-child.link  input[type='text']";
-    let spaced_selectors = parse_css(css).unwrap();
+    let spaced_selectors = parse_css(spaced_css).unwrap();
 
     assert_eq!(spaced_selectors.to_string(), selectors.to_string());
 

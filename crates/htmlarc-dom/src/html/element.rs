@@ -1,9 +1,8 @@
 use crate::{
-    SelectorError,
     accessors::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
-    css::{self, AttributeSelector, SelectorList},
+    css::{self, AttributeSelector, ParseError, Selector, SelectorList},
     dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -131,9 +130,10 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
             .ok_or_else(|| ElementError::NoChild(self.cloned()))
     }
 
-    pub fn child(&self, _selector: SelectorList<'dom>) -> Result<Self, ElementError<'dom, Dom>> {
-        // self.select_child(selector).first()
-        todo!()
+    pub fn child(&self, selector: SelectorList<'dom>) -> Result<Self, ElementError<'dom, Dom>> {
+        self.select_child(selector)
+            .next()
+            .ok_or_else(|| ElementError::NoChild(self.cloned()))
     }
 
     pub fn children(&self) -> RelativeIter<'dom, Dom> {
@@ -196,7 +196,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.ancestors().count() as u16
     }
 
-    pub fn html_string(&self, fmt: HtmlFormat) -> String {
+    pub fn to_html(&self, fmt: HtmlFormat) -> String {
         self.dom.to_html(fmt)
     }
 
@@ -329,9 +329,19 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     pub fn select_css(
         &self,
         selector: &'dom str,
-    ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, SelectorError> {
-        let selector = css::parse_css(selector).map_err(|e| SelectorError::new(e.to_string()))?;
+    ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, ParseError> {
+        let selector = css::parse_css(selector)?;
         Ok(MatchIter::new(self.forwards(), selector))
+    }
+
+    /// Whether this element matches the (pre-parsed) selector.
+    pub fn matches(&self, selector: &SelectorList<'dom>) -> bool {
+        selector.matches(self)
+    }
+
+    /// Parse `selector` and report whether this element matches it.
+    pub fn matches_css(&self, selector: &str) -> Result<bool, ParseError> {
+        Ok(css::parse_css(selector)?.matches(self))
     }
 }
 

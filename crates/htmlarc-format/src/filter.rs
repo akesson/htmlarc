@@ -3,6 +3,14 @@ use std::collections::HashSet;
 
 use htmlarc_dom::{css::*, prelude::*};
 
+/// An include/exclude predicate over archive entries, built from CSS-selector and
+/// word-list rules.
+///
+/// Each rule string is one of `css:<selector>`, `words:<comma,separated,list>`, or a
+/// path to a `.tsv` word file. An entry is kept when it matches the include rules
+/// (or there are none) and matches none of the exclude rules. Use it directly via
+/// [`keep`](Self::keep), or apply it across an archive with
+/// [`Archive::entries_matching`](crate::Archive::entries_matching).
 pub struct Filter {
     include: WordFilter,
     exclude: WordFilter,
