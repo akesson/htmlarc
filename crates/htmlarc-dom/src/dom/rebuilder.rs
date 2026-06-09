@@ -84,17 +84,22 @@ impl DomInner {
                     .and_then(|i| indexes[i.as_usize()]);
                 nodes.set_last_child_index(new_index, last_child);
 
+                // A reindex of `None` means the list was emptied by a mutation: its head
+                // slot is now an empty head that `mark_list_used` intentionally skips, so it
+                // is not carried into the rebuilt store. Drop the node's stale pointer
+                // instead of unwrapping it.
                 if let Some(list_index) = self.nodes.class_list_index(old_index) {
-                    let new_list = class_list_reindex[list_index.as_usize()].unwrap();
-                    nodes.set_class_list_index(new_index, Some(new_list));
+                    nodes
+                        .set_class_list_index(new_index, class_list_reindex[list_index.as_usize()]);
                 }
                 if let Some(list_index) = self.nodes.attr_list_index(old_index) {
-                    let new_list = attr_list_reindex[list_index.as_usize()].unwrap();
-                    nodes.set_attr_list_index(new_index, Some(new_list));
+                    nodes.set_attr_list_index(new_index, attr_list_reindex[list_index.as_usize()]);
                 }
                 if let Some(list_index) = self.nodes.data_attr_list_index(old_index) {
-                    let new_list = dataattr_list_reindex[list_index.as_usize()].unwrap();
-                    nodes.set_data_attr_list_index(new_index, Some(new_list));
+                    nodes.set_data_attr_list_index(
+                        new_index,
+                        dataattr_list_reindex[list_index.as_usize()],
+                    );
                 }
             }
         }
