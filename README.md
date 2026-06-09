@@ -129,6 +129,16 @@ Tests are run with [cargo-nextest]. Some snapshot tests use insta's `glob!` over
 fixtures and rely on nextest's process-per-test isolation; running them with the default
 `cargo test` (in-process threads) can produce spurious failures.
 
+### Git hooks (one-time setup)
+
+This repo ships git hooks in `.githooks/` that mirror the CI checks: `pre-commit` runs
+`cargo fmt --check` + clippy, and `pre-push` additionally runs the test suite. Git does
+**not** pick them up automatically — activate them once per clone with:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 ## License
 
 Dual-licensed:
