@@ -36,7 +36,10 @@ pub(crate) trait Context {
 impl<T> Context for HtmlParseResult<T> {
     fn context<S: ToString>(self, context: S) -> Self {
         if let Err(e) = self {
-            Err(HtmlParseError::WithContext(context.to_string(), Box::new(e)))
+            Err(HtmlParseError::WithContext(
+                context.to_string(),
+                Box::new(e),
+            ))
         } else {
             self
         }

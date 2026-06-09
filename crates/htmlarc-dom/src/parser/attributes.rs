@@ -35,7 +35,10 @@ pub fn parse_attributes<'a, Dom: DomStack<'a>>(
 /// Pre-condition: chars is positioned on the first character of the attribute name.
 ///
 /// Post-condition: chars is positioned on the first character after the attribute.
-fn parse_attribute<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars<'a>) -> HtmlParseResult<()> {
+fn parse_attribute<'a, Dom: DomStack<'a>>(
+    dom: &mut Dom,
+    chars: &mut Chars<'a>,
+) -> HtmlParseResult<()> {
     let start = chars.index();
     chars
         .find(attr_name_end)

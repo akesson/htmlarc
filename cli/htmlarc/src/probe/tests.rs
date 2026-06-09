@@ -4,8 +4,8 @@ use std::{
     process::{Command, Stdio},
 };
 
-use htmlarc_dom::prelude::HtmlDoc;
 use htmlarc_archive::HtmlEntry;
+use htmlarc_dom::prelude::HtmlDoc;
 use insta::assert_snapshot;
 use rkyv::{api::high::to_bytes_in, rancor::Error};
 

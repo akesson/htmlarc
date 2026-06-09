@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Honors the channel + components pinned in rust-toolchain.toml.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      # Tests run under nextest (process-per-test): some glob! snapshot tests rely
+      # on that isolation, and plain `cargo test` can be flaky for them.
+      - uses: taiki-e/install-action@nextest
+      # The zim2htmlarc e2e tests are #[ignore]d (they need a non-redistributable
+      # ZIM fetched by fetch-testdata.sh), so the default run stays hermetic.
+      - run: cargo nextest run --workspace
+      # Build (but don't run) the benchmarks: bench timings are too noisy on
+      # shared runners to gate on, but a bench target that no longer compiles
+      # or links should still fail CI.
+      - run: cargo bench --workspace --no-run
