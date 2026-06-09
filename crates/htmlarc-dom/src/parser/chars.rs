@@ -1,5 +1,5 @@
 use super::lines::Lines;
-use crate::error::{HtmlParseResult, HtmlParseError};
+use crate::error::{HtmlParseError, HtmlParseResult};
 use std::{ops::Range, str::CharIndices};
 
 #[derive(Debug)]
@@ -179,7 +179,11 @@ impl<'a> Chars<'a> {
         self.next().map(|_| self.index())
     }
 
-    pub fn str_until<F: Fn(char) -> bool>(&mut self, from: usize, cond: F) -> HtmlParseResult<&'a str> {
+    pub fn str_until<F: Fn(char) -> bool>(
+        &mut self,
+        from: usize,
+        cond: F,
+    ) -> HtmlParseResult<&'a str> {
         self.find(cond).map(|_| self.str_from(from))
     }
 

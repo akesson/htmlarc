@@ -19,7 +19,7 @@ mod logging {
 }
 
 use error::Context;
-pub use error::{HtmlParseResult, HtmlParseError};
+pub use error::{HtmlParseError, HtmlParseResult};
 pub use logging::debug;
 
 pub mod prelude {

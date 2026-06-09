@@ -7,8 +7,8 @@ use std::str::from_utf8;
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
-use htmlarc_dom::prelude::HtmlDoc;
 use htmlarc_archive::ArchiveWriter;
+use htmlarc_dom::prelude::HtmlDoc;
 use unicode_normalization::{UnicodeNormalization, is_nfc};
 use zim::{MimeType, Namespace, Target, Zim};
 

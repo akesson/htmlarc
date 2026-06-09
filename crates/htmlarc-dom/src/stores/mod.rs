@@ -10,11 +10,11 @@ pub(crate) use attributes::{
     AttributeReBuilder, AttributeStoreBuilder, AttributeStoreView, attr_list,
 };
 pub use classes::{Class, ClassStore};
-pub(crate) use classes::{ClassList, ClassReBuilder, ClassStoreBuilder, ClassStoreView, class_list};
-pub use dataattributes::{DataAttribute, DataAttributeStore};
-pub(crate) use dataattributes::{
-    DataAttributeRebuilder, DataAttributeStoreView, data_attr_list,
+pub(crate) use classes::{
+    ClassList, ClassReBuilder, ClassStoreBuilder, ClassStoreView, class_list,
 };
+pub use dataattributes::{DataAttribute, DataAttributeStore};
+pub(crate) use dataattributes::{DataAttributeRebuilder, DataAttributeStoreView, data_attr_list};
 pub use listvec::ListIndex;
 pub use stringstack::StringStack;
 pub(crate) use stringstack::StringStackView;

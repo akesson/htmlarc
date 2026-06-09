@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::dom::NodeIndex;
 use crate::html::{HtmlAttr, HtmlTag};
 
-use crate::{HtmlParseResult, HtmlParseError};
+use crate::{HtmlParseError, HtmlParseResult};
 
 pub trait DomStack<'a> {
     fn push_tag(&mut self, tag: HtmlTag) {

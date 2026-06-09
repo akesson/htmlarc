@@ -140,7 +140,11 @@ fn archived_stringheap_round_trip() {
     // Index<u16> exactly.
     assert_eq!(archived.view().len(), heap.len());
     for i in 0..heap.len() {
-        assert_eq!(archived.view().get(i), &heap[i], "entry {i} matches zero-copy");
+        assert_eq!(
+            archived.view().get(i),
+            &heap[i],
+            "entry {i} matches zero-copy"
+        );
     }
 }
 

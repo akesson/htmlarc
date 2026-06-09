@@ -129,6 +129,20 @@ Tests are run with [cargo-nextest]. Some snapshot tests use insta's `glob!` over
 fixtures and rely on nextest's process-per-test isolation; running them with the default
 `cargo test` (in-process threads) can produce spurious failures.
 
+### Git hooks (one-time setup)
+
+This repo ships git hooks in `.githooks/` that mirror the CI checks: `pre-commit` runs
+`cargo fmt --check` + clippy, and `pre-push` additionally runs the test suite (nextest).
+Git does **not** pick them up automatically — activate them once per clone with:
+
+```sh
+make setup
+```
+
+The other `make` targets mirror the CI jobs so you can reproduce a failure locally:
+`make fmt`, `make lint`, `make test`, `make bench`, or `make ci` for all of them. Run
+`make` to list them.
+
 ## License
 
 Dual-licensed:
