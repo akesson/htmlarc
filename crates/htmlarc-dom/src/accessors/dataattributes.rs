@@ -9,6 +9,7 @@ use crate::{
 
 pub struct DataAttributesMut<'a> {
     pub(crate) lock: RefMut<'a, DomInner>,
+    pub(crate) node: NodeIndex,
     pub(crate) index: Option<ListIndex>,
 }
 
@@ -27,7 +28,12 @@ impl DataAttributesMut<'_> {
         if let Some(index) = self.index {
             self.lock.dataattrs.list_mut_at(index).insert(attr)
         } else {
+            // The node had no data-attribute list yet: create one *and* point the node at
+            // it, otherwise the new list is orphaned and the data attribute is silently lost.
             let index = self.lock.dataattrs.add_list(attr);
+            self.lock
+                .nodes
+                .set_data_attr_list_index(self.node, Some(index.as_u16()));
             self.index = Some(index)
         }
     }

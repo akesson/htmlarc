@@ -470,6 +470,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         let index = self.with_nodes(|nodes| nodes.attr_list_index(self.index));
         AttributesMut {
             lock: self.dom.mut_handle(),
+            node: self.index,
             index,
         }
     }
@@ -477,6 +478,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         let index = self.with_nodes(|nodes| nodes.data_attr_list_index(self.index));
         DataAttributesMut {
             lock: self.dom.mut_handle(),
+            node: self.index,
             index,
         }
     }
@@ -485,6 +487,7 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         let index = self.with_nodes(|nodes| nodes.class_list_index(self.index));
         ClassesMut {
             lock: self.dom.mut_handle(),
+            node: self.index,
             index,
         }
     }

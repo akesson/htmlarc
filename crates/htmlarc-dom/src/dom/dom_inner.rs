@@ -647,3 +647,109 @@ fn test_reposition_cursor() {
         "Should move the cursor to the parent if there are no siblings"
     );
 }
+
+// Regression: removing *all* entries from a class/attribute list left the owning node
+// pointing at a now-empty list head. `mark_list_used` skips empty heads, so on repackage
+// the rebuilder either unwrapped a `None` (rebuilder.rs) or — when the emptied list sat at
+// slot 0 — failed every other list's "no next" reindex ("Invalid reindex", see
+// `ListInfo::reindexed`). Emptying a list must instead drop the node's pointer cleanly.
+#[test]
+fn repackage_after_emptying_a_class_list() {
+    // `<html class>` is the first classed element, so its list occupies slot 0 — the exact
+    // case that used to corrupt every other list when emptied.
+    let html_str = "<html class='root'><head></head><body>\
+        <p class='keep me'>x</p><span class='drop'>y</span></body></html>";
+    let dom = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+
+    dom.root()
+        .first_child_tag(HtmlTag::html)
+        .unwrap()
+        .classes_mut()
+        .remove(|_| true);
+
+    let html = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        !html.contains("class=\"root\""),
+        "emptied <html> class should be gone: {html}"
+    );
+    assert!(
+        !html.contains("class=\"\""),
+        "emptied list must not leave an empty class attr: {html}"
+    );
+    assert!(
+        html.contains("class=\"keep me\""),
+        "<p> classes must survive: {html}"
+    );
+    assert!(
+        html.contains("class=\"drop\""),
+        "<span> class must survive: {html}"
+    );
+}
+
+// Regression: appending a class/attribute to an element that had *no* list yet created
+// the list in the store but never pointed the node at it, so the value was silently lost
+// (a fresh `<meta charset>` rendered as `<meta>`). The node pointer must be set too.
+#[test]
+fn append_to_element_without_existing_list() {
+    let dom = HtmlDoc::parse("<html><head></head><body></body></html>")
+        .unwrap()
+        .dom_ref_cell();
+
+    let head = dom.root().path([HtmlTag::html, HtmlTag::head]).unwrap();
+    head.append_child(HtmlTag::meta)
+        .attributes_mut()
+        .append(Attribute {
+            tag: HtmlAttr::charset,
+            val: "UTF-8",
+        });
+
+    dom.root()
+        .path([HtmlTag::html, HtmlTag::body])
+        .unwrap()
+        .classes_mut()
+        .append(&Class::from("added"));
+
+    // Persisted immediately…
+    let raw = dom.to_html(HtmlFormat::Raw);
+    assert!(
+        raw.contains("charset=\"UTF-8\""),
+        "charset must persist: {raw}"
+    );
+    assert!(raw.contains("class=\"added\""), "class must persist: {raw}");
+
+    // …and survives a repackage.
+    let repacked = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        repacked.contains("charset=\"UTF-8\""),
+        "charset must survive repackage: {repacked}"
+    );
+    assert!(
+        repacked.contains("class=\"added\""),
+        "class must survive repackage: {repacked}"
+    );
+}
+
+#[test]
+fn repackage_after_emptying_an_attr_list() {
+    // Same arena/rebuild path, exercised through the attribute store.
+    let html_str = "<html><head></head><body>\
+        <a id='gone' href='/x'>link</a><p data-k='v'>keep</p></body></html>";
+    let dom = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+
+    let anchor = dom.root().select_css("a").unwrap().first().unwrap();
+    anchor.attributes_mut().remove(|_| true);
+
+    let html = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        !html.contains("id=\"gone\""),
+        "emptied <a> attributes should be gone: {html}"
+    );
+    assert!(
+        !html.contains("href=\"/x\""),
+        "emptied <a> attributes should be gone: {html}"
+    );
+    assert!(
+        html.contains("data-k"),
+        "<p> data attribute must survive: {html}"
+    );
+}
