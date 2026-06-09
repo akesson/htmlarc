@@ -13,7 +13,7 @@ fi
 echo "[pre-push] cargo clippy --workspace --all-targets -- -D warnings"
 cargo clippy --workspace --all-targets -- -D warnings
 
-echo "[pre-push] cargo test --workspace"
-cargo test --workspace
+echo "[pre-push] cargo nextest run --workspace"
+cargo nextest run --workspace
 
 echo "[pre-push] OK"
