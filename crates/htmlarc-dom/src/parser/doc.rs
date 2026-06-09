@@ -11,7 +11,10 @@ use crate::{
 #[cfg(test)]
 use insta::assert_snapshot;
 
-pub fn parse_doc<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars<'a>) -> HtmlParseResult<()> {
+pub fn parse_doc<'a, Dom: DomStack<'a>>(
+    dom: &mut Dom,
+    chars: &mut Chars<'a>,
+) -> HtmlParseResult<()> {
     let mut c = chars.current();
     let mut text_start: Option<usize> = None;
     loop {

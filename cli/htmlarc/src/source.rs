@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use htmlarc_dom::prelude::HtmlFormat;
 use htmlarc_archive::{Filter, HtmlArchive, MmapArchive};
+use htmlarc_dom::prelude::HtmlFormat;
 
 /// The archive a CLI command operates on.
 ///

@@ -51,7 +51,8 @@ impl ArchiveWriter {
 
         let file = File::create(&tmp_path).map_err(ArchiveErr::FileWrite)?;
         let mut out = BufWriter::new(file);
-        out.write_all(&header_bytes()).map_err(ArchiveErr::FileWrite)?;
+        out.write_all(&header_bytes())
+            .map_err(ArchiveErr::FileWrite)?;
 
         Ok(Self {
             out,
@@ -133,7 +134,9 @@ impl ArchiveWriter {
         let dir_bytes =
             rkyv::to_bytes::<Error>(&self.dir).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
         let dir_len = dir_bytes.len() as u64;
-        self.out.write_all(&dir_bytes).map_err(ArchiveErr::FileWrite)?;
+        self.out
+            .write_all(&dir_bytes)
+            .map_err(ArchiveErr::FileWrite)?;
         self.pos += dir_len;
 
         let trailer = Trailer {

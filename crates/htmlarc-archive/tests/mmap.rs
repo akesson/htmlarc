@@ -1,8 +1,8 @@
 //! End-to-end parity tests for the zero-copy memory-mapped archive: a
 //! memory-mapped archive must answer every query identically to the owned one.
 
-use htmlarc_dom::prelude::{HtmlDoc, HtmlFormat, HtmlTag};
 use htmlarc_archive::{HtmlArchive, HtmlArchiveBuilder, MmapArchive};
+use htmlarc_dom::prelude::{HtmlDoc, HtmlFormat, HtmlTag};
 
 fn sample_archive() -> HtmlArchive {
     let mut b = HtmlArchiveBuilder::default();
@@ -27,7 +27,10 @@ fn sample_archive() -> HtmlArchive {
 }
 
 fn temp_path(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("htmlarc_mmaptest_{}_{tag}.htmlarc", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "htmlarc_mmaptest_{}_{tag}.htmlarc",
+        std::process::id()
+    ))
 }
 
 #[test]
@@ -39,7 +42,10 @@ fn mmap_matches_owned() {
     let mmap = MmapArchive::open(&path).unwrap();
 
     assert_eq!(mmap.len(), owned.len());
-    assert_eq!(mmap.keys().collect::<Vec<_>>(), owned.keys().collect::<Vec<_>>());
+    assert_eq!(
+        mmap.keys().collect::<Vec<_>>(),
+        owned.keys().collect::<Vec<_>>()
+    );
 
     for owned_entry in owned.entries() {
         let key = owned_entry.key.as_str();
@@ -168,7 +174,7 @@ fn mmap_rejects_corrupt_blob() {
     assert!(mmap.keys().any(|k| k == "beta"));
     // Fetching a document validates its (corrupt) blob and returns an Err.
     assert!(
-        matches!(mmap.get("beta"), Err(_)),
+        mmap.get("beta").is_err(),
         "a corrupt blob must surface as Err, not None"
     );
     // The owned reader deserializes every blob up front, so it fails outright.

@@ -9,7 +9,10 @@ use insta::assert_snapshot;
 /// Pre-condition: chars at the first '-' in <!--
 ///
 /// Post-condition: chars at the closing '>'
-pub fn parse_comment<'a, Dom: DomStack<'a>>(dom: &mut Dom, chars: &mut Chars) -> HtmlParseResult<()> {
+pub fn parse_comment<'a, Dom: DomStack<'a>>(
+    dom: &mut Dom,
+    chars: &mut Chars,
+) -> HtmlParseResult<()> {
     chars.assert_next(|c| c == '-')?;
     chars.next().unwrap();
     let start = chars.index();
@@ -174,7 +177,10 @@ fn raw_element(tag: HtmlTag, chars: &mut Chars) -> HtmlParseResult<Option<Range<
     Ok(Some(range))
 }
 
-fn raw_elem_seq<const N: usize>(chars: &mut Chars, seq: [char; N]) -> HtmlParseResult<Range<usize>> {
+fn raw_elem_seq<const N: usize>(
+    chars: &mut Chars,
+    seq: [char; N],
+) -> HtmlParseResult<Range<usize>> {
     chars.next();
     let start = chars.index();
     let end = chars.find_sequence(seq)?;
