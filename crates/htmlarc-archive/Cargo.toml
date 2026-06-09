@@ -14,3 +14,8 @@ rkyv = { workspace = true }
 seahash = { workspace = true }
 thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+# `css!(...)` (compile-time-checked selectors) for the `wiktionary` example.
+htmlarc-macros = { workspace = true }
+anyhow = { workspace = true }

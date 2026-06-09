@@ -7,6 +7,7 @@ use crate::{
 
 pub struct ClassesMut<'a> {
     pub(crate) lock: RefMut<'a, DomInner>,
+    pub(crate) node: NodeIndex,
     pub(crate) index: Option<ListIndex>,
 }
 
@@ -22,7 +23,12 @@ impl ClassesMut<'_> {
         if let Some(index) = self.index {
             self.lock.classes.list_mut_at(index).insert(class)
         } else {
+            // The node had no class list yet: create one *and* point the node at it,
+            // otherwise the new list is orphaned and the class is silently lost.
             let index = self.lock.classes.add_list(class);
+            self.lock
+                .nodes
+                .set_class_list_index(self.node, Some(index.as_u16()));
             self.index = Some(index)
         }
     }
