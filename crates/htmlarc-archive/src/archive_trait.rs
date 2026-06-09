@@ -67,10 +67,7 @@ pub trait Archive {
     }
 
     /// Entries whose key and DOM pass `filter` (its CSS-selector / word predicate).
-    fn entries_matching<'a>(
-        &'a self,
-        filter: &'a Filter,
-    ) -> impl Iterator<Item = &'a Self::Entry> {
+    fn entries_matching<'a>(&'a self, filter: &'a Filter) -> impl Iterator<Item = &'a Self::Entry> {
         self.entries()
             .filter(move |entry| filter.keep(entry.key(), entry.dom()))
     }

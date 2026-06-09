@@ -40,7 +40,12 @@ impl DomInner {
         )
     }
 
-    pub(crate) fn append_text_child(&mut self, tag: HtmlTag, index: NodeIndex, text: &str) -> NodeIndex {
+    pub(crate) fn append_text_child(
+        &mut self,
+        tag: HtmlTag,
+        index: NodeIndex,
+        text: &str,
+    ) -> NodeIndex {
         debug_assert!(matches!(tag, HtmlTag::sys_comment | HtmlTag::sys_text));
         self.add_string_child(index, tag, text)
     }

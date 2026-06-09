@@ -20,7 +20,7 @@ pub(crate) use doc::parse_doc;
 pub use testdom::TestDom;
 
 #[cfg(test)]
-use crate::{HtmlParseResult, HtmlParseError};
+use crate::{HtmlParseError, HtmlParseResult};
 
 #[cfg(test)]
 fn with_chars<R, F: Fn(&mut Chars) -> R>(html: &str, f: F) -> R {

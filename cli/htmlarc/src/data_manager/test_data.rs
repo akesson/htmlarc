@@ -1,8 +1,8 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use htmlarc_dom::prelude::HtmlDoc;
 use htmlarc_archive::{HtmlArchive, HtmlEntry};
+use htmlarc_dom::prelude::HtmlDoc;
 
 use super::DataManager;
 use crate::source::ArchiveSource;

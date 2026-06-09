@@ -28,10 +28,13 @@ pub(crate) struct DirEntry {
 pub(crate) type ArchivedDirectory = rkyv::Archived<Vec<DirEntry>>;
 
 /// Compare a directory key by the (key_len, key) ordering used throughout the format.
-pub(crate) fn compare(entry_key_len: u16, entry_key: &str, key_len: u16, key: &str) -> std::cmp::Ordering {
-    entry_key_len
-        .cmp(&key_len)
-        .then_with(|| entry_key.cmp(key))
+pub(crate) fn compare(
+    entry_key_len: u16,
+    entry_key: &str,
+    key_len: u16,
+    key: &str,
+) -> std::cmp::Ordering {
+    entry_key_len.cmp(&key_len).then_with(|| entry_key.cmp(key))
 }
 
 /// Binary-search the archived directory for `key`, returning its entry (offset/len/checksum).
