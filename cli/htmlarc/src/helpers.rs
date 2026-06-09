@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use htmlarc_format::Filter;
+use htmlarc_archive::Filter;
 
 use crate::source::ArchiveSource;
 

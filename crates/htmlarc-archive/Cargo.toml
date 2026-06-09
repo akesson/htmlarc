@@ -1,5 +1,5 @@
 [package]
-name = "htmlarc-format"
+name = "htmlarc-archive"
 description = "A single-file archive of pre-parsed HTML documents, CSS-queryable without re-parsing"
 edition.workspace = true
 version.workspace = true

@@ -2,7 +2,7 @@
 //! memory-mapped archive must answer every query identically to the owned one.
 
 use htmlarc_dom::prelude::{HtmlDoc, HtmlFormat, HtmlTag};
-use htmlarc_format::{HtmlArchive, HtmlArchiveBuilder, MmapArchive};
+use htmlarc_archive::{HtmlArchive, HtmlArchiveBuilder, MmapArchive};
 
 fn sample_archive() -> HtmlArchive {
     let mut b = HtmlArchiveBuilder::default();
@@ -204,7 +204,7 @@ fn mmap_archive_is_send_sync() {
 
 #[test]
 fn archive_trait_and_filter_work_generically() {
-    use htmlarc_format::{Archive, ArchiveEntry, Filter};
+    use htmlarc_archive::{Archive, ArchiveEntry, Filter};
 
     // One generic routine over the shared trait runs against both backings.
     fn keys_with_h1<A: Archive>(archive: &A) -> Vec<String> {
