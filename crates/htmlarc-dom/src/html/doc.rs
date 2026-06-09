@@ -9,18 +9,17 @@ pub struct HtmlDoc {
 }
 
 impl HtmlDoc {
-    pub fn dom(self) -> DomOwn {
-        DomOwn { dom: self.dom }
+    /// The owned, queryable DOM. Implements [`DomRead`]/[`DomRef`], so it is the
+    /// read handle for in-memory documents (mirroring `ArchivedDomInner` for archived
+    /// ones); it is also the rkyv-serializable form fed to the archive builder.
+    pub fn dom(self) -> DomInner {
+        self.dom
     }
 
     pub fn dom_ref_cell(self) -> DomRefCell {
         DomRefCell {
             dom: RefCell::new(self.dom),
         }
-    }
-
-    pub fn inner(self) -> DomInner {
-        self.dom
     }
 
     pub fn parse(input: &str) -> HtmlParseResult<Self> {

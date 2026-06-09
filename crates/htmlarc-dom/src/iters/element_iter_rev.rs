@@ -311,7 +311,7 @@ fn rev_iter_start_from_first_element() {
 }
 
 #[cfg(test)]
-fn parse(s: &str) -> DomOwn {
+fn parse(s: &str) -> DomInner {
     HtmlDoc::parse(s).unwrap().dom()
 }
 

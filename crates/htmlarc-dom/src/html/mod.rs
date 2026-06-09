@@ -6,8 +6,8 @@ mod html_tag;
 mod tests;
 
 pub use doc::HtmlDoc;
+pub use element::HtmlElement;
 pub(crate) use element::IGNORE_TAGS;
-pub use element::{ElementType, HtmlElement};
 pub use html_attr::HtmlAttr;
 pub use html_tag::HtmlTag;
 

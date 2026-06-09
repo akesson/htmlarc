@@ -3,7 +3,7 @@ use crate::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
     css::{self, AttributeSelector, ParseError, Selector, SelectorList},
-    dom::{DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
+    dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
     html::HtmlTag,
@@ -15,12 +15,6 @@ use super::HtmlAttr;
 
 pub(crate) const IGNORE_TAGS: &[HtmlTag] =
     &[HtmlTag::sys_text, HtmlTag::sys_comment, HtmlTag::sys_root];
-
-pub enum ElementType<'dom> {
-    Element(HtmlTag),
-    Text(&'dom str),
-    Comment(&'dom str),
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HtmlElement<'dom, Dom> {
@@ -385,22 +379,9 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
             index,
         }
     }
-    pub fn get_type(&self) -> ElementType<'dom> {
-        let index = self.index();
-        let dom = self.dom.dom_view();
-        match dom.nodes.tag(index) {
-            HtmlTag::sys_text => ElementType::Text(dom.string_at(index)),
-            HtmlTag::sys_comment => ElementType::Comment(dom.string_at(index)),
-            tag => ElementType::Element(tag),
-        }
-    }
 }
 
 impl<'dom> HtmlElement<'dom, DomRefCell> {
-    pub fn read_only<'a>(&self, dom: &'a DomOwn) -> HtmlElement<'a, DomOwn> {
-        HtmlElement::new(dom, self.index())
-    }
-
     fn edit<F: Fn(&mut Nodes) -> NodeIndex>(&self, f: F) -> Self {
         self.dom
             .with_mut(|dom| self.new_with_index(f(&mut dom.nodes)))
