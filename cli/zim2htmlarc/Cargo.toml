@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 htmlarc-dom.workspace = true
-htmlarc-format.workspace = true
+htmlarc-archive.workspace = true
 unicode-normalization.workspace = true
 xflags.workspace = true
 zim.workspace = true

@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 use htmlarc_dom::prelude::HtmlDoc;
-use htmlarc_format::{HtmlArchive, HtmlEntry};
+use htmlarc_archive::{HtmlArchive, HtmlEntry};
 
 use super::DataManager;
 use crate::source::ArchiveSource;

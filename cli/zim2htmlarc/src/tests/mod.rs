@@ -75,6 +75,6 @@ fn export_reads_a_real_zim() {
     })
     .expect("export should succeed");
 
-    let arch = htmlarc_format::HtmlArchive::read_from(&out).expect("archive should load");
+    let arch = htmlarc_archive::HtmlArchive::read_from(&out).expect("archive should load");
     assert!(arch.len() >= 1, "expected at least one article");
 }

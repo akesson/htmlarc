@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use htmlarc_dom::prelude::HtmlDoc;
-use htmlarc_format::ArchiveWriter;
+use htmlarc_archive::ArchiveWriter;
 use unicode_normalization::{UnicodeNormalization, is_nfc};
 use zim::{MimeType, Namespace, Target, Zim};
 

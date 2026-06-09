@@ -1,6 +1,6 @@
 use crate::args::Pack;
 use anyhow::{Context, Result};
-use htmlarc_format::HtmlArchive;
+use htmlarc_archive::HtmlArchive;
 
 /// Parse a source (file or directory of HTML) and write it out as a single `.htmlarc`,
 /// streaming one document at a time so a large directory never goes fully resident.

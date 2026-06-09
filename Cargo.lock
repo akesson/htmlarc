@@ -607,8 +607,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colorful",
+ "htmlarc-archive",
  "htmlarc-dom",
- "htmlarc-format",
  "indexmap",
  "insta",
  "log",
@@ -619,6 +619,19 @@ dependencies = [
  "termion",
  "thiserror 2.0.18",
  "xflags",
+]
+
+[[package]]
+name = "htmlarc-archive"
+version = "0.1.0"
+dependencies = [
+ "fs-err",
+ "htmlarc-dom",
+ "memmap2",
+ "rkyv",
+ "seahash",
+ "thiserror 2.0.18",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -635,19 +648,6 @@ dependencies = [
  "strum_macros",
  "thiserror 2.0.18",
  "tinyvec",
-]
-
-[[package]]
-name = "htmlarc-format"
-version = "0.1.0"
-dependencies = [
- "fs-err",
- "htmlarc-dom",
- "memmap2",
- "rkyv",
- "seahash",
- "thiserror 2.0.18",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -2035,8 +2035,8 @@ name = "zim2htmlarc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "htmlarc-archive",
  "htmlarc-dom",
- "htmlarc-format",
  "insta",
  "unicode-normalization",
  "xflags",
