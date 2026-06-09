@@ -19,7 +19,7 @@ mod logging {
 // Crate-root items the `probe` modules expect (mirrors the original htmlprobe lib.rs).
 pub(crate) use anyhow::{Error, Result, anyhow};
 pub(crate) use htmlarc_dom::css::{SelectorList, parse_css};
-pub(crate) use htmlarc_format::{Filter, HtmlArchive, MmapArchive};
+pub(crate) use htmlarc_archive::{Filter, HtmlArchive, MmapArchive};
 pub(crate) use logging::debug;
 pub use probe::*;
 

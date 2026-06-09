@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use htmlarc_dom::prelude::HtmlFormat;
-use htmlarc_format::{Filter, HtmlArchive, MmapArchive};
+use htmlarc_archive::{Filter, HtmlArchive, MmapArchive};
 
 /// The archive a CLI command operates on.
 ///

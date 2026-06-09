@@ -37,7 +37,7 @@ zim = { git = "https://github.com/akesson/zim", branch = "fix-modern-zim-title-p
 # internal crates
 htmlarc-dom = { path = "crates/htmlarc-dom" }
 htmlarc-macros = { path = "crates/htmlarc-macros" }
-htmlarc-format = { path = "crates/htmlarc-format" }
+htmlarc-archive = { path = "crates/htmlarc-archive" }
 
 # Speed up insta/similar in dev so snapshot tests run fast.
 [profile.dev.package.insta]
