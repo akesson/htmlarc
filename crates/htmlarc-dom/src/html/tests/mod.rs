@@ -114,7 +114,7 @@ fn logging() {
 fn select_css() {
     fn print_elements<'a, I>(elements: I) -> String
     where
-        I: Iterator<Item = HtmlElement<'a, DomOwn>>,
+        I: Iterator<Item = HtmlElement<'a, DomInner>>,
     {
         elements
             .map(|el| format!("{} - {}", el.index(), el.tag()))
