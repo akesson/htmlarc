@@ -101,7 +101,15 @@ impl ListInfo {
     pub(crate) fn reindexed(&self, reindex: &[Option<u16>]) -> Self {
         let num = self.0 & 0b0111_1111_1111_1111;
         let head = self.0 & 0b1000_0000_0000_0000;
-        let new_num = reindex[num as usize].expect("Invalid reindex");
+        // `num == 0` encodes "no next" (slot 0 is never a link target — see `set_next`),
+        // so it must survive a rebuild as 0. Routing it through `reindex[0]` would instead
+        // bind every terminal entry to slot 0's fate, so if slot 0's own list was emptied
+        // and dropped during rebuild, all other lists would fail to reindex.
+        let new_num = if num == 0 {
+            0
+        } else {
+            reindex[num as usize].expect("Invalid reindex")
+        };
         Self(new_num | head)
     }
 }

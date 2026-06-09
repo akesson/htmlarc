@@ -5,6 +5,7 @@ use crate::stores::{Attribute, ListIndex, attr_list};
 
 pub struct AttributesMut<'a> {
     pub(crate) lock: RefMut<'a, DomInner>,
+    pub(crate) node: NodeIndex,
     pub(crate) index: Option<ListIndex>,
 }
 
@@ -20,7 +21,12 @@ impl AttributesMut<'_> {
         if let Some(index) = self.index {
             self.lock.attrs.list_mut_at(index).insert(&attr)
         } else {
+            // The node had no attribute list yet: create one *and* point the node at it,
+            // otherwise the new list is orphaned and the attribute is silently lost.
             let index = self.lock.attrs.add_list(&attr);
+            self.lock
+                .nodes
+                .set_attr_list_index(self.node, Some(index.as_u16()));
             self.index = Some(index)
         }
     }
