@@ -90,10 +90,10 @@ impl Iterator for TagIter<'_> {
 }
 
 #[cfg(test)]
-use crate::{dom::DomOwn, html::HtmlDoc};
+use crate::{dom::DomInner, html::HtmlDoc};
 
 #[cfg(test)]
-fn tag_string(iter: TagIter<'_>, dom: &DomOwn) -> String {
+fn tag_string(iter: TagIter<'_>, dom: &DomInner) -> String {
     use TagStage::*;
     iter.map(|el| {
         let tag = dom.dom_view().nodes.tag(el.index);

@@ -529,7 +529,7 @@ fn spike_zero_copy_archived_dom() {
     use rkyv::rancor::Error;
 
     let html = r#"<body><h1 class="title" id="t">Hello</h1><p>world &amp; more</p></body>"#;
-    let dom: DomInner = HtmlDoc::parse(html).unwrap().inner();
+    let dom: DomInner = HtmlDoc::parse(html).unwrap().dom();
 
     // Serialize exactly as the archive does (`rkyv::to_bytes`).
     let bytes = rkyv::to_bytes::<Error>(&dom).unwrap();

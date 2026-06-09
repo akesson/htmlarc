@@ -32,14 +32,14 @@ pub mod prelude {
     };
     pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
-        ArchivedDomInner, DomInner, DomOwn, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
+        ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
     };
     pub use crate::error::{
         ElementError, HtmlParseError, HtmlParseResult, IterationError, Locatable, LocatedError,
     };
     pub use crate::fmt::HtmlFormat;
     pub use crate::here;
-    pub use crate::html::{ElementType, HtmlAttr, HtmlDoc, HtmlElement, HtmlTag};
+    pub use crate::html::{HtmlAttr, HtmlDoc, HtmlElement, HtmlTag};
     pub use crate::iters::{
         CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
         RevElementIter, Tag, TagIter,

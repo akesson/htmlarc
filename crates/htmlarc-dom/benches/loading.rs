@@ -6,7 +6,7 @@ use std::fs;
 pub fn loading(c: &mut Criterion) {
     let doc = fs::read_to_string("src/parser/tests/html/fr.serrer.html").unwrap();
     let html = HtmlDoc::parse(&doc).unwrap();
-    let data = rkyv::to_bytes::<Error>(&html.inner()).unwrap();
+    let data = rkyv::to_bytes::<Error>(&html.dom()).unwrap();
 
     c.bench_function("loading fr.serrer.html", |b| {
         b.iter(|| {

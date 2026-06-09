@@ -101,7 +101,7 @@ use crate::prelude::*;
 
 #[cfg(test)]
 fn inline_vec(html: &str, index: NodeIndex) -> Vec<(HtmlTag, TagStage, bool, u16)> {
-    let dom = HtmlDoc::parse(html).unwrap().inner();
+    let dom = HtmlDoc::parse(html).unwrap().dom();
     Inliner::new(dom.view(), index)
         .map(|info| (info.tag(), info.stage, info.in_inline_sequence, info.depth))
         .collect()

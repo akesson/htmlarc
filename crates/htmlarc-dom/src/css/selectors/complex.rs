@@ -8,7 +8,7 @@ use crate::{
         ClassSelector, Combinator, Context, IdSelector, IndexedError, ParseError, ParseResult,
         QuotedString, chars::CssChars, logging::debug, patterns::CssPattern,
     },
-    dom::{DomOwn, DomRead, DomRefCell},
+    dom::{DomRead, DomRefCell},
     html::{HtmlAttr, HtmlDoc, HtmlElement, HtmlTag, IGNORE_TAGS},
     iters::RelativeIter,
 };

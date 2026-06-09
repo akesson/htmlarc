@@ -9,7 +9,7 @@ use crate::{
 use crate::html::HtmlElement;
 
 /// Read access to a DOM document, abstracting over *where the bytes live* —
-/// owned in memory ([`DomInner`], [`DomOwn`], [`DomRefCell`]) or zero-copy in a
+/// owned in memory ([`DomInner`], [`DomRefCell`]) or zero-copy in a
 /// memory-mapped rkyv archive (`ArchivedDomInner`). All query code (iterators, CSS,
 /// the formatter, [`HtmlElement`]) goes through [`DomView`] via [`Self::with_view`],
 /// so it never needs to know which.
@@ -56,37 +56,6 @@ impl DomRead for DomInner {
 impl DomRef for DomInner {
     fn dom_view(&self) -> DomView<'_> {
         self.view()
-    }
-}
-
-#[derive(Debug)]
-pub struct DomOwn {
-    pub(crate) dom: DomInner,
-}
-
-impl From<DomInner> for DomOwn {
-    fn from(dom: DomInner) -> Self {
-        Self { dom }
-    }
-}
-
-impl DomRef for DomOwn {
-    fn dom_view(&self) -> DomView<'_> {
-        self.dom.view()
-    }
-}
-
-impl DomRead for DomOwn {
-    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
-        f(self.dom.view())
-    }
-
-    fn root(&self) -> HtmlElement<'_, DomOwn> {
-        HtmlElement::new(self, NodeIndex::ROOT)
-    }
-
-    fn repackage(&self) -> DomInner {
-        self.dom.rebuild()
     }
 }
 
