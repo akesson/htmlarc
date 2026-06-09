@@ -81,17 +81,13 @@ fn listvec_single() {
     let l1_content = lists.list_at(l1).debug_string();
     assert_snapshot!(l1_content, @"11, 22, 33");
 
-    assert_snapshot!(lists, @r###"
-    11, 22, 33
-    "###);
+    assert_snapshot!(lists, @"11, 22, 33");
 
     let res = lists.list_mut_at(l1).remove(33);
 
     assert_eq!(res, ListRemovalResult::EntryRemoved);
 
-    assert_snapshot!(lists, @r###"
-    11, 22
-    "###);
+    assert_snapshot!(lists, @"11, 22");
 }
 
 #[test]
