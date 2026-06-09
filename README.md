@@ -92,7 +92,7 @@ the `u16` ceiling. The whole thing derives `rkyv::Archive`, so it serializes to 
 back **without pointer fix-ups or per-node allocation** — traversal is array indexing into hot,
 contiguous memory rather than chasing heap pointers.
 
-An archive (`htmlarc-format`) is just a sorted `Vec` of `(key, dom)` entries written with rkyv;
+An archive (`htmlarc-archive`) is just a sorted `Vec` of `(key, dom)` entries written with rkyv;
 `get` binary-searches by key, and `MmapArchive` reads the archived bytes **zero-copy** from a
 memory-map (no deserialization).
 
@@ -112,7 +112,7 @@ memory-map (no deserialization).
 crates/
   htmlarc-dom/      flat, rkyv-archivable HTML DOM + parser + CSS3 selector engine
   htmlarc-macros/   `css!(...)` — compile-time-validated CSS selectors
-  htmlarc-format/   the single-file .htmlarc archive (build / open / query / diff)
+  htmlarc-archive/  the single-file .htmlarc archive (build / open / query / diff)
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
   zim2htmlarc/      converts a ZIM (Kiwix/Wikipedia) into a .htmlarc archive

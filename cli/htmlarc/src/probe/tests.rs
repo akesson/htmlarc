@@ -5,7 +5,7 @@ use std::{
 };
 
 use htmlarc_dom::prelude::HtmlDoc;
-use htmlarc_format::HtmlEntry;
+use htmlarc_archive::HtmlEntry;
 use insta::assert_snapshot;
 use rkyv::{api::high::to_bytes_in, rancor::Error};
 
