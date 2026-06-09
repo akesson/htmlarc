@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Pre-commit gate: formatting + lints must pass before a commit lands.
+# Mirrors the `rustfmt` and `clippy` jobs in .github/workflows/ci.yml.
+# Bypass once (e.g. a WIP commit) with: git commit --no-verify
+set -eu
+
+echo "[pre-commit] cargo fmt --all --check"
+if ! cargo fmt --all --check; then
+    echo "[pre-commit] formatting issues — run 'cargo fmt --all', stage, and re-commit" >&2
+    exit 1
+fi
+
+echo "[pre-commit] cargo clippy --workspace --all-targets -- -D warnings"
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "[pre-commit] OK"
