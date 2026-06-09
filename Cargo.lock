@@ -625,8 +625,10 @@ dependencies = [
 name = "htmlarc-archive"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fs-err",
  "htmlarc-dom",
+ "htmlarc-macros",
  "memmap2",
  "rkyv",
  "seahash",

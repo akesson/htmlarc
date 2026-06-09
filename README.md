@@ -143,6 +143,21 @@ The other `make` targets mirror the CI jobs so you can reproduce a failure local
 `make fmt`, `make lint`, `make test`, `make bench`, or `make ci` for all of them. Run
 `make` to list them.
 
+## Example
+
+A runnable, end-to-end example of using htmlarc as a library — the same **step-wise reduction**
+that powers a Wiktionary pipeline (raw MediaWiki page → cleaned `<head>` → article content only),
+with a `.htmlarc` archive as the checkpoint between each pass:
+
+```sh
+cargo run -p htmlarc-archive --example wiktionary
+```
+
+It parses real Swedish Wiktionary pages, mutates each DOM (strip chrome, lift the article body),
+re-packs each stage into its own archive, then reopens the result zero-copy and CSS-queries the
+definitions out — printing the size shrink at every step. See
+[`crates/htmlarc-archive/examples/wiktionary.rs`](crates/htmlarc-archive/examples/wiktionary.rs).
+
 ## License
 
 Dual-licensed:
