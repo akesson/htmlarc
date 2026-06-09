@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Rust crate dependencies (workspace root Cargo.toml / Cargo.lock).
+  # The `zim` git dependency is skipped automatically — Dependabot only
+  # updates registry crates.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Bundle non-breaking bumps into one PR; majors still get their own.
+      cargo-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Versions of the actions used in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
