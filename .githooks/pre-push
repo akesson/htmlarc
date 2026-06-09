@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# Pre-push gate: the full CI suite — fmt + clippy + tests — runs before anything
+# leaves your machine. Mirrors all three jobs in .github/workflows/ci.yml.
+# Bypass once with: git push --no-verify
+set -eu
+
+echo "[pre-push] cargo fmt --all --check"
+if ! cargo fmt --all --check; then
+    echo "[pre-push] formatting issues — run 'cargo fmt --all' and re-commit" >&2
+    exit 1
+fi
+
+echo "[pre-push] cargo clippy --workspace --all-targets -- -D warnings"
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "[pre-push] cargo test --workspace"
+cargo test --workspace
+
+echo "[pre-push] OK"
