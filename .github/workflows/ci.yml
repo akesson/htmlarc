@@ -43,3 +43,7 @@ jobs:
       # The zim2htmlarc e2e tests are #[ignore]d (they need a non-redistributable
       # ZIM fetched by fetch-testdata.sh), so the default run stays hermetic.
       - run: cargo nextest run --workspace
+      # Build (but don't run) the benchmarks: bench timings are too noisy on
+      # shared runners to gate on, but a bench target that no longer compiles
+      # or links should still fail CI.
+      - run: cargo bench --workspace --no-run
