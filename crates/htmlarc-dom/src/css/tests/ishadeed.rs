@@ -1,6 +1,6 @@
 use crate::{
     css::tests::helpers::select,
-    dom::{DomOwn, DomRead},
+    dom::DomRead,
     html::{HtmlDoc, HtmlElement},
 };
 
