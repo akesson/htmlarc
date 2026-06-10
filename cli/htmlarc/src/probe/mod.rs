@@ -5,6 +5,7 @@ mod node_counter;
 mod tests;
 
 use std::{
+    collections::HashSet,
     mem,
     sync::{
         Arc,
@@ -67,6 +68,12 @@ pub fn probe<A: ProbeArchive>(
     expressions: &'static [ProbeExpression<'static>],
     filters: &'static Filter,
 ) -> CountedNodes<'static> {
+    // Fast path: an include filter that restricts by key can only match those keys — resolve them
+    // through the keyed index and skip the bundle sweep (and every other document's blob) entirely.
+    if let Some(keys) = filters.include_keys() {
+        return archive.probe_keys(keys, expressions, filters);
+    }
+
     let bundle_count = archive.bundle_count();
     let thread_count = thread::available_parallelism().map_or(1, |p| p.get());
 
@@ -127,6 +134,17 @@ pub trait ProbeArchive: Sync {
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes<'a>;
+
+    /// Probe only the documents whose key is in `keys`, resolved through the keyed index — the
+    /// fast path when an include filter restricts by key. Skips bundle iteration entirely, so it
+    /// touches only the candidate documents' blobs instead of the whole corpus. Keys are processed
+    /// in sorted order so the aggregated result is deterministic.
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a>;
 }
 
 impl ProbeArchive for HtmlArchive {
@@ -146,6 +164,25 @@ impl ProbeArchive for HtmlArchive {
                 counter.analyze_html(&doc.key, &doc.root(), expressions);
             } else {
                 debug!("Skipping: {}", doc.key);
+            }
+        }
+        counter
+    }
+
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a> {
+        let mut sorted: Vec<&String> = keys.iter().collect();
+        sorted.sort_unstable();
+        let mut counter = CountedNodes::default();
+        for key in sorted {
+            if let Some(doc) = self.get(key)
+                && filters.keep(&doc.key, &doc.html)
+            {
+                counter.analyze_html(&doc.key, &doc.root(), expressions);
             }
         }
         counter
@@ -171,6 +208,32 @@ impl ProbeArchive for MmapArchive {
                 counter.analyze_html(key, &doc.root(), expressions);
             } else {
                 debug!("Skipping: {key}");
+            }
+        }
+        counter
+    }
+
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a> {
+        let mut sorted: Vec<&String> = keys.iter().collect();
+        sorted.sort_unstable();
+        let mut counter = CountedNodes::default();
+        for key in sorted {
+            // Mirror the bulk-iteration stance: an absent key is skipped, but a key that resolves
+            // to a corrupt blob is abort-worthy (every blob a present key points at is valid by
+            // construction), so surface it rather than silently under-counting.
+            let doc = match self.get(key) {
+                Ok(Some(doc)) => doc,
+                Ok(None) => continue,
+                Err(e) => panic!("corrupt document blob for key '{key}': {e:?}"),
+            };
+            let k = doc.key();
+            if filters.keep(k, &doc.html) {
+                counter.analyze_html(k, &doc.root(), expressions);
             }
         }
         counter

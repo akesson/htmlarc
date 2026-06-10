@@ -260,6 +260,31 @@ fn multi_bundle_round_trips() {
 }
 
 #[test]
+fn position_for_key_parity() {
+    // The keyed-search fast path resolves a word-list straight to flat positions via the sort
+    // index; owned and mmap must agree, the position must round-trip to the key, and an absent
+    // key must be `None` (not a panic or a wrong hit).
+    let path = temp_path("position_for_key");
+    sample_archive().write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    for key in ["gamma", "alpha", "beta"] {
+        let oi = owned.position_for_key(key).expect("owned position");
+        let mi = mmap.position_for_key(key).expect("mmap position");
+        assert_eq!(oi, mi, "owned/mmap position disagree for {key}");
+        assert_eq!(owned[oi].key, key, "owned position round-trips");
+        assert_eq!(mmap.key_at(mi), key, "mmap position round-trips");
+    }
+
+    assert_eq!(owned.position_for_key("absent"), None);
+    assert_eq!(mmap.position_for_key("absent"), None);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn explicit_bundle_boundaries_round_trip() {
     // Irregularly-sized bundles — as the ZIM export's cluster-aligned runs produce — must survive
     // write→read verbatim, not be re-chunked at BUNDLE_CAP. (write_to seals each in-memory bundle.)

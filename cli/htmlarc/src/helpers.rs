@@ -21,6 +21,27 @@ pub fn create_list_indexes(
 
     let filters = Arc::new(Filter::new(include, exclude)?);
 
+    // Fast path: when the include filter restricts by key (a `words:`/`.tsv` rule), only those
+    // keys can match — resolve them straight through the keyed index instead of scanning every
+    // document. For a pure word/key filter this touches no document blob at all (`keep_key`);
+    // otherwise it materializes only the handful of candidate documents to apply the CSS/exclude
+    // rules. Reduces a keyed list from an O(n) corpus sweep to O(list) indexed lookups.
+    if let Some(keys) = filters.include_keys() {
+        let mut indexes: Vec<usize> = keys
+            .iter()
+            .filter_map(|key| {
+                let i = archive.position_for_key(key)?;
+                let kept = filters
+                    .keep_key(key)
+                    .unwrap_or_else(|| archive.keep(i, &filters));
+                kept.then_some(i)
+            })
+            .collect();
+        indexes.sort_unstable();
+        indexes.truncate(first_n);
+        return Ok(indexes);
+    }
+
     let p_count = thread::available_parallelism().map_or(1, |p| p.get());
 
     let mut threads = Vec::new();

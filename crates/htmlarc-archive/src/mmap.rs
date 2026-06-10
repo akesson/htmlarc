@@ -175,6 +175,12 @@ impl MmapArchive {
         doc_table::find(self.doc_table(), self.sort_index(), key).map(|d| d.checksum.to_native())
     }
 
+    /// The flat (bundle→doc) position of `key`, via the sort index — footer-only, no blob access.
+    /// Lets a keyed search resolve a word-list straight to positions instead of scanning.
+    pub fn position_for_key(&self, key: &str) -> Option<usize> {
+        doc_table::find_index(self.doc_table(), self.sort_index(), key)
+    }
+
     /// The key at positional index `i` (bundle→doc order), no blob access.
     pub fn key_at(&self, i: usize) -> &str {
         self.doc_table()[i].key.as_str()
