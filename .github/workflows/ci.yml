@@ -40,7 +40,7 @@ jobs:
       # Tests run under nextest (process-per-test): some glob! snapshot tests rely
       # on that isolation, and plain `cargo test` can be flaky for them.
       - uses: taiki-e/install-action@nextest
-      # The zim2htmlarc e2e tests are #[ignore]d (they need a non-redistributable
+      # The htmlarc-convert e2e tests are #[ignore]d (they need a non-redistributable
       # ZIM fetched by fetch-testdata.sh), so the default run stays hermetic.
       - run: cargo nextest run --workspace
       # Build (but don't run) the benchmarks: bench timings are too noisy on

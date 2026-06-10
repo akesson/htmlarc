@@ -50,35 +50,44 @@ htmlarc diff old.htmlarc new.htmlarc
 
 Run `htmlarc --help` (or `htmlarc <command> --help`) for the full options.
 
-## Ingesting a ZIM (`zim2htmlarc`)
+## Ingesting documents (`htmlarc-convert`)
 
-The workspace also ships `zim2htmlarc`, a small companion that turns a **ZIM** file (the
-Kiwix/Wikipedia offline format) into a `.htmlarc` archive — straight from a downloaded dump
-to a queryable archive:
+The workspace also ships `htmlarc-convert`, a companion that turns a **ZIM** file (the
+Kiwix/Wikipedia offline format), a **WARC** web-crawl file (e.g. Common Crawl, plain or
+`.warc.gz`), or a **directory** of saved HTML files into a `.htmlarc` archive. The format is
+inferred from the input path (override with `--format zim|warc|dir`):
 
 ```sh
-# Export every HTML article from a ZIM into one archive:
-zim2htmlarc export wikipedia.zim wikipedia.htmlarc
+# Convert every HTML document from a source into one archive:
+htmlarc-convert convert wikipedia.zim wikipedia.htmlarc
+htmlarc-convert convert crawl.warc.gz crawl.htmlarc
+htmlarc-convert convert ./saved-pages/ pages.htmlarc
 
-# Only export articles whose title is in a list (one per line):
-zim2htmlarc export wikipedia.zim subset.htmlarc --list words.txt
+# Only convert documents whose key is in a list (one per line):
+htmlarc-convert convert wikipedia.zim subset.htmlarc --list words.txt
 
-# Inspect a ZIM without converting:
-zim2htmlarc list wikipedia.zim                 # "title <TAB> url", one per article
-zim2htmlarc extract wikipedia.zim 'Some Title' # print one article's HTML
+# Sample a huge input:
+htmlarc-convert convert crawl.warc.gz sample.htmlarc --limit 50000
+
+# Inspect a source without converting:
+htmlarc-convert list wikipedia.zim                 # one document key per line
+htmlarc-convert extract wikipedia.zim 'Some Title' # print one document's HTML
 ```
 
 Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc -p '…'`).
 
-- It reads ZIM via the pure-Rust [`zim`] crate (MIT/Apache), so **no system libzim** is
+- ZIM is read via the pure-Rust [`zim`] crate (MIT/Apache), so **no system libzim** is
   required — but building it does need a **C compiler** (`zstd-sys`/`lzma-sys` compile bundled
-  C) and pulls in ~110 transitive crates. This is isolated to the `zim2htmlarc` binary; the
+  C) and pulls in ~110 transitive crates. This is isolated to the `htmlarc-convert` binary; the
   three core `htmlarc-*` crates stay pure-Rust with no C dependencies.
 - We depend on a **fork** of `zim` 0.4: the upstream crate is unmaintained and fails to open
   any current Kiwix dump (modern ZIMs omit the legacy title pointer list, which upstream slices
   unconditionally → `OutOfBounds`). The fork guards that sentinel.
-- `extract` matches an **exact** title (the pure-Rust reader has no full-text search).
-- Articles with an empty title are keyed by their URL slug.
+- Document keys are the ZIM title (URL slug if the title is empty), the WARC `WARC-Target-URI`,
+  or the file path relative to the directory root. `extract` matches a key **exactly**.
+- The WARC reader currently loads selected documents into memory; for very large crawls use
+  `--limit`. (Converting general web HTML still skips documents the pragmatic parser rejects —
+  see *Honest limitations* — until parser tolerance lands.)
 
 [`zim`]: https://github.com/akesson/zim
 
@@ -115,7 +124,7 @@ crates/
   htmlarc-archive/  the single-file .htmlarc archive (build / open / query / diff)
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
-  zim2htmlarc/      converts a ZIM (Kiwix/Wikipedia) into a .htmlarc archive
+  htmlarc-convert/  converts ZIM / WARC / a directory of HTML into a .htmlarc archive
 ```
 
 ## Building & testing
