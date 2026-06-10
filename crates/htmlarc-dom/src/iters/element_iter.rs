@@ -362,7 +362,7 @@ fn forward_iterator_toggle_text_and_comment() {
     let iter = el.forwards().set_include_text();
     assert_eq!(
         iter.string(),
-        "text 1, header 2, text 3, h1 4, text 5, text 6, main 7, text 8, section 9, text 10, p 11, text 13, article 14, text 15, div 16, text 17, span 18, text 19, h2 20, text 21, text 23, p 24, text 25, text 26, a 27, text 29, h4 30, text 31, text 32"
+        "text 1, header 2, text 3, h1 4, text 5, text 6, main 7, text 8, section 9, text 10, p 11, text 13, article 14, text 15, div 16, text 17, span 18, text 19, h2 20, text 21, text 23, p 24, text 25, text 26, a 27, text 29, h4 30, text 31, text 32, text 33"
     );
 
     let iter = el.forwards().set_include_comment();
@@ -374,6 +374,6 @@ fn forward_iterator_toggle_text_and_comment() {
     let iter = el.forwards().set_include_comment().set_include_text();
     assert_eq!(
         iter.string(),
-        "text 1, header 2, text 3, h1 4, text 5, text 6, main 7, text 8, section 9, text 10, p 11, comment 12, text 13, article 14, text 15, div 16, text 17, span 18, text 19, h2 20, text 21, comment 22, text 23, p 24, text 25, text 26, a 27, comment 28, text 29, h4 30, text 31, text 32"
+        "text 1, header 2, text 3, h1 4, text 5, text 6, main 7, text 8, section 9, text 10, p 11, comment 12, text 13, article 14, text 15, div 16, text 17, span 18, text 19, h2 20, text 21, comment 22, text 23, p 24, text 25, text 26, a 27, comment 28, text 29, h4 30, text 31, text 32, text 33"
     );
 }

@@ -2,7 +2,6 @@
 source: crates/htmlarc-dom/src/fmt/tests/mod.rs
 expression: "format(&html, HtmlFormat::Pretty)"
 input_file: crates/htmlarc-dom/src/fmt/tests/html/axel.html
-snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -18,8 +17,7 @@ document.documentElement.className="client-js";RLCONF={"wgBreakFrames":!1,"wgSep
 (RLQ=window.RLQ||[]).push(function(){mw.loader.implement("user.options@1hzgi",function($,jQuery,require,module){/*@nomin*/mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});mw.user.options.set({"variant":"sv"}); });});
 		</script>
 		<link href="/w/load.php?lang=sv&amp;modules=ext.wikimediaBadges%7Cmediawiki.hlist%7Cmediawiki.ui.button%2Cicon%7Cmobile.init.styles%7Cskins.minerva.base.styles%7Cskins.minerva.content.styles%7Cskins.minerva.content.styles.images%7Cskins.minerva.icons.wikimedia%7Cskins.minerva.mainMenu.icons%2Cstyles&amp;only=styles&amp;skin=minerva" rel="stylesheet">
-		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile">
-		</script>
+		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile"></script>
 		<meta content="MediaWiki 1.36.0-wmf.13" name="generator">
 		<meta content="origin" name="referrer">
 		<meta content="origin-when-crossorigin" name="referrer">

@@ -1,6 +1,6 @@
 use crate::{
     HtmlParseResult,
-    parser::{Chars, DomBuilder, DomBuilderCursor, parse_doc},
+    parser::{DomBuilder, DomBuilderCursor, parse_into},
     prelude::*,
 };
 use std::cell::RefCell;
@@ -24,16 +24,14 @@ impl HtmlDoc {
 
     pub fn parse(input: &str) -> HtmlParseResult<Self> {
         let mut builder = DomBuilderCursor::default();
-        let mut chars = Chars::new(input);
-        parse_doc(&mut builder, &mut chars)?;
+        parse_into(input, &mut builder)?;
         Ok(builder.dom.into())
     }
 
     #[cfg(test)]
     pub fn test_parse(input: &str) -> HtmlParseResult<String> {
         let mut dom = crate::parser::TestDom::default();
-        let mut chars = Chars::new(input);
-        parse_doc(&mut dom, &mut chars)?;
+        parse_into(input, &mut dom)?;
         Ok(dom.to_string())
     }
     pub fn to_html(&self, fmt: HtmlFormat) -> String {
@@ -50,7 +48,7 @@ impl From<DomInner> for HtmlDoc {
         Self { dom }
     }
 }
-impl From<DomBuilder<'_>> for HtmlDoc {
+impl From<DomBuilder> for HtmlDoc {
     fn from(value: DomBuilder) -> Self {
         value.build().into()
     }

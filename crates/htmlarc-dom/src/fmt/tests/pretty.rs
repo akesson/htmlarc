@@ -93,6 +93,25 @@ fn inline_test() {
 }
 
 #[test]
+fn empty_elements_stay_on_one_line() {
+    // An empty element — including an external `<script src>` with no content — must render
+    // inline and must not acquire a spurious empty text child that would split it across
+    // lines. Regression guard for the html5gum tokenizer switch.
+    const HTML: &str = r#"<body><script src="a.js"></script><p></p><span>hi</span></body>"#;
+
+    assert_snapshot!(format(HTML, HtmlFormat::Pretty), @r###"
+
+	<body>
+		<script src="a.js"></script>
+		<p></p>
+		<span>
+	hi
+		</span>
+	</body>
+	"###);
+}
+
+#[test]
 fn inline_test2() {
     const INLINE_TEST: &str = r#"<li><sup><a>(de)</a></sup> <b>f</b></li>"#;
 
