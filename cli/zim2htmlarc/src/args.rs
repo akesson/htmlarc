@@ -27,6 +27,8 @@ xflags::xflags! {
             required output: PathBuf
             /// Only export articles whose title is in this file (one title per line).
             optional --list wordlist: PathBuf
+            /// Stop after exporting this many articles (useful for sampling a huge ZIM).
+            optional --limit count: usize
         }
     }
 }
@@ -62,6 +64,7 @@ pub struct Export {
     pub output: PathBuf,
 
     pub list: Option<PathBuf>,
+    pub limit: Option<usize>,
 }
 
 impl Zim2htmlarc {

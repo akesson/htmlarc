@@ -1,7 +1,9 @@
 //! End-to-end parity tests for the zero-copy memory-mapped archive: a
 //! memory-mapped archive must answer every query identically to the owned one.
 
-use htmlarc_archive::{HtmlArchive, HtmlArchiveBuilder, MmapArchive};
+use htmlarc_archive::{
+    BUNDLE_CAP, DocBundle, HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive,
+};
 use htmlarc_dom::prelude::{HtmlDoc, HtmlFormat, HtmlTag};
 
 fn sample_archive() -> HtmlArchive {
@@ -156,20 +158,22 @@ fn mmap_rejects_corrupt_blob() {
     let path = temp_path("corrupt_blob");
     sample_archive().write_to(&path).unwrap();
 
-    // The footer (trailer + directory) stays intact, but every document blob is destroyed.
-    // `open` still succeeds (it validates only the footer), and a `get` that must materialize
-    // a blob surfaces the corruption as an `Err` — never UB, never confused with absence.
+    // The footer (trailer + doc/bundle tables + sort index) stays intact, but every document
+    // blob is destroyed. `open` still succeeds (it validates only the footer), and a `get` that
+    // must materialize a blob surfaces the corruption as an `Err` — never UB, never absence.
     let mut bytes = std::fs::read(&path).unwrap();
     let n = bytes.len();
-    let dir_offset = u64::from_le_bytes(bytes[n - 48..n - 40].try_into().unwrap()) as usize;
-    for b in bytes[16..dir_offset].iter_mut() {
+    // v4 trailer is the last 88 bytes; doc_table_offset is its first field (bytes [0..8]). The
+    // document blobs span [HEADER_LEN, doc_table_offset) (the per-bundle data region is empty).
+    let doc_table_offset = u64::from_le_bytes(bytes[n - 88..n - 80].try_into().unwrap()) as usize;
+    for b in bytes[16..doc_table_offset].iter_mut() {
         *b ^= 0xFF;
     }
     let bad = path.with_extension("bad");
     std::fs::write(&bad, &bytes).unwrap();
 
     let mmap = MmapArchive::open(&bad).expect("footer is intact, so open succeeds");
-    // Keys/len come from the directory and are unaffected.
+    // Keys/len come from the footer doc table and are unaffected.
     assert_eq!(mmap.len(), 3);
     assert!(mmap.keys().any(|k| k == "beta"));
     // Fetching a document validates its (corrupt) blob and returns an Err.
@@ -200,6 +204,155 @@ fn rejects_truncated_file() {
 
     std::fs::remove_file(&path).ok();
     std::fs::remove_file(&short).ok();
+}
+
+#[test]
+fn multi_bundle_round_trips() {
+    // More than one bundle's worth of documents, so the writer seals full bundles and a partial
+    // tail — exercising the bundle table, cross-boundary positional access, and keyed lookup.
+    let n = BUNDLE_CAP * 2 + 5;
+    let mut b = HtmlArchiveBuilder::default();
+    for i in 0..n {
+        b.add_html(
+            format!("doc{i:08}"),
+            HtmlDoc::parse(&format!("<p>{i}</p>")).unwrap(),
+        );
+    }
+    let path = temp_path("multibundle");
+    b.write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    let expected_bundles = n.div_ceil(BUNDLE_CAP);
+    assert_eq!(owned.len(), n);
+    assert_eq!(mmap.len(), n);
+    assert_eq!(owned.bundles().len(), expected_bundles);
+    assert_eq!(mmap.bundle_count(), expected_bundles);
+
+    // Bundles must tile [0, n): every position belongs to exactly one bundle, in order.
+    let mut covered = 0;
+    for bi in 0..mmap.bundle_count() {
+        let r = mmap.bundle_range(bi);
+        assert_eq!(
+            r.start, covered,
+            "bundle {bi} starts where the previous ended"
+        );
+        assert!(r.end <= n);
+        covered = r.end;
+    }
+    assert_eq!(covered, n, "bundles cover every document");
+
+    // Keyed lookup resolves across bundle boundaries; positional access is bundle→doc
+    // (== insertion) order.
+    for &i in &[0usize, BUNDLE_CAP - 1, BUNDLE_CAP, BUNDLE_CAP + 1, n - 1] {
+        let key = format!("doc{i:08}");
+        assert!(owned.get(&key).is_some(), "owned get {key}");
+        assert!(mmap.get(&key).unwrap().is_some(), "mmap get {key}");
+        assert_eq!(owned[i].key, key, "owned positional {i}");
+        assert_eq!(mmap.key_at(i), key, "mmap positional {i}");
+        assert_eq!(mmap.checksum_at(i), owned[i].checksum);
+    }
+    assert!(owned.get("absent").is_none());
+    assert!(mmap.get("absent").unwrap().is_none());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn position_for_key_parity() {
+    // The keyed-search fast path resolves a word-list straight to flat positions via the sort
+    // index; owned and mmap must agree, the position must round-trip to the key, and an absent
+    // key must be `None` (not a panic or a wrong hit).
+    let path = temp_path("position_for_key");
+    sample_archive().write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    for key in ["gamma", "alpha", "beta"] {
+        let oi = owned.position_for_key(key).expect("owned position");
+        let mi = mmap.position_for_key(key).expect("mmap position");
+        assert_eq!(oi, mi, "owned/mmap position disagree for {key}");
+        assert_eq!(owned[oi].key, key, "owned position round-trips");
+        assert_eq!(mmap.key_at(mi), key, "mmap position round-trips");
+    }
+
+    assert_eq!(owned.position_for_key("absent"), None);
+    assert_eq!(mmap.position_for_key("absent"), None);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn explicit_bundle_boundaries_round_trip() {
+    // Irregularly-sized bundles — as the ZIM export's cluster-aligned runs produce — must survive
+    // write→read verbatim, not be re-chunked at BUNDLE_CAP. (write_to seals each in-memory bundle.)
+    let sizes = [3usize, 1, 5, 2, 4];
+    let mut n = 0usize;
+    let bundles: Vec<DocBundle> = sizes
+        .iter()
+        .map(|&sz| {
+            let entries: Vec<HtmlEntry> = (0..sz)
+                .map(|_| {
+                    let key = format!("k{n:05}");
+                    n += 1;
+                    HtmlEntry::new(key, HtmlDoc::parse("<p>x</p>").unwrap())
+                })
+                .collect();
+            DocBundle::from_entries(entries)
+        })
+        .collect();
+    let total: usize = sizes.iter().sum();
+
+    let archive = HtmlArchive::from_bundles(bundles);
+    let path = temp_path("irregular_bundles");
+    archive.write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    assert_eq!(owned.len(), total);
+    assert_eq!(mmap.len(), total);
+    assert_eq!(owned.bundles().len(), sizes.len(), "bundle count preserved");
+    assert_eq!(mmap.bundle_count(), sizes.len());
+
+    // Each bundle keeps its exact size and tiles [0, total) in order.
+    let mut covered = 0;
+    for (bi, &sz) in sizes.iter().enumerate() {
+        let r = mmap.bundle_range(bi);
+        assert_eq!(
+            r.start, covered,
+            "bundle {bi} starts where the previous ended"
+        );
+        assert_eq!(r.len(), sz, "bundle {bi} keeps its size");
+        covered = r.end;
+    }
+    assert_eq!(covered, total, "bundles cover every document");
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn rejects_v3_archive() {
+    // A file with the right magic but the previous format version must be rejected up front with
+    // a clear "re-pack to upgrade" error — never misread as a v4 archive.
+    let mut bytes = vec![0u8; 16];
+    bytes[0..8].copy_from_slice(b"HTMLARC1");
+    bytes[8] = 3; // legacy version byte
+    let path = temp_path("v3");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let err = MmapArchive::open(&path)
+        .err()
+        .expect("a v3 archive must be rejected");
+    assert!(
+        err.to_string().contains("version 3"),
+        "error should name the unsupported version: {err}"
+    );
+    assert!(HtmlArchive::read_from(&path).is_err());
+
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]

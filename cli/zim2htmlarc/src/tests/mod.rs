@@ -1,9 +1,74 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use htmlarc_archive::BUNDLE_CAP;
 use zim::{MimeType, Namespace};
 
-use crate::export::{html_mime, is_content, key_for, nfc, parse_wordlist};
+use crate::export::{group_into_runs, html_mime, is_content, key_for, nfc, parse_wordlist};
+
+/// Build a cluster of `docs` html blobs (the keys are irrelevant to grouping).
+fn cluster(idx: u32, docs: usize) -> (u32, Vec<(u32, String)>) {
+    (
+        idx,
+        (0..docs)
+            .map(|b| (b as u32, format!("k{idx}_{b}")))
+            .collect(),
+    )
+}
+
+#[test]
+fn runs_are_cluster_aligned_and_about_bundle_cap() {
+    // Clusters of ~186 docs (the measured median) are grouped into runs of >= BUNDLE_CAP each,
+    // except the final remainder. Clusters are never split across runs.
+    let per_cluster = 186;
+    let cluster_count = 600; // ~111_600 docs -> ~11 runs
+    let clusters: Vec<_> = (0..cluster_count)
+        .map(|i| cluster(i, per_cluster))
+        .collect();
+    let total_docs: usize = clusters.iter().map(|(_, b)| b.len()).sum();
+
+    let runs = group_into_runs(clusters);
+
+    // Every run but the last reaches the cap; the last holds the remainder (<= cap + a cluster).
+    assert!(runs.len() >= 2);
+    for run in &runs[..runs.len() - 1] {
+        let docs: usize = run.iter().map(|(_, b)| b.len()).sum();
+        assert!(
+            docs >= BUNDLE_CAP,
+            "non-final run must reach the cap, got {docs}"
+        );
+        assert!(
+            docs < BUNDLE_CAP + per_cluster,
+            "must seal at the first cluster past the cap"
+        );
+    }
+
+    // No documents are lost or duplicated, and clusters stay in ascending order across the runs.
+    let regrouped: Vec<u32> = runs.iter().flatten().map(|(idx, _)| *idx).collect();
+    assert_eq!(regrouped, (0..cluster_count).collect::<Vec<_>>());
+    let regrouped_docs: usize = runs.iter().flatten().map(|(_, b)| b.len()).sum();
+    assert_eq!(regrouped_docs, total_docs);
+}
+
+#[test]
+fn oversized_cluster_forms_its_own_run() {
+    // A single cluster larger than the cap can't be split — it becomes one run on its own.
+    let clusters = vec![cluster(0, 5), cluster(1, BUNDLE_CAP + 500), cluster(2, 5)];
+    let runs = group_into_runs(clusters);
+
+    // [0+1] seal once 1 pushes past the cap; [2] is the trailing remainder.
+    assert_eq!(runs.len(), 2);
+    assert_eq!(
+        runs[0].iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(runs[1].iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![2]);
+}
+
+#[test]
+fn empty_work_list_makes_no_runs() {
+    assert!(group_into_runs(Vec::new()).is_empty());
+}
 
 #[test]
 fn nfc_normalizes_to_precomposed() {
@@ -72,6 +137,7 @@ fn export_reads_a_real_zim() {
         file: zim_path,
         output: out.clone(),
         list: None,
+        limit: None,
     })
     .expect("export should succeed");
 

@@ -5,8 +5,8 @@ mod node_counter;
 mod tests;
 
 use std::{
+    collections::HashSet,
     mem,
-    ops::Range,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -68,32 +68,34 @@ pub fn probe<A: ProbeArchive>(
     expressions: &'static [ProbeExpression<'static>],
     filters: &'static Filter,
 ) -> CountedNodes<'static> {
-    let entry_count = archive.entry_count();
+    // Fast path: an include filter that restricts by key can only match those keys — resolve them
+    // through the keyed index and skip the bundle sweep (and every other document's blob) entirely.
+    if let Some(keys) = filters.include_keys() {
+        return archive.probe_keys(keys, expressions, filters);
+    }
+
+    let bundle_count = archive.bundle_count();
     let thread_count = thread::available_parallelism().map_or(1, |p| p.get());
 
-    // 250 entries at roughly 0,2ms/entry gives 50ms per chunk
-    const CHUNK_SIZE: usize = 250;
-    let chunk_index = Arc::new(AtomicUsize::new(0));
-    // when the entry count is divisible by the chunk size, we'll get an extra chunk,
-    // but that's handled later.
-    let chunk_max_index = entry_count / CHUNK_SIZE + 1;
+    // One whole bundle (up to BUNDLE_CAP docs) is the unit of work — workers steal bundles by
+    // index. This iterates strictly bundle→doc and gives each thread a self-contained bundle,
+    // the natural place to attach per-bundle data in a later step.
+    let next_bundle = Arc::new(AtomicUsize::new(0));
 
     let mut threads = Vec::with_capacity(thread_count);
 
     for _thread in 0..thread_count {
-        let chunk_index = chunk_index.clone();
+        let next_bundle = next_bundle.clone();
 
         threads.push(thread::spawn(move || {
             let mut counters = Vec::new();
             loop {
-                let my_chunk_index = chunk_index.fetch_add(1, Ordering::SeqCst);
-                if my_chunk_index >= chunk_max_index {
+                let bundle = next_bundle.fetch_add(1, Ordering::SeqCst);
+                if bundle >= bundle_count {
                     break;
                 }
-                let start = my_chunk_index * CHUNK_SIZE;
-                let end = (start + CHUNK_SIZE).min(entry_count);
-                let counted = archive.probe_range(start..end, expressions, filters);
-                counters.push((my_chunk_index, counted));
+                let counted = archive.probe_bundle(bundle, expressions, filters);
+                counters.push((bundle, counted));
             }
             counters
         }));
@@ -106,6 +108,8 @@ pub fn probe<A: ProbeArchive>(
         })
         .collect::<Vec<_>>();
 
+    // Merge in ascending bundle order so the aggregated tree is deterministic regardless of how
+    // bundles were distributed across threads.
     counters.sort_by_key(|(a, _)| *a);
 
     let mut counter = counters
@@ -120,32 +124,42 @@ pub fn probe<A: ProbeArchive>(
 }
 
 /// A source the `probe` sweep can run over in parallel — owned or memory-mapped.
-/// Each worker analyzes a disjoint index range, so this only needs `len` + per-range
+/// Each worker analyzes one whole bundle, so this only needs `bundle_count` + per-bundle
 /// analysis, dispatched to the concrete (owned vs archived) entry type.
 pub trait ProbeArchive: Sync {
-    fn entry_count(&self) -> usize;
-    fn probe_range<'a>(
+    fn bundle_count(&self) -> usize;
+    fn probe_bundle<'a>(
         &'a self,
-        range: Range<usize>,
+        bundle: usize,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a>;
+
+    /// Probe only the documents whose key is in `keys`, resolved through the keyed index — the
+    /// fast path when an include filter restricts by key. Skips bundle iteration entirely, so it
+    /// touches only the candidate documents' blobs instead of the whole corpus. Keys are processed
+    /// in sorted order so the aggregated result is deterministic.
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes<'a>;
 }
 
 impl ProbeArchive for HtmlArchive {
-    fn entry_count(&self) -> usize {
-        self.len()
+    fn bundle_count(&self) -> usize {
+        self.bundles().len()
     }
 
-    fn probe_range<'a>(
+    fn probe_bundle<'a>(
         &'a self,
-        range: Range<usize>,
+        bundle: usize,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes<'a> {
         let mut counter = CountedNodes::default();
-        for i in range {
-            let doc = &self[i];
+        for doc in self.bundles()[bundle].entries() {
             if filters.keep(&doc.key, &doc.html) {
                 counter.analyze_html(&doc.key, &doc.root(), expressions);
             } else {
@@ -154,27 +168,72 @@ impl ProbeArchive for HtmlArchive {
         }
         counter
     }
+
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a> {
+        let mut sorted: Vec<&String> = keys.iter().collect();
+        sorted.sort_unstable();
+        let mut counter = CountedNodes::default();
+        for key in sorted {
+            if let Some(doc) = self.get(key)
+                && filters.keep(&doc.key, &doc.html)
+            {
+                counter.analyze_html(&doc.key, &doc.root(), expressions);
+            }
+        }
+        counter
+    }
 }
 
 impl ProbeArchive for MmapArchive {
-    fn entry_count(&self) -> usize {
-        self.len()
+    fn bundle_count(&self) -> usize {
+        MmapArchive::bundle_count(self)
     }
 
-    fn probe_range<'a>(
+    fn probe_bundle<'a>(
         &'a self,
-        range: Range<usize>,
+        bundle: usize,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes<'a> {
         let mut counter = CountedNodes::default();
-        for i in range {
+        for i in self.bundle_range(bundle) {
             let doc = &self[i];
             let key = doc.key();
             if filters.keep(key, &doc.html) {
                 counter.analyze_html(key, &doc.root(), expressions);
             } else {
                 debug!("Skipping: {key}");
+            }
+        }
+        counter
+    }
+
+    fn probe_keys<'a>(
+        &'a self,
+        keys: &HashSet<String>,
+        expressions: &[ProbeExpression<'a>],
+        filters: &Filter,
+    ) -> CountedNodes<'a> {
+        let mut sorted: Vec<&String> = keys.iter().collect();
+        sorted.sort_unstable();
+        let mut counter = CountedNodes::default();
+        for key in sorted {
+            // Mirror the bulk-iteration stance: an absent key is skipped, but a key that resolves
+            // to a corrupt blob is abort-worthy (every blob a present key points at is valid by
+            // construction), so surface it rather than silently under-counting.
+            let doc = match self.get(key) {
+                Ok(Some(doc)) => doc,
+                Ok(None) => continue,
+                Err(e) => panic!("corrupt document blob for key '{key}': {e:?}"),
+            };
+            let k = doc.key();
+            if filters.keep(k, &doc.html) {
+                counter.analyze_html(k, &doc.root(), expressions);
             }
         }
         counter
