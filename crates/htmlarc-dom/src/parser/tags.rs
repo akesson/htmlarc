@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use super::{attributes::parse_attributes, chars::Chars, dom::DomStack};
+use crate::entities;
 use crate::error::HtmlParseResult;
 use crate::html::{HtmlAttr, HtmlTag};
 #[cfg(test)]
@@ -83,7 +84,13 @@ pub(super) fn parse_start_tag<'a, Dom: DomStack<'a>>(
         let closed = to_end_of_tag(chars)?;
 
         if let Some(text_range) = raw_element(tag, chars)? {
-            dom.add_text_tag(HtmlTag::sys_text, chars.str(text_range));
+            let raw = chars.str(text_range);
+            // RCDATA (title/textarea) decodes entities; RAWTEXT (script/style) is verbatim.
+            if matches!(tag, HtmlTag::title | HtmlTag::textarea) {
+                dom.add_text_tag(HtmlTag::sys_text, &entities::decode(raw));
+            } else {
+                dom.add_text_tag(HtmlTag::sys_text, raw);
+            }
             dom.pop_tag(tag)?;
         } else if closed || tag.is_void_element() {
             dom.pop_tag(tag)?;

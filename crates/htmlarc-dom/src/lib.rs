@@ -1,6 +1,7 @@
 pub mod accessors;
 pub mod css;
 pub mod dom;
+pub(crate) mod entities;
 pub mod error;
 pub mod fmt;
 pub mod html;
@@ -98,7 +99,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:100 fn location_test"
+        "htmlarc-dom::lib.rs:101 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

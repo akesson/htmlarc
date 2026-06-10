@@ -1,5 +1,6 @@
 use crate::{
     dom::{DomView, NodeIndex},
+    entities,
     fmt::{fmt_buf::FmtBuf, spaces::Spaces},
 };
 
@@ -48,7 +49,7 @@ pub trait CommonFormatting<'dom> {
         if inline == Inline::Start {
             buf.newline();
         }
-        buf.push_str(&cleaned);
+        buf.push_str(&entities::encode_text(&cleaned));
         true
     }
 }

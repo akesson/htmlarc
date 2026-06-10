@@ -1,9 +1,12 @@
+use std::borrow::Cow;
+
 use super::{
     chars::Chars,
     dom::DomStack,
     tags::{parse_comment, parse_doctype, parse_end_tag, parse_start_tag},
 };
 use crate::{
+    entities,
     error::{Context, HtmlParseResult},
     html::HtmlTag,
 };
@@ -17,11 +20,22 @@ pub fn parse_doc<'a, Dom: DomStack<'a>>(
 ) -> HtmlParseResult<()> {
     let mut c = chars.current();
     let mut text_start: Option<usize> = None;
+    let mut saw_amp = false;
     loop {
         if c == '<' {
             if let Some(start) = text_start {
-                dom.add_text_tag(HtmlTag::sys_text, chars.str(start..chars.index()));
+                let raw = chars.str(start..chars.index());
+                // Char-scanner fast path: only invoke the entity decoder when this text
+                // run actually contained a '&' (tracked during the scan below); otherwise
+                // the source slice is already its decoded form — no second scan, no alloc.
+                let text = if saw_amp {
+                    entities::decode(raw)
+                } else {
+                    Cow::Borrowed(raw)
+                };
+                dom.add_text_tag(HtmlTag::sys_text, &text);
                 text_start = None;
+                saw_amp = false;
             }
 
             let c = chars.next().unwrap();
@@ -49,8 +63,13 @@ pub fn parse_doc<'a, Dom: DomStack<'a>>(
             } else {
                 parse_start_tag(dom, chars).context("Parsing start tag")?;
             }
-        } else if text_start.is_none() {
-            text_start = Some(chars.index());
+        } else {
+            if text_start.is_none() {
+                text_start = Some(chars.index());
+            }
+            if c == '&' {
+                saw_amp = true;
+            }
         }
 
         let Some(next) = chars.next() else { break };
