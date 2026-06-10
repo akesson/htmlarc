@@ -27,33 +27,6 @@ impl HtmlParseError {
 
 pub type HtmlParseResult<T> = std::result::Result<T, HtmlParseError>;
 
-/// Internal helper for attaching context to an [`HtmlParseError`] during parsing.
-pub(crate) trait Context {
-    fn context<S: ToString>(self, context: S) -> Self;
-    fn with_context<F: FnOnce() -> String>(self, context: F) -> Self;
-}
-
-impl<T> Context for HtmlParseResult<T> {
-    fn context<S: ToString>(self, context: S) -> Self {
-        if let Err(e) = self {
-            Err(HtmlParseError::WithContext(
-                context.to_string(),
-                Box::new(e),
-            ))
-        } else {
-            self
-        }
-    }
-
-    fn with_context<F: FnOnce() -> String>(self, context: F) -> Self {
-        if let Err(e) = self {
-            Err(HtmlParseError::WithContext(context(), Box::new(e)))
-        } else {
-            self
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum IterationError {
     #[error("No elements in the iterator")]

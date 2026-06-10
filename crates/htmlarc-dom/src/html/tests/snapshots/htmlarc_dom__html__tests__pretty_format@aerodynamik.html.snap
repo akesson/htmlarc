@@ -1,7 +1,8 @@
 ---
-source: common/html/src/html/tests/mod.rs
-expression: "doc.to_html(Format::Pretty)"
-input_file: common/html/src/html/tests/html/aerodynamik.html
+source: crates/htmlarc-dom/src/html/tests/mod.rs
+expression: "doc.to_html(HtmlFormat::Pretty)"
+input_file: crates/htmlarc-dom/src/html/tests/html/aerodynamik.html
+snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -17,8 +18,7 @@ document.documentElement.className="client-js";RLCONF={"wgBreakFrames":!1,"wgSep
 (RLQ=window.RLQ||[]).push(function(){mw.loader.implement("user.options@1hzgi",function($,jQuery,require,module){/*@nomin*/mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});mw.user.options.set({"variant":"sv"}); });});
 		</script>
 		<link href="/w/load.php?lang=sv&amp;modules=ext.wikimediaBadges%7Cmediawiki.hlist%7Cmediawiki.ui.button%2Cicon%7Cmobile.init.styles%7Cskins.minerva.base.styles%7Cskins.minerva.content.styles%7Cskins.minerva.content.styles.images%7Cskins.minerva.icons.wikimedia%7Cskins.minerva.mainMenu.icons%2Cstyles&amp;only=styles&amp;skin=minerva" rel="stylesheet">
-		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile">
-		</script>
+		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile"></script>
 		<meta content="MediaWiki 1.36.0-wmf.13" name="generator">
 		<meta content="origin" name="referrer">
 		<meta content="origin-when-crossorigin" name="referrer">
@@ -203,12 +203,12 @@ Redigera
 										<tbody>
 											<tr>
 												<th class="main">
-Böjningar&nbsp;av 
+Böjningar av 
 													<i>
 														<a class="mw-selflink selflink">
 aerodynamik
 														</a>
-&nbsp;
+ 
 													</i>
 												</th>
 												<th class="min" colspan="2">
@@ -319,7 +319,7 @@ aerodynamiikka
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fi.wiktionary.org/wiki/aerodynamiikka" title="fi:aerodynamiikka">
 (fi)
 															</a>
@@ -333,7 +333,7 @@ aérodynamique
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fr.wiktionary.org/wiki/a%C3%A9rodynamique" title="fr:aérodynamique">
 (fr)
 															</a>
@@ -348,7 +348,7 @@ ryska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%B0%D1%8D%D1%80%D0%BE%D0%B4%D0%B8%D0%BD%D0%B0%D0%BC%D0%B8%D0%BA%D0%B0" title="ru:аэродинамика">
 (ru)
 															</a>
@@ -363,7 +363,7 @@ Aerodynamik
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Aerodynamik" title="de:Aerodynamik">
 (de)
 															</a>

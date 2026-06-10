@@ -1,24 +1,22 @@
 ---
-source: crates/html/src/html/tests/mod.rs
-assertion_line: 130
+source: crates/htmlarc-dom/src/html/tests/mod.rs
 expression: print_elements(selected)
-input_file: crates/html/src/html/tests/html/aerodynamik.html
-snapshot_kind: text
+input_file: crates/htmlarc-dom/src/html/tests/html/aerodynamik.html
 ---
-71 - label
-80 - a
-87 - a
-97 - a
-107 - a
-117 - a
-155 - input
-161 - button
-190 - a
-196 - a
-202 - a
-220 - div
-224 - a
-232 - a
-316 - a
-400 - span
-408 - span
+label#mw-mf-main-menu-button.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-menu-base20.mw-ui-icon-flush-left.toggle-list__toggle
+a.mw-ui-icon.mw-ui-icon-before.mw-ui-icon-minerva-home
+a.mw-ui-icon.mw-ui-icon-before.mw-ui-icon-minerva-die
+a.menu__item--login.mw-ui-icon.mw-ui-icon-before.mw-ui-icon-minerva-logIn
+a.menu__item--settings.mw-ui-icon.mw-ui-icon-before.mw-ui-icon-minerva-settings
+a.mw-ui-icon.mw-ui-icon-before.mw-ui-icon-minerva-heart
+input#searchInput.search.mw-ui-background-icon-search.skin-minerva-search-trigger
+button#searchIcon.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-search-base20.skin-minerva-search-trigger
+a.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-language-base20.mw-ui-icon-with-label-desktop.language-selector
+a#ca-watch.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-star-base20.mw-ui-icon-with-label-desktop.watch-this-article.mw-watchlink.menu__item--page-actions-watch
+a#ca-edit.edit-page.menu__item--page-actions-edit.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-edit-base20.mw-ui-icon-with-label-desktop
+div.mw-ui-icon.mw-ui-icon-element.indicator.mw-ui-icon-small.mw-ui-icon-flush-left
+a.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-edit-base20.edit-page.mw-ui-icon-flush-right
+a.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-edit-base20.edit-page.mw-ui-icon-flush-right
+a.mw-ui-icon.mw-ui-icon-element.mw-ui-icon-wikimedia-edit-base20.edit-page.mw-ui-icon-flush-right
+span.last-modified-bar__icon.mw-ui-icon.mw-ui-icon-mw-ui-icon-small.mw-ui-icon-wikimedia-history-base20
+span.mw-ui-icon.mw-ui-icon-small.mw-ui-icon-mf-expand-gray.mf-mw-ui-icon-rotate-anti-clockwise.indicator

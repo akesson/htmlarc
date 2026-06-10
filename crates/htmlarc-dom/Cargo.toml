@@ -8,6 +8,9 @@ repository.workspace = true
 
 [dependencies]
 function_name.workspace = true
+hashbrown.workspace = true
+html-escape.workspace = true
+html5gum.workspace = true
 indexmap.workspace = true
 log.workspace = true
 rkyv = { workspace = true }

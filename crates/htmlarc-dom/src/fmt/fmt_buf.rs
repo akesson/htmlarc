@@ -1,3 +1,4 @@
+use crate::entities;
 use crate::stores::{Attribute, Class, DataAttribute};
 
 #[derive(Default)]
@@ -49,7 +50,7 @@ impl FmtBuf {
             self.push_str(tag.into());
             if !val.is_empty() {
                 self.push_str("=\"");
-                self.push_str(val);
+                self.push_str(&entities::encode_attr(val));
                 self.push('"');
             }
         }
@@ -63,7 +64,7 @@ impl FmtBuf {
             self.push_str(tag);
             // if !val.is_empty() {
             self.push_str("=\"");
-            self.push_str(val);
+            self.push_str(&entities::encode_attr(val));
             self.push('"');
             // }
         }

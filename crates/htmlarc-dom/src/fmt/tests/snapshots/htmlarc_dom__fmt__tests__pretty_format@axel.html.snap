@@ -1,7 +1,8 @@
 ---
-source: common/html/src/doc/fmt/tests/mod.rs
-expression: "format(&html, Format::Pretty)"
-input_file: common/html/src/doc/fmt/tests/html/axel.html
+source: crates/htmlarc-dom/src/fmt/tests/mod.rs
+expression: "format(&html, HtmlFormat::Pretty)"
+input_file: crates/htmlarc-dom/src/fmt/tests/html/axel.html
+snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -17,8 +18,7 @@ document.documentElement.className="client-js";RLCONF={"wgBreakFrames":!1,"wgSep
 (RLQ=window.RLQ||[]).push(function(){mw.loader.implement("user.options@1hzgi",function($,jQuery,require,module){/*@nomin*/mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});mw.user.options.set({"variant":"sv"}); });});
 		</script>
 		<link href="/w/load.php?lang=sv&amp;modules=ext.wikimediaBadges%7Cmediawiki.hlist%7Cmediawiki.ui.button%2Cicon%7Cmobile.init.styles%7Cskins.minerva.base.styles%7Cskins.minerva.content.styles%7Cskins.minerva.content.styles.images%7Cskins.minerva.icons.wikimedia%7Cskins.minerva.mainMenu.icons%2Cstyles&amp;only=styles&amp;skin=minerva" rel="stylesheet">
-		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile">
-		</script>
+		<script async src="/w/load.php?lang=sv&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=minerva&amp;target=mobile"></script>
 		<meta content="MediaWiki 1.36.0-wmf.13" name="generator">
 		<meta content="origin" name="referrer">
 		<meta content="origin-when-crossorigin" name="referrer">
@@ -368,12 +368,12 @@ Redigera
 										<tbody>
 											<tr>
 												<th class="main">
-Böjningar&nbsp;av 
+Böjningar av 
 													<i>
 														<a class="mw-selflink selflink">
 axel
 														</a>
-&nbsp;
+ 
 													</i>
 												</th>
 												<th class="min" colspan="2">
@@ -475,7 +475,7 @@ axlarnas
 <img class="thumbimage" data-file-width="452" data-file-height="500" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" decoding="async" width="170" height="188" />
 												</noscript>
 												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="188" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" data-width="170" style="width: 170px;height: 188px;">
-&nbsp;
+ 
 												</span>
 											</a>
  
@@ -494,7 +494,7 @@ axlarnas
 <img class="thumbimage" data-file-width="800" data-file-height="600" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" decoding="async" width="170" height="128" />
 												</noscript>
 												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="128" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" data-width="170" style="width: 170px;height: 128px;">
-&nbsp;
+ 
 												</span>
 											</a>
  
@@ -513,7 +513,7 @@ axlarnas
 <img class="thumbimage" data-file-width="451" data-file-height="208" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" decoding="async" width="170" height="78" />
 												</noscript>
 												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="78" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" data-width="170" style="width: 170px;height: 78px;">
-&nbsp;
+ 
 												</span>
 											</a>
  
@@ -536,7 +536,7 @@ uttal
 												</a>
 :
 											</b>
-&nbsp;/
+ /
 											<span class="ipa">
 ˈak.sɛl
 											</span>
@@ -862,7 +862,7 @@ Axel R. Paulsen
 <img data-file-width="222" data-file-height="18" alt="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." src="//upload.wikimedia.org/wikipedia/commons/8/83/Hor_barileto_avgraensare_i_222_18_px_trans.png" decoding="async" title="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." width="222" height="18" />
 											</noscript>
 											<span class="lazy-image-placeholder" data-alt="Indragna rader ovanför strecket gäller en särskild definition. Eventuella rader närmast nedan kan gälla en eller flera av definitionerna ovan." data-height="18" data-src="//upload.wikimedia.org/wikipedia/commons/8/83/Hor_barileto_avgraensare_i_222_18_px_trans.png" data-width="222" style="width: 222px;height: 18px;">
-&nbsp;
+ 
 											</span>
 										</dd>
 										<dd></dd>
@@ -909,7 +909,7 @@ aksel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://no.wiktionary.org/wiki/aksel" title="no:aksel">
 (no)
 															</a>
@@ -924,7 +924,7 @@ skulder
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://da.wiktionary.org/wiki/skulder" title="da:skulder">
 (da)
 															</a>
@@ -939,7 +939,7 @@ shoulder
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/shoulder" title="en:shoulder">
 (en)
 															</a>
@@ -953,7 +953,7 @@ olka
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fi.wiktionary.org/wiki/olka" title="fi:olka">
 (fi)
 															</a>
@@ -967,7 +967,7 @@ franska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fr.wiktionary.org/wiki/%C3%A9paule" title="fr:épaule">
 (fr)
 															</a>
@@ -982,7 +982,7 @@ skouder
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fy.wiktionary.org/wiki/skouder" title="fy:skouder">
 (fy)
 															</a>
@@ -997,7 +997,7 @@ spalla
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://it.wiktionary.org/wiki/spalla" title="it:spalla">
 (it)
 															</a>
@@ -1012,7 +1012,7 @@ japanska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ja.wiktionary.org/wiki/%E8%82%A9" title="ja:肩">
 (ja)
 															</a>
@@ -1027,7 +1027,7 @@ espatlla
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ca.wiktionary.org/wiki/espatlla" title="ca:espatlla">
 (ca)
 															</a>
@@ -1041,7 +1041,7 @@ schouder
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://nl.wiktionary.org/wiki/schouder" title="nl:schouder">
 (nl)
 															</a>
@@ -1079,7 +1079,7 @@ bark
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/bark" title="pl:bark">
 (pl)
 															</a>
@@ -1091,7 +1091,7 @@ ramię
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/rami%C4%99" title="pl:ramię">
 (pl)
 															</a>
@@ -1112,7 +1112,7 @@ ombro
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pt.wiktionary.org/wiki/ombro" title="pt:ombro">
 (pt)
 															</a>
@@ -1127,7 +1127,7 @@ ryska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BF%D0%BB%D0%B5%D1%87%D0%BE" title="ru:плечо">
 (ru)
 															</a>
@@ -1142,7 +1142,7 @@ hombro
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://es.wiktionary.org/wiki/hombro" title="es:hombro">
 (es)
 															</a>
@@ -1157,7 +1157,7 @@ Schulter
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Schulter" title="de:Schulter">
 (de)
 															</a>
@@ -1169,7 +1169,7 @@ Achsel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Achsel" title="de:Achsel">
 (de)
 															</a>
@@ -1203,7 +1203,7 @@ aksel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://no.wiktionary.org/wiki/aksel" title="no:aksel">
 (no)
 															</a>
@@ -1224,7 +1224,7 @@ aksel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://da.wiktionary.org/wiki/aksel" title="da:aksel">
 (da)
 															</a>
@@ -1239,7 +1239,7 @@ axle
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/axle" title="en:axle">
 (en)
 															</a>
@@ -1253,7 +1253,7 @@ akseli
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fi.wiktionary.org/wiki/akseli" title="fi:akseli">
 (fi)
 															</a>
@@ -1267,7 +1267,7 @@ essieu
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fr.wiktionary.org/wiki/essieu" title="fr:essieu">
 (fr)
 															</a>
@@ -1282,7 +1282,7 @@ as
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://nl.wiktionary.org/wiki/as" title="nl:as">
 (nl)
 															</a>
@@ -1312,7 +1312,7 @@ oś
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
 (pl)
 															</a>
@@ -1327,7 +1327,7 @@ eixo
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
 (pt)
 															</a>
@@ -1342,7 +1342,7 @@ ryska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
 (ru)
 															</a>
@@ -1357,7 +1357,7 @@ eje
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
 (es)
 															</a>
@@ -1372,7 +1372,7 @@ Achse
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Achse" title="de:Achse">
 (de)
 															</a>
@@ -1398,7 +1398,7 @@ aksel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://da.wiktionary.org/wiki/aksel" title="da:aksel">
 (da)
 															</a>
@@ -1413,7 +1413,7 @@ shaft
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/shaft" title="en:shaft">
 (en)
 															</a>
@@ -1433,7 +1433,7 @@ kardaaniakseli
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fi.wiktionary.org/wiki/kardaaniakseli" title="fi:kardaaniakseli">
 (fi)
 															</a>
@@ -1445,7 +1445,7 @@ vetoakseli
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fi.wiktionary.org/wiki/vetoakseli" title="fi:vetoakseli">
 (fi)
 															</a>
@@ -1459,7 +1459,7 @@ axe
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fr.wiktionary.org/wiki/axe" title="fr:axe">
 (fr)
 															</a>
@@ -1474,7 +1474,7 @@ as
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://nl.wiktionary.org/wiki/as" title="nl:as">
 (nl)
 															</a>
@@ -1489,7 +1489,7 @@ wał
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/wa%C5%82" title="pl:wał">
 (pl)
 															</a>
@@ -1513,7 +1513,7 @@ ryska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
 (ru)
 															</a>
@@ -1528,7 +1528,7 @@ eje
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
 (es)
 															</a>
@@ -1543,7 +1543,7 @@ Welle
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Welle" title="de:Welle">
 (de)
 															</a>
@@ -1569,7 +1569,7 @@ akse
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://no.wiktionary.org/wiki/akse" title="no:akse">
 (no)
 															</a>
@@ -1584,7 +1584,7 @@ axis
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/axis" title="en:axis">
 (en)
 															</a>
@@ -1607,7 +1607,7 @@ oś
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
 (pl)
 															</a>
@@ -1622,7 +1622,7 @@ eixo
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
 (pt)
 															</a>
@@ -1637,7 +1637,7 @@ ryska:
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%BE%D1%81%D1%8C" title="ru:ось">
 (ru)
 															</a>
@@ -1663,7 +1663,7 @@ akse
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://no.wiktionary.org/wiki/akse" title="no:akse">
 (no)
 															</a>
@@ -1678,7 +1678,7 @@ akse
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://da.wiktionary.org/wiki/akse" title="da:akse">
 (da)
 															</a>
@@ -1693,7 +1693,7 @@ axis
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/axis" title="en:axis">
 (en)
 															</a>
@@ -1707,7 +1707,7 @@ axe
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://fr.wiktionary.org/wiki/axe" title="fr:axe">
 (fr)
 															</a>
@@ -1722,7 +1722,7 @@ oś
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/o%C5%9B" title="pl:oś">
 (pl)
 															</a>
@@ -1737,7 +1737,7 @@ eixo
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pt.wiktionary.org/wiki/eixo" title="pt:eixo">
 (pt)
 															</a>
@@ -1752,7 +1752,7 @@ eje
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://es.wiktionary.org/wiki/eje" title="es:eje">
 (es)
 															</a>
@@ -1778,7 +1778,7 @@ Axis
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/Axis" title="en:Axis">
 (en)
 															</a>
@@ -1812,7 +1812,7 @@ Axel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://en.wiktionary.org/wiki/Axel" title="en:Axel">
 (en)
 															</a>
@@ -1826,7 +1826,7 @@ Axel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://pl.wiktionary.org/wiki/Axel" title="pl:Axel">
 (pl)
 															</a>
@@ -1841,7 +1841,7 @@ Axel
 															</a>
 														</span>
 														<sup>
-&nbsp;
+ 
 															<a class="extiw" href="https://de.wiktionary.org/wiki/Axel" title="de:Axel">
 (de)
 															</a>

@@ -325,7 +325,7 @@ fn test_parse_compound_selector() {
                 name: AttributeName::Text,
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Includes,
-                    value: QuotedString("test"),
+                    value: QuotedString("test".into()),
                     case: None,
                 }),
             }),
@@ -393,7 +393,7 @@ fn test_parse_compound_selector() {
                 name: AttributeName::Html(HtmlAttr::src),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
-                    value: QuotedString("image.png"),
+                    value: QuotedString("image.png".into()),
                     case: None,
                 }),
             })],
@@ -496,7 +496,7 @@ fn test_compound_matching_ok() {
             name: AttributeName::Text,
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("graph"),
+                value: QuotedString("graph".into()),
                 case: None,
             }),
         }),
@@ -509,7 +509,7 @@ fn test_compound_matching_ok() {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("main"),
+                value: QuotedString("main".into()),
                 case: None,
             }),
         })],
@@ -534,7 +534,7 @@ fn test_compound_matching_ok() {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("main"),
+                value: QuotedString("main".into()),
                 case: None,
             }),
         })],
@@ -542,7 +542,7 @@ fn test_compound_matching_ok() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("red"),
+                value: QuotedString("red".into()),
                 case: None,
             }),
         })],
@@ -600,7 +600,7 @@ fn test_compound_matching_err() {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("content"),
+                value: QuotedString("content".into()),
                 case: None,
             }),
         })],
@@ -625,7 +625,7 @@ fn test_compound_matching_err() {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("main"),
+                value: QuotedString("main".into()),
                 case: None,
             }),
         })],
@@ -633,7 +633,7 @@ fn test_compound_matching_err() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("red"),
+                value: QuotedString("red".into()),
                 case: None,
             }),
         })],

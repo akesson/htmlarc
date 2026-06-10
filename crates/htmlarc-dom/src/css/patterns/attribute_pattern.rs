@@ -126,7 +126,7 @@ impl PartialEq<DataAttribute<'_>> for AttributePattern<'_> {
 
                     value.operator.matches(&search, &other)
                 } else {
-                    value.operator.matches(value.value.0, data_attribute.val)
+                    value.operator.matches(&value.value.0, data_attribute.val)
                 };
             }
 
@@ -157,13 +157,15 @@ impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
                     insensitive = *case == CaseIndicator::Insensitive;
                 }
 
+                // The literal was entity-decoded once at parse (see QuotedString), so the
+                // match compares decoded-vs-decoded with no work here.
                 return if insensitive {
                     let search = value.value.0.to_lowercase();
                     let other = other.val.to_lowercase();
 
                     value.operator.matches(&search, &other)
                 } else {
-                    value.operator.matches(value.value.0, other.val)
+                    value.operator.matches(&value.value.0, other.val)
                 };
             }
 
@@ -345,7 +347,7 @@ fn test_parse_attribute_pattern() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("custom"),
+                value: QuotedString("custom".into()),
                 case: None,
             }),
         }),
@@ -356,7 +358,7 @@ fn test_parse_attribute_pattern() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("https://"),
+                value: QuotedString("https://".into()),
                 case: Some(CaseIndicator::Sensitive),
             }),
         }),
@@ -367,7 +369,7 @@ fn test_parse_attribute_pattern() {
             name: AttributeName::Html(HtmlAttr::src),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("image"),
+                value: QuotedString("image".into()),
                 case: None,
             }),
         }),
@@ -421,7 +423,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
@@ -435,7 +437,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Sensitive),
             }),
         },
@@ -449,7 +451,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("Cus"),
+                value: QuotedString("Cus".into()),
                 case: None,
             }),
         },
@@ -463,7 +465,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("uS"),
+                value: QuotedString("uS".into()),
                 case: None,
             }),
         },
@@ -477,7 +479,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("oM"),
+                value: QuotedString("oM".into()),
                 case: None,
             }),
         },
@@ -491,7 +493,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
@@ -505,7 +507,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
@@ -519,7 +521,7 @@ fn test_data_attribute_matching_sensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
@@ -539,7 +541,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -553,7 +555,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("Cus"),
+                value: QuotedString("Cus".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -567,7 +569,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("uS"),
+                value: QuotedString("uS".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -581,7 +583,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("oM"),
+                value: QuotedString("oM".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -595,7 +597,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -609,7 +611,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -623,7 +625,7 @@ fn test_data_attribute_matching_insensitive() {
             name: AttributeName::Data("name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
@@ -650,7 +652,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None
             }),
         },
@@ -661,7 +663,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("Cus"),
+                value: QuotedString("Cus".into()),
                 case: None
             }),
         },
@@ -672,7 +674,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("Us"),
+                value: QuotedString("Us".into()),
                 case: None
             }),
         },
@@ -683,7 +685,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("Om"),
+                value: QuotedString("Om".into()),
                 case: None
             }),
         },
@@ -694,7 +696,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("sTo"),
+                value: QuotedString("sTo".into()),
                 case: None
             }),
         },
@@ -705,7 +707,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None
             }),
         },
@@ -716,7 +718,7 @@ fn test_class_matching_sensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom"),
+                value: QuotedString("Custom".into()),
                 case: None
             }),
         },
@@ -733,7 +735,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("custom"),
+                value: QuotedString("custom".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -744,7 +746,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("cus"),
+                value: QuotedString("cus".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -755,7 +757,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("us"),
+                value: QuotedString("us".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -766,7 +768,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("om"),
+                value: QuotedString("om".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -777,7 +779,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("sto"),
+                value: QuotedString("sto".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -788,7 +790,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("custom"),
+                value: QuotedString("custom".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -799,7 +801,7 @@ fn test_class_matching_insensitive() {
             name: AttributeName::Html(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("custom"),
+                value: QuotedString("custom".into()),
                 case: Some(CaseIndicator::Insensitive)
             }),
         },
@@ -825,7 +827,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("http"),
+                value: QuotedString("http".into()),
                 case: None
             }),
         },
@@ -839,7 +841,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("httP"),
+                value: QuotedString("httP".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -854,7 +856,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("http"),
+                value: QuotedString("http".into()),
                 case: None
             }),
         },
@@ -868,7 +870,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
-                value: QuotedString("httP"),
+                value: QuotedString("httP".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -883,7 +885,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("tt"),
+                value: QuotedString("tt".into()),
                 case: None
             }),
         },
@@ -897,7 +899,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("tT"),
+                value: QuotedString("tT".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -912,7 +914,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("tt"),
+                value: QuotedString("tt".into()),
                 case: None
             }),
         },
@@ -926,7 +928,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString("tT"),
+                value: QuotedString("tT".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -941,7 +943,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("tp"),
+                value: QuotedString("tp".into()),
                 case: None
             }),
         },
@@ -955,7 +957,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
-                value: QuotedString("Tp"),
+                value: QuotedString("Tp".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -970,7 +972,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("en-Us"),
+                value: QuotedString("en-Us".into()),
                 case: None
             }),
         },
@@ -984,7 +986,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
-                value: QuotedString("en-us"),
+                value: QuotedString("en-us".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -999,7 +1001,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("en"),
+                value: QuotedString("en".into()),
                 case: None
             }),
         },
@@ -1013,7 +1015,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("en"),
+                value: QuotedString("en".into()),
                 case: None
             }),
         },
@@ -1027,7 +1029,7 @@ fn test_attribute_matching() {
             name: AttributeName::Html(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
-                value: QuotedString("en"),
+                value: QuotedString("en".into()),
                 case: Some(CaseIndicator::Sensitive)
             }),
         },
@@ -1058,7 +1060,7 @@ fn test_sensitive_attributes_matching() {
                 name: AttributeName::Html(attr),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
-                    value: QuotedString("Test"),
+                    value: QuotedString("Test".into()),
                     case: None
                 })
             },
@@ -1072,7 +1074,7 @@ fn test_sensitive_attributes_matching() {
                 name: AttributeName::Html(attr),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
-                    value: QuotedString("Test"),
+                    value: QuotedString("Test".into()),
                     case: None
                 })
             },
