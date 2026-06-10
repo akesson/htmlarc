@@ -28,32 +28,61 @@ pub struct DataAttributeStoreBuilder {
     /// Dedup table: `(tag_index, value_index)` hash -> pair index.
     table: HashTable<u16>,
     hasher: DefaultHashBuilder,
+    /// Set (first reason wins) once a per-document u16 ceiling is hit; the parse path
+    /// reads it via [`overflow`](Self::overflow) and discards the whole document.
+    overflow: Option<&'static str>,
 }
 
 impl DataAttributeStoreBuilder {
+    /// The reason this builder overflowed a per-document capacity, if any.
+    pub fn overflow(&self) -> Option<&'static str> {
+        self.overflow
+    }
+
     pub fn add_list(&mut self, attr: &DataAttribute) -> ListIndex {
         let i = self.get_or_insert(attr);
-        self.lists.new_list(i)
+        match self.lists.try_new_list(i) {
+            Some(list) => list,
+            None => {
+                self.overflow
+                    .get_or_insert("data-attribute list count exceeds 65,534");
+                ListIndex::from(0)
+            }
+        }
     }
 
     pub fn add_attribute(&mut self, list_index: ListIndex, attr: &DataAttribute) {
         let i = self.get_or_insert(attr);
-        self.lists.list_mut_at(list_index).append(i);
+        if !self.lists.list_mut_at(list_index).try_append(i) {
+            self.overflow
+                .get_or_insert("data-attribute list entries exceed 32,768");
+        }
     }
 
     fn get_or_insert(&mut self, attr: &DataAttribute) -> u16 {
-        let tag = self.strings.intern(attr.tag);
-        let val = self.strings.intern(attr.val);
+        let (Some(tag), Some(val)) = (
+            self.strings.try_intern(attr.tag),
+            self.strings.try_intern(attr.val),
+        ) else {
+            self.overflow
+                .get_or_insert("data-attribute strings exceed 65,535");
+            return 0;
+        };
 
         let Self {
             pairs,
             table,
             hasher,
+            overflow,
             ..
         } = self;
         let hash = hasher.hash_one((tag, val));
         if let Some(&i) = table.find(hash, |&i| pairs[i as usize] == (tag, val)) {
             return i;
+        }
+        if pairs.len() >= u16::MAX as usize {
+            overflow.get_or_insert("data-attribute pairs exceed 65,535");
+            return 0;
         }
         let i = pairs.len() as u16;
         pairs.push((tag, val));

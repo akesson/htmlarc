@@ -68,10 +68,23 @@ impl ListVec {
             }
         }
     }
-    pub fn new_list(&mut self, value: u16) -> ListIndex {
-        let index = self.vec.len() as u16;
+
+    /// Appends a new list head and returns its index, or `None` if the vector is
+    /// full. A head is stored as a [`ListIndex`] in a node slot where `0xFFFF` is
+    /// the "no list" sentinel, so head indices must stay `<= 0xFFFE`.
+    pub fn try_new_list(&mut self, value: u16) -> Option<ListIndex> {
+        let index = self.vec.len();
+        if index >= u16::MAX as usize {
+            return None;
+        }
         self.vec.push(ListEntry::new_head(value));
-        ListIndex(index)
+        Some(ListIndex(index as u16))
+    }
+
+    /// Panicking [`try_new_list`](Self::try_new_list), for already-bounded callers.
+    pub fn new_list(&mut self, value: u16) -> ListIndex {
+        self.try_new_list(value)
+            .expect("ListVec overflow: more than 65,534 lists in one document")
     }
 
     pub fn list_at(&self, index: ListIndex) -> List<'_> {
@@ -182,16 +195,42 @@ pub struct ListMut<'a> {
 }
 
 impl ListMut<'_> {
-    pub fn append(&mut self, value: u16) {
+    /// Appends `value` to the list, returning `false` if a new tail entry was needed
+    /// but the vector is full.
+    ///
+    /// A tail's index is stored in the 15-bit next-pointer of [`ListInfo`] (bit 15 is
+    /// the head flag), so any entry reachable via `next` must be addressable in 15
+    /// bits: index `<= 0x7FFF`, i.e. at most 32,768 entries. (Heads, reached directly
+    /// by [`ListIndex`], may sit higher — see [`ListVec::try_new_list`].) Past that
+    /// the old `set_next(len as u16)` corrupted the head flag and could splice a list
+    /// into a cycle; returning `false` lets the parse path raise a per-document error.
+    /// `Head`/`AlreadyInserted` allocate nothing and always succeed.
+    #[must_use]
+    pub fn try_append(&mut self, value: u16) -> bool {
         match self.insert_index(value) {
-            Insert::AlreadyInserted => {}
-            Insert::Head(index) => self.vec[index].value = value,
+            Insert::AlreadyInserted => true,
+            Insert::Head(index) => {
+                self.vec[index].value = value;
+                true
+            }
             Insert::Tail(last) => {
                 let index = self.vec.len();
+                if index > 0x7FFF {
+                    return false;
+                }
                 self.vec[last].info.set_next(index as u16);
                 self.vec.push(ListEntry::tail(value));
+                true
             }
         }
+    }
+
+    /// Panicking [`try_append`](Self::try_append), for already-bounded callers.
+    pub fn append(&mut self, value: u16) {
+        assert!(
+            self.try_append(value),
+            "ListVec overflow: more than 32,768 list entries in one document"
+        );
     }
 
     fn insert_index(&self, value: u16) -> Insert {

@@ -30,17 +30,35 @@ pub struct AttributeStoreBuilder {
     /// Dedup table: `(tag, value)` hash -> heap index.
     table: HashTable<u16>,
     hasher: DefaultHashBuilder,
+    /// Set (first reason wins) once a per-document u16 ceiling is hit; the parse path
+    /// reads it via [`overflow`](Self::overflow) and discards the whole document.
+    overflow: Option<&'static str>,
 }
 
 impl AttributeStoreBuilder {
+    /// The reason this builder overflowed a per-document capacity, if any.
+    pub fn overflow(&self) -> Option<&'static str> {
+        self.overflow
+    }
+
     pub fn new_list(&mut self, tag: HtmlAttr, val: &str) -> ListIndex {
         let i = self.get_or_insert(tag, val);
-        self.lists.new_list(i)
+        match self.lists.try_new_list(i) {
+            Some(list) => list,
+            None => {
+                self.overflow
+                    .get_or_insert("attribute list count exceeds 65,534");
+                ListIndex::from(0)
+            }
+        }
     }
 
     pub fn add_attribute(&mut self, list_index: ListIndex, tag: HtmlAttr, val: &str) {
         let i = self.get_or_insert(tag, val);
-        self.lists.list_mut_at(list_index).append(i);
+        if !self.lists.list_mut_at(list_index).try_append(i) {
+            self.overflow
+                .get_or_insert("attribute list entries exceed 32,768");
+        }
     }
 
     fn get_or_insert(&mut self, tag: HtmlAttr, val: &str) -> u16 {
@@ -49,6 +67,7 @@ impl AttributeStoreBuilder {
             tags,
             table,
             hasher,
+            overflow,
             ..
         } = self;
         let tag = tag as u8;
@@ -56,7 +75,10 @@ impl AttributeStoreBuilder {
         if let Some(&i) = table.find(hash, |&i| tags[i as usize] == tag && &heap[i] == val) {
             return i;
         }
-        let i = heap.insert(val);
+        let Some(i) = heap.try_insert(val) else {
+            overflow.get_or_insert("attribute value strings exceed 65,535");
+            return 0;
+        };
         tags.push(tag);
         table.insert_unique(hash, i, |&j| hash_attr(hasher, tags[j as usize], &heap[j]));
         i
