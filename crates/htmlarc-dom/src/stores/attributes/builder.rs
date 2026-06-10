@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::entities;
 use crate::stores::{ListIndex, listvec::ListVec, stringheap::StringHeap};
 
 use super::{Attribute, AttributeStore};
@@ -50,7 +51,12 @@ impl<'a> AttributeStoreBuilder<'a> {
 
         for (new_index, (attr, old_index)) in attributes.into_iter().enumerate() {
             reidx[old_index as usize] = new_index as u16;
-            let stringidx = strings.insert(attr.val);
+            // Same fast path as text: skip the decoder unless the value holds a '&'.
+            let stringidx = if attr.val.contains('&') {
+                strings.insert(&entities::decode(attr.val))
+            } else {
+                strings.insert(attr.val)
+            };
             attribs.push((attr.tag as u8, stringidx));
         }
 

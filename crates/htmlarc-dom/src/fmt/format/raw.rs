@@ -1,5 +1,6 @@
 use crate::{
     dom::{DomView, NodeIndex},
+    entities,
     fmt::{
         fmt_buf::FmtBuf,
         iter::{TagIter, TagStage},
@@ -28,17 +29,37 @@ impl<'dom> RawFormat<'dom> {
     }
 
     pub fn html(mut self, index: NodeIndex) -> String {
+        // RAWTEXT (script/style) content is stored verbatim and must NOT be entity-encoded;
+        // every other text node was decoded on ingest and is re-encoded here.
+        let mut rawtext_depth = 0u32;
         for elem in TagIter::new(self.dom, index) {
             let tag = self.dom.nodes.tag(elem.index);
 
             match elem.stage {
                 TagStage::Open => match tag {
                     HtmlTag::DOCTYPE => self.add_doctype(elem.index),
-                    HtmlTag::sys_text => self.buf.push_str(self.dom.string_at(elem.index)),
+                    HtmlTag::sys_text => {
+                        let s = self.dom.string_at(elem.index);
+                        if rawtext_depth > 0 {
+                            self.buf.push_str(s);
+                        } else {
+                            self.buf.push_str(&entities::encode_text(s));
+                        }
+                    }
                     HtmlTag::sys_comment => self.buf.add_comment(self.dom.string_at(elem.index)),
-                    _ => self.add_start_tag(elem.index, tag),
+                    _ => {
+                        if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                            rawtext_depth += 1;
+                        }
+                        self.add_start_tag(elem.index, tag);
+                    }
                 },
-                TagStage::Close => self.add_close_tag(elem.index),
+                TagStage::Close => {
+                    if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                        rawtext_depth = rawtext_depth.saturating_sub(1);
+                    }
+                    self.add_close_tag(elem.index);
+                }
             }
         }
         self.buf.inner()

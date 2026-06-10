@@ -115,7 +115,7 @@ fn test_parse_attribute_value() {
         "=\"href\" i",
         Some(AttributeValue {
             operator: AttributeOperator::Exact,
-            value: QuotedString("href"),
+            value: QuotedString("href".into()),
             case: Some(CaseIndicator::Insensitive),
         }),
     );
@@ -123,7 +123,7 @@ fn test_parse_attribute_value() {
         "*=\"url\"",
         Some(AttributeValue {
             operator: AttributeOperator::Includes,
-            value: QuotedString("url"),
+            value: QuotedString("url".into()),
             case: None,
         }),
     );

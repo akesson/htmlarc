@@ -2,6 +2,7 @@
 //! Based on: https://html.spec.whatwg.org/multipage/syntax.html#attributes-2
 //!
 use super::{DomStack, chars::Chars};
+use crate::entities;
 use crate::html::HtmlAttr;
 use crate::{Context, HtmlParseResult};
 
@@ -82,7 +83,7 @@ fn parse_attribute<'a, Dom: DomStack<'a>>(
         };
         if attribute == HtmlAttr::sys_deleted {
             let tag = name.replace("data-", "");
-            dom.add_data_attribute(&tag, value);
+            dom.add_data_attribute(&tag, &entities::decode(value));
         } else {
             dom.add_attribute_and_value(attribute, value);
         }

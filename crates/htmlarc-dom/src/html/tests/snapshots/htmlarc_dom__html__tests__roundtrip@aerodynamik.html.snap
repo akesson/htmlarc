@@ -1,7 +1,8 @@
 ---
-source: common/html/src/html/tests/mod.rs
-expression: doc.to_html()
-input_file: common/html/src/html/tests/html/aerodynamik.html
+source: crates/htmlarc-dom/src/html/tests/mod.rs
+expression: "doc.to_html(HtmlFormat::Raw)"
+input_file: crates/htmlarc-dom/src/html/tests/html/aerodynamik.html
+snapshot_kind: text
 ---
 <!DOCTYPE html><html class="client-nojs" dir="ltr" lang="sv"><head>
 <meta charset="UTF-8">
@@ -121,7 +122,7 @@ input_file: common/html/src/html/tests/html/aerodynamik.html
 			</div>
 			<div class="content" id="bodyContent"><div class="mw-content-ltr" dir="ltr" id="mw-content-text" lang="sv"><script>function mfTempOpenSection(id){var block=document.getElementById("mf-section-"+id);block.className+=" open-block";block.previousSibling.className+=" open-block";}</script><div class="mw-parser-output"><section class="mf-section-0" id="mf-section-0"></section><h2 class="section-heading" onclick="javascript:mfTempOpenSection(1)"><div class="mw-ui-icon mw-ui-icon-element indicator mw-ui-icon-small mw-ui-icon-flush-left"></div><span class="mw-headline" id="Svenska">Svenska</span><span class="mw-editsection"><a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 edit-page mw-ui-icon-flush-right" data-section="1" href="/w/index.php?title=aerodynamik&amp;action=edit&amp;section=1" title="Redigera avsnitt Svenska">Redigera</a></span></h2><section class="mf-section-1 collapsible-block" id="mf-section-1">
 <h3 class="in-block"><span class="mw-headline" id="Substantiv">Substantiv</span><span class="mw-editsection"><a class="mw-ui-icon mw-ui-icon-element mw-ui-icon-wikimedia-edit-base20 edit-page mw-ui-icon-flush-right" data-section="2" href="/w/index.php?title=aerodynamik&amp;action=edit&amp;section=2" title="Redigera avsnitt Substantiv">Redigera</a></span></h3>
-<table class="grammar template-sv-subst-n-oräkn" cellspacing="0" width="10"><tbody><tr><th class="main">Böjningar&nbsp;av <i><a class="mw-selflink selflink">aerodynamik</a>&nbsp;</i>
+<table class="grammar template-sv-subst-n-oräkn" cellspacing="0" width="10"><tbody><tr><th class="main">Böjningar av <i><a class="mw-selflink selflink">aerodynamik</a> </i>
 </th>
 <th class="min" colspan="2">Oräknebart
 </th></tr><tr><th class="main">utrum
@@ -147,10 +148,10 @@ input_file: common/html/src/html/tests/html/aerodynamik.html
 <div class="NavHead">läran om gasers rörelse</div>
 <div class="NavContent">
 <div class="ö-content">
-<ul><li>finska: <span class="ö" data-lang="fi" data-title="aerodynamiikka"><a class="new" href="/w/index.php?title=aerodynamiikka&amp;action=edit&amp;redlink=1" title="aerodynamiikka (inte skapad ännu)">aerodynamiikka</a></span><sup>&nbsp;<a class="extiw" href="https://fi.wiktionary.org/wiki/aerodynamiikka" title="fi:aerodynamiikka">(fi)</a></sup></li>
-<li>franska: <span class="ö" data-gender="f" data-lang="fr" data-title="aérodynamique"><a class="new" href="/w/index.php?title=a%C3%A9rodynamique&amp;action=edit&amp;redlink=1" title="aérodynamique (inte skapad ännu)">aérodynamique</a></span><sup>&nbsp;<a class="extiw" href="https://fr.wiktionary.org/wiki/a%C3%A9rodynamique" title="fr:aérodynamique">(fr)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li>
-<li>ryska: <span class="ö" data-gender="f" data-lang="ru" data-title="аэродина́мика"><a href="/wiki/%D0%B0%D1%8D%D1%80%D0%BE%D0%B4%D0%B8%D0%BD%D0%B0%D0%BC%D0%B8%D0%BA%D0%B0#Ryska" title="аэродинамика">аэродина́мика</a></span><sup>&nbsp;<a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%B0%D1%8D%D1%80%D0%BE%D0%B4%D0%B8%D0%BD%D0%B0%D0%BC%D0%B8%D0%BA%D0%B0" title="ru:аэродинамика">(ru)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li>
-<li>tyska: <span class="ö" data-gender="f" data-lang="de" data-title="Aerodynamik"><a href="/wiki/Aerodynamik#Tyska" title="Aerodynamik">Aerodynamik</a></span><sup>&nbsp;<a class="extiw" href="https://de.wiktionary.org/wiki/Aerodynamik" title="de:Aerodynamik">(de)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li></ul></div></div></div>
+<ul><li>finska: <span class="ö" data-lang="fi" data-title="aerodynamiikka"><a class="new" href="/w/index.php?title=aerodynamiikka&amp;action=edit&amp;redlink=1" title="aerodynamiikka (inte skapad ännu)">aerodynamiikka</a></span><sup> <a class="extiw" href="https://fi.wiktionary.org/wiki/aerodynamiikka" title="fi:aerodynamiikka">(fi)</a></sup></li>
+<li>franska: <span class="ö" data-gender="f" data-lang="fr" data-title="aérodynamique"><a class="new" href="/w/index.php?title=a%C3%A9rodynamique&amp;action=edit&amp;redlink=1" title="aérodynamique (inte skapad ännu)">aérodynamique</a></span><sup> <a class="extiw" href="https://fr.wiktionary.org/wiki/a%C3%A9rodynamique" title="fr:aérodynamique">(fr)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li>
+<li>ryska: <span class="ö" data-gender="f" data-lang="ru" data-title="аэродина́мика"><a href="/wiki/%D0%B0%D1%8D%D1%80%D0%BE%D0%B4%D0%B8%D0%BD%D0%B0%D0%BC%D0%B8%D0%BA%D0%B0#Ryska" title="аэродинамика">аэродина́мика</a></span><sup> <a class="extiw" href="https://ru.wiktionary.org/wiki/%D0%B0%D1%8D%D1%80%D0%BE%D0%B4%D0%B8%D0%BD%D0%B0%D0%BC%D0%B8%D0%BA%D0%B0" title="ru:аэродинамика">(ru)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li>
+<li>tyska: <span class="ö" data-gender="f" data-lang="de" data-title="Aerodynamik"><a href="/wiki/Aerodynamik#Tyska" title="Aerodynamik">Aerodynamik</a></span><sup> <a class="extiw" href="https://de.wiktionary.org/wiki/Aerodynamik" title="de:Aerodynamik">(de)</a></sup> <b class="gender" title="femininum"><i>f</i></b></li></ul></div></div></div>
 
 
 
