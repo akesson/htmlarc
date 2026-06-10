@@ -1,6 +1,7 @@
 pub mod accessors;
 pub mod css;
 pub mod dom;
+pub(crate) mod entities;
 pub mod error;
 pub mod fmt;
 pub mod html;
@@ -18,7 +19,6 @@ mod logging {
     pub use std::println as debug;
 }
 
-use error::Context;
 pub use error::{HtmlParseError, HtmlParseResult};
 pub use logging::debug;
 

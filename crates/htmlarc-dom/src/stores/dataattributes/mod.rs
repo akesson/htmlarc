@@ -1,9 +1,11 @@
+mod builder;
 mod lists;
 mod rebuilder;
 mod store;
 
 use std::fmt::Display;
 
+pub(crate) use builder::DataAttributeStoreBuilder;
 pub(crate) use lists::data_attr_list;
 pub(crate) use rebuilder::DataAttributeRebuilder;
 pub use store::DataAttributeStore;

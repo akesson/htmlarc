@@ -127,7 +127,7 @@ fn test_parse_attribute_selector() {
             name: AttributeName::Html(HtmlAttr::src),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
-                value: QuotedString(".png"),
+                value: QuotedString(".png".into()),
                 case: None,
             }),
         })),
@@ -138,7 +138,7 @@ fn test_parse_attribute_selector() {
             name: AttributeName::Html(HtmlAttr::action),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("POST"),
+                value: QuotedString("POST".into()),
                 case: Some(CaseIndicator::Sensitive),
             }),
         })),

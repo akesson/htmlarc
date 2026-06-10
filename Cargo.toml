@@ -14,6 +14,9 @@ colorful = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
 fs-err = "3.1"
 function_name = "0.3"
+hashbrown = "0.15"
+html-escape = "0.2"
+html5gum = "0.8.3"
 indexmap = "2.11"
 insta = { version = "1.43", features = ["glob", "json", "yaml"] }
 log = "0.4"

@@ -1,64 +1,99 @@
-use std::collections::BTreeMap;
+use std::hash::BuildHasher;
 
+use hashbrown::{DefaultHashBuilder, HashTable};
+
+use crate::html::HtmlAttr;
 use crate::stores::{ListIndex, listvec::ListVec, stringheap::StringHeap};
 
-use super::{Attribute, AttributeStore};
+use super::AttributeStore;
 
+/// Builds the attribute store during parsing.
+///
+/// Each distinct `(tag, value)` is copied **once**, straight into the [`StringHeap`] —
+/// there is no `Box<str>` intermediary. A [`HashTable`] of `u16` heap indices
+/// deduplicates `(tag, value)` pairs, confirming equality against `tags` + the heap, so a
+/// repeated attribute allocates nothing. The values arrive already entity-decoded (the
+/// tokenizer resolves character references), so they are interned verbatim.
+///
+/// The runtime [`AttributeStore`] binary-searches its `(tag, value)` table, so [`build`]
+/// sorts the index table into `(tag, value)` order. The heap bytes themselves stay in
+/// first-seen order — the table indexes into them, so no value is copied a second time.
+///
+/// [`build`]: Self::build
 #[derive(Default)]
-pub struct AttributeStoreBuilder<'a> {
+pub struct AttributeStoreBuilder {
     lists: ListVec,
-    /// Sorted vec
-    attributes: BTreeMap<Attribute<'a>, u16>,
-    counter: u16,
-    stringbytes: usize,
+    /// One entry per distinct `(tag, value)`, in first-seen order.
+    heap: StringHeap,
+    /// `tags[i]` is the attribute tag of heap entry `i` (parallel to `heap`).
+    tags: Vec<u8>,
+    /// Dedup table: `(tag, value)` hash -> heap index.
+    table: HashTable<u16>,
+    hasher: DefaultHashBuilder,
 }
 
-impl<'a> AttributeStoreBuilder<'a> {
-    pub fn new_list(&mut self, attr: Attribute<'a>) -> ListIndex {
-        let i = self.get_or_insert(attr);
+impl AttributeStoreBuilder {
+    pub fn new_list(&mut self, tag: HtmlAttr, val: &str) -> ListIndex {
+        let i = self.get_or_insert(tag, val);
         self.lists.new_list(i)
     }
 
-    pub fn add_attribute(&mut self, list_index: ListIndex, attr: Attribute<'a>) {
-        let i = self.get_or_insert(attr);
+    pub fn add_attribute(&mut self, list_index: ListIndex, tag: HtmlAttr, val: &str) {
+        let i = self.get_or_insert(tag, val);
         self.lists.list_mut_at(list_index).append(i);
     }
 
-    fn get_or_insert(&mut self, attr: Attribute<'a>) -> u16 {
-        if let Some(i) = self.attributes.get(&attr) {
-            *i
-        } else {
-            let i = self.counter;
-            self.stringbytes += attr.val.len();
-            self.attributes.insert(attr, i);
-            self.counter += 1;
-            i
+    fn get_or_insert(&mut self, tag: HtmlAttr, val: &str) -> u16 {
+        let Self {
+            heap,
+            tags,
+            table,
+            hasher,
+            ..
+        } = self;
+        let tag = tag as u8;
+        let hash = hash_attr(hasher, tag, val);
+        if let Some(&i) = table.find(hash, |&i| tags[i as usize] == tag && &heap[i] == val) {
+            return i;
         }
+        let i = heap.insert(val);
+        tags.push(tag);
+        table.insert_unique(hash, i, |&j| hash_attr(hasher, tags[j as usize], &heap[j]));
+        i
     }
 
     pub fn build(self) -> AttributeStore {
         let AttributeStoreBuilder {
             mut lists,
-            attributes,
-            counter,
-            stringbytes,
+            heap,
+            tags,
+            ..
         } = self;
 
-        let mut reidx = vec![u16::MAX; counter as usize];
-        let mut strings = StringHeap::with_capacity(stringbytes, counter as usize);
-        let mut attribs: Vec<(u8, u16)> = Vec::with_capacity(counter as usize);
+        // Sort the heap indices into `(tag, value)` order — what the runtime store's binary
+        // search expects. The heap bytes stay in insertion order; the table just points back
+        // into them by their original index, so each value is copied only once (at parse).
+        let mut order: Vec<u16> = (0..heap.len()).collect();
+        order.sort_unstable_by(|&a, &b| {
+            (tags[a as usize], &heap[a]).cmp(&(tags[b as usize], &heap[b]))
+        });
 
-        for (new_index, (attr, old_index)) in attributes.into_iter().enumerate() {
-            reidx[old_index as usize] = new_index as u16;
-            let stringidx = strings.insert(attr.val);
-            attribs.push((attr.tag as u8, stringidx));
+        let mut reidx = vec![0u16; order.len()];
+        let mut attributes: Vec<(u8, u16)> = Vec::with_capacity(order.len());
+        for (new_index, &old) in order.iter().enumerate() {
+            reidx[old as usize] = new_index as u16;
+            attributes.push((tags[old as usize], old));
         }
 
         lists.reindex_value(&reidx);
         AttributeStore {
             lists,
-            attributes: attribs,
-            strings,
+            attributes,
+            strings: heap,
         }
     }
+}
+
+fn hash_attr(hasher: &DefaultHashBuilder, tag: u8, val: &str) -> u64 {
+    hasher.hash_one((tag, val))
 }

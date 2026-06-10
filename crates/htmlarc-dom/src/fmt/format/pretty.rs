@@ -39,6 +39,9 @@ pub struct PrettyFormat<'dom> {
     buf: FmtBuf,
     inline: Inline,
     prev_index: NodeIndex,
+    /// Nesting depth of open `script`/`style` (RAWTEXT) elements; while `> 0`, text
+    /// content is emitted verbatim rather than entity-encoded.
+    rawtext_depth: u32,
 }
 impl<'dom> CommonFormatting<'dom> for PrettyFormat<'dom> {
     fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf) {
@@ -53,6 +56,7 @@ impl<'dom> PrettyFormat<'dom> {
             buf: Default::default(),
             inline: Inline::None,
             prev_index: NodeIndex::ROOT,
+            rawtext_depth: 0,
         }
     }
 
@@ -67,15 +71,25 @@ impl<'dom> PrettyFormat<'dom> {
                     HtmlTag::DOCTYPE => self.add_doctype(index),
                     HtmlTag::sys_comment => self.add_comment(self.dom.string_at(index)),
                     HtmlTag::sys_text => {
-                        if !self.push_trimmed_text(index, self.inline)
+                        if !self.push_trimmed_text(index, self.inline, self.rawtext_depth > 0)
                             && self.inline == Inline::Start
                         {
                             self.inline = Inline::None;
                         }
                     }
-                    _ => self.add_start_tag(info, tag),
+                    _ => {
+                        if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                            self.rawtext_depth += 1;
+                        }
+                        self.add_start_tag(info, tag);
+                    }
                 },
-                TagStage::Close => self.add_close_tag(info, tag),
+                TagStage::Close => {
+                    if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                        self.rawtext_depth = self.rawtext_depth.saturating_sub(1);
+                    }
+                    self.add_close_tag(info, tag);
+                }
             }
             self.prev_index = index;
         }
