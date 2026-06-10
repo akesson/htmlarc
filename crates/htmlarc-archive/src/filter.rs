@@ -37,6 +37,34 @@ impl Filter {
 
         included && !excluded
     }
+
+    /// The set of keys the *include* filter restricts to, if any.
+    ///
+    /// The include predicate ANDs key-membership with its CSS rules, so when a `words:`/`.tsv`
+    /// rule is present **every kept entry's key is in this set**. A caller can then resolve just
+    /// these keys through the archive's keyed index instead of scanning every document. `None`
+    /// means the include filter places no constraint on the key (no `words:`/`.tsv` rule), so a
+    /// full scan is required.
+    pub fn include_keys(&self) -> Option<&HashSet<String>> {
+        if self.include.words.is_empty() {
+            None
+        } else {
+            Some(&self.include.words)
+        }
+    }
+
+    /// Decide the filter from the key alone, when no CSS rule is involved (so the document body
+    /// is irrelevant). Returns `None` if any CSS rule means the DOM must be inspected — the caller
+    /// must then materialize the document and call [`keep`](Self::keep). Lets a keyed fast path
+    /// avoid touching document blobs entirely for pure word/key filters.
+    pub fn keep_key(&self, key: &str) -> Option<bool> {
+        if !self.include.css.is_empty() || !self.exclude.css.is_empty() {
+            return None;
+        }
+        let included = self.include.words.is_empty() || self.include.words.contains(key);
+        let excluded = !self.exclude.words.is_empty() && self.exclude.words.contains(key);
+        Some(included && !excluded)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -140,4 +168,43 @@ fn word_filters_from_vec() {
         word_filters.string(),
         "css:div,span > i;words:banana,hello,world"
     );
+}
+
+#[test]
+fn include_keys_exposes_word_set_only() {
+    // A words include bounds the candidate keys; a css-only / empty include does not.
+    let words = Filter::new(vec!["words:a,b".to_string()], vec![]).unwrap();
+    let keys = words.include_keys().expect("words include bounds the keys");
+    assert_eq!(keys.len(), 2);
+    assert!(keys.contains("a") && keys.contains("b"));
+
+    assert!(
+        Filter::new(vec!["css:div".to_string()], vec![])
+            .unwrap()
+            .include_keys()
+            .is_none()
+    );
+    assert!(
+        Filter::new(vec![], vec![])
+            .unwrap()
+            .include_keys()
+            .is_none()
+    );
+}
+
+#[test]
+fn keep_key_decides_pure_word_filters_without_a_dom() {
+    // include words minus exclude words is decidable from the key alone.
+    let f = Filter::new(vec!["words:a,b,c".to_string()], vec!["words:b".to_string()]).unwrap();
+    assert_eq!(f.keep_key("a"), Some(true));
+    assert_eq!(f.keep_key("b"), Some(false)); // excluded
+    assert_eq!(f.keep_key("z"), Some(false)); // not in the include set
+}
+
+#[test]
+fn keep_key_defers_to_the_dom_when_css_is_involved() {
+    let inc_css = Filter::new(vec!["css:div".to_string(), "words:a".to_string()], vec![]).unwrap();
+    assert_eq!(inc_css.keep_key("a"), None); // include css -> must inspect the document
+    let exc_css = Filter::new(vec!["words:a".to_string()], vec!["css:span".to_string()]).unwrap();
+    assert_eq!(exc_css.keep_key("a"), None); // exclude css -> must inspect the document
 }
