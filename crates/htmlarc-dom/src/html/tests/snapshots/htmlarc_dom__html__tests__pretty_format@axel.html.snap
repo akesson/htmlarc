@@ -2,6 +2,7 @@
 source: crates/htmlarc-dom/src/html/tests/mod.rs
 expression: "doc.to_html(HtmlFormat::Pretty)"
 input_file: crates/htmlarc-dom/src/html/tests/html/axel.html
+snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -1959,7 +1960,7 @@ Information om kakor
 (RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgPageParseReport":{"limitreport":{"cputime":"0.400","walltime":"0.485","ppvisitednodes":{"value":6638,"limit":1000000},"postexpandincludesize":{"value":36400,"limit":2097152},"templateargumentsize":{"value":7510,"limit":2097152},"expansiondepth":{"value":9,"limit":40},"expensivefunctioncount":{"value":0,"limit":500},"unstrip-depth":{"value":0,"limit":20},"unstrip-size":{"value":0,"limit":5000000},"entityaccesscount":{"value":0,"limit":400},"timingprofile":["100.00% 414.904 1 -total"," 36.32% 150.684 54 Mall:ö+"," 21.98% 91.184 68 Mall:länk"," 20.71% 85.915 1 Mall:sv-subst-n-ar"," 12.06% 50.034 7 Mall:tagg"," 10.11% 41.962 54 Mall:sidnamn"," 7.87% 32.662 6 Mall:wikipedia"," 7.08% 29.384 6 Mall:systerprojekt"," 6.62% 27.457 13 Mall:ö"," 6.50% 26.989 8 Mall:g-cell"]},"scribunto":{"limitreport-timeusage":{"value":"0.182","limit":"10.000"},"limitreport-memusage":{"value":4677594,"limit":52428800}},"cachereport":{"origin":"mw2335","timestamp":"20201011153153","ttl":2592000,"transientcontent":false}}});});
 		</script>
 		<script>
-(window.NORLQ=window.NORLQ||[]).push(function(){var ns,i,p,img;ns=document.getElementsByTagName('noscript');for(i=0;i&lt;ns.length;i++){p=ns[i].nextSibling;if(p&amp;&amp;p.className&amp;&amp;p.className.indexOf('lazy-image-placeholder')&gt;-1){img=document.createElement('img');img.setAttribute('src',p.getAttribute('data-src'));img.setAttribute('width',p.getAttribute('data-width'));img.setAttribute('height',p.getAttribute('data-height'));img.setAttribute('alt',p.getAttribute('data-alt'));p.parentNode.replaceChild(img,p);}}});
+(window.NORLQ=window.NORLQ||[]).push(function(){var ns,i,p,img;ns=document.getElementsByTagName('noscript');for(i=0;i<ns.length;i++){p=ns[i].nextSibling;if(p&&p.className&&p.className.indexOf('lazy-image-placeholder')>-1){img=document.createElement('img');img.setAttribute('src',p.getAttribute('data-src'));img.setAttribute('width',p.getAttribute('data-width'));img.setAttribute('height',p.getAttribute('data-height'));img.setAttribute('alt',p.getAttribute('data-alt'));p.parentNode.replaceChild(img,p);}}});
 		</script>
 		<script>
 (RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgBackendResponseTime":174,"wgHostname":"mw2227"});});
