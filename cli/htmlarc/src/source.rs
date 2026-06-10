@@ -88,6 +88,15 @@ impl ArchiveSource {
         }
     }
 
+    /// The flat position of `key` via the keyed index, or `None` if absent — no blob touched.
+    /// A keyed word-list search resolves through this instead of scanning every position.
+    pub fn position_for_key(&self, key: &str) -> Option<usize> {
+        match self {
+            Self::Owned(a) => a.position_for_key(key),
+            Self::Mapped(m) => m.position_for_key(key),
+        }
+    }
+
     /// Render the document with the given `key`, if present. `Err` means the matching blob
     /// failed validation (memory-mapped reads validate a document only when fetched).
     pub fn html_for_key(&self, key: &str, fmt: HtmlFormat) -> Result<Option<String>> {

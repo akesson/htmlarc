@@ -50,12 +50,12 @@ pub(crate) fn grapheme_len(key: &str) -> u16 {
 }
 
 /// Binary-search the doc table for `key` **via the sort-index permutation**, returning its
-/// archived entry (key/checksum/offset/len). Used by the memory-mapped reader.
-pub(crate) fn find<'a>(
-    doc_table: &'a ArchivedDocTable,
+/// **doc-table position** (the flat bundle→doc index). Touches only the footer, no blob.
+pub(crate) fn find_index(
+    doc_table: &ArchivedDocTable,
     sort_index: &ArchivedSortIndex,
     key: &str,
-) -> Option<&'a ArchivedDocEntry> {
+) -> Option<usize> {
     let key_len = grapheme_len(key);
     let pos = sort_index
         .binary_search_by(|perm| {
@@ -63,6 +63,15 @@ pub(crate) fn find<'a>(
             compare(d.key_len.to_native(), d.key.as_str(), key_len, key)
         })
         .ok()?;
-    let doc = sort_index[pos].to_native() as usize;
-    Some(&doc_table[doc])
+    Some(sort_index[pos].to_native() as usize)
+}
+
+/// Binary-search the doc table for `key` **via the sort-index permutation**, returning its
+/// archived entry (key/checksum/offset/len). Used by the memory-mapped reader.
+pub(crate) fn find<'a>(
+    doc_table: &'a ArchivedDocTable,
+    sort_index: &ArchivedSortIndex,
+    key: &str,
+) -> Option<&'a ArchivedDocEntry> {
+    find_index(doc_table, sort_index, key).map(|doc| &doc_table[doc])
 }

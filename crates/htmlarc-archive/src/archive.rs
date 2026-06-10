@@ -187,6 +187,13 @@ impl HtmlArchive {
         Some(&self.bundles[b][s])
     }
 
+    /// The flat (bundle→doc) position of `key`, via the sorted index. Lets a keyed search resolve
+    /// a word-list straight to positions instead of scanning every document.
+    pub fn position_for_key(&self, key: &str) -> Option<usize> {
+        let (b, s) = locate(&self.sorted, &self.bundles, key)?;
+        Some(self.bundle_starts[b] + s)
+    }
+
     /// Total document count across all bundles.
     pub fn len(&self) -> usize {
         self.bundle_starts.last().copied().unwrap_or(0)
