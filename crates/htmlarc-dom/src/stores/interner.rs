@@ -21,8 +21,10 @@ pub(crate) struct StringInterner {
 }
 
 impl StringInterner {
-    /// Returns the index of `s`, interning it (one copy into the heap) on first sight.
-    pub(crate) fn intern(&mut self, s: &str) -> u16 {
+    /// Returns the index of `s`, interning it (one copy into the heap) on first
+    /// sight, or `None` if the underlying heap is full (see
+    /// [`StringHeap::try_insert`](super::stringheap::StringHeap::try_insert)).
+    pub(crate) fn try_intern(&mut self, s: &str) -> Option<u16> {
         let Self {
             heap,
             table,
@@ -30,11 +32,11 @@ impl StringInterner {
         } = self;
         let hash = hasher.hash_one(s);
         if let Some(&i) = table.find(hash, |&i| &heap[i] == s) {
-            return i;
+            return Some(i);
         }
-        let i = heap.insert(s);
+        let i = heap.try_insert(s)?;
         table.insert_unique(hash, i, |&j| hasher.hash_one(&heap[j]));
-        i
+        Some(i)
     }
 
     pub(crate) fn get(&self, index: u16) -> &str {
