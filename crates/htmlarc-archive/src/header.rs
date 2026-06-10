@@ -3,20 +3,21 @@
 //! Layout (16 bytes — a multiple of 8 so the first rkyv doc blob that follows keeps its
 //! 8-byte alignment when accessed at `&bytes[HEADER_LEN..]`):
 //!
-//! | bytes  | meaning                              |
-//! |--------|--------------------------------------|
-//! | 0..8   | magic `b"HTMLARC1"`                  |
-//! | 8      | format version (3 = footer-indexed)  |
-//! | 9      | endianness (0 = little-endian)       |
-//! | 10..16 | reserved (zero)                      |
+//! | bytes  | meaning                                |
+//! |--------|----------------------------------------|
+//! | 0..8   | magic `b"HTMLARC1"`                    |
+//! | 8      | format version (4 = bundle-segmented)  |
+//! | 9      | endianness (0 = little-endian)         |
+//! | 10..16 | reserved (zero)                        |
 //!
-//! Version 3 is a footer-indexed container (see [`crate::trailer`]/[`crate::directory`]); the
-//! older single-blob v2 and legacy header-less layouts are no longer read — re-pack to upgrade.
+//! Version 4 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
+//! [`crate::doc_table`], [`crate::bundle`]); the older flat v3 and legacy layouts are no longer
+//! read — re-pack to upgrade.
 
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 3;
+pub(crate) const VERSION: u8 = 4;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 
@@ -35,7 +36,7 @@ pub(crate) fn header_bytes() -> [u8; HEADER_LEN] {
 pub(crate) fn validate_header(bytes: &[u8]) -> Result<(), ArchiveErr> {
     if bytes.len() < HEADER_LEN || &bytes[0..8] != MAGIC {
         return Err(ArchiveErr::Header(
-            "not a .htmlarc v3 file (missing magic — legacy archives must be re-packed)".into(),
+            "not a .htmlarc file (missing magic — legacy archives must be re-packed)".into(),
         ));
     }
     let version = bytes[8];

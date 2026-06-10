@@ -1,7 +1,8 @@
 mod archive;
 mod archive_trait;
 mod builder;
-mod directory;
+mod bundle;
+mod doc_table;
 mod entry;
 mod error;
 mod filter;
@@ -13,6 +14,7 @@ mod writer;
 pub use archive::HtmlArchive;
 pub use archive_trait::{Archive, ArchiveEntry};
 pub use builder::HtmlArchiveBuilder;
+pub use bundle::{BUNDLE_CAP, DocBundle};
 pub use entry::{ArchivedHtmlEntry, HtmlEntry};
 pub use error::ArchiveErr;
 pub use filter::{Filter, FilterError};
