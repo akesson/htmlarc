@@ -59,16 +59,6 @@ pub struct TestDom {
 }
 
 impl TestDom {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn new_with(tag: HtmlTag) -> Self {
-        let mut me = Self::default();
-        me.push_tag(tag);
-        me
-    }
-
     fn push_attr(&mut self, attr: HtmlAttr, value: &str) {
         let current = self.dom.last_mut().unwrap();
         current.attrs.push((attr, value.to_string()))
@@ -91,7 +81,7 @@ impl Display for TestDom {
     }
 }
 
-impl DomStack<'_> for TestDom {
+impl DomStack for TestDom {
     fn _push_tag(&mut self, tag: HtmlTag) {
         debug!("push_tag {tag}");
         self.dom.push(TestElement::tag(tag, self.stack.len()));

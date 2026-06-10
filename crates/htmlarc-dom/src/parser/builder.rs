@@ -4,23 +4,23 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        Attribute, AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStore,
-        ListIndex, StringStack,
+        AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStore, ListIndex,
+        StringStack,
     },
 };
 
 use super::dom::{DomStack, log, log_list, log_opt_i};
 
 #[derive(Default)]
-pub struct DomBuilder<'a> {
+pub struct DomBuilder {
     pub(crate) nodes: Nodes,
-    pub(crate) attrs: AttributeStoreBuilder<'a>,
+    pub(crate) attrs: AttributeStoreBuilder,
     pub(crate) dataattrs: DataAttributeStore,
-    pub(crate) classes: ClassStoreBuilder<'a>,
+    pub(crate) classes: ClassStoreBuilder,
     pub(crate) strings: StringStack,
 }
 
-impl DomBuilder<'_> {
+impl DomBuilder {
     pub fn add_text_child(&mut self, tag: HtmlTag, index: NodeIndex, text: &str) -> NodeIndex {
         let range = self.strings.push(text);
         let index = self.nodes.add_as_last_child(index, tag);
@@ -42,15 +42,15 @@ impl DomBuilder<'_> {
 const MAX_DEPTH: usize = 64;
 
 #[derive(Default)]
-pub struct DomBuilderCursor<'a> {
-    pub dom: DomBuilder<'a>,
+pub struct DomBuilderCursor {
+    pub dom: DomBuilder,
     pub tag_stack: ArrayVec<[HtmlTag; MAX_DEPTH]>,
     pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
     pub attr_list_index: Option<ListIndex>,
     pub dataattr_list_index: Option<ListIndex>,
 }
 
-impl DomBuilderCursor<'_> {
+impl DomBuilderCursor {
     fn index(&self) -> NodeIndex {
         *self.index_stack.last().unwrap_or(&NodeIndex::ROOT)
     }
@@ -59,7 +59,7 @@ impl DomBuilderCursor<'_> {
     }
 }
 
-impl<'a> DomStack<'a> for DomBuilderCursor<'a> {
+impl DomStack for DomBuilderCursor {
     fn _push_tag(&mut self, tag: HtmlTag) {
         self.tag_stack.push(tag);
         self.attr_list_index = None;
@@ -98,25 +98,22 @@ impl<'a> DomStack<'a> for DomBuilderCursor<'a> {
         self.dom.add_text_child(tag, index, text);
     }
 
-    fn add_attribute_and_value(&mut self, tag: HtmlAttr, val: &'a str) {
+    fn add_attribute_and_value(&mut self, tag: HtmlAttr, val: &str) {
         let index = self.index();
         if tag == HtmlAttr::class {
+            log_list(index, Some(""), || format!("add class={val}"));
             let list_index = self.dom.classes.add_class_list(val);
             self.dom
                 .nodes
                 .set_class_list_index(index, Some(list_index.as_u16()));
-            log_list(index, Some(""), || format!("add class={val}"));
+        } else if let Some(list_index) = self.attr_list_index {
+            self.dom.attrs.add_attribute(list_index, tag, val);
         } else {
-            let attr = Attribute { tag, val };
-            if let Some(list_index) = self.attr_list_index {
-                self.dom.attrs.add_attribute(list_index, attr);
-            } else {
-                let list_index = self.dom.attrs.new_list(attr);
-                self.attr_list_index = Some(list_index);
-                self.dom
-                    .nodes
-                    .set_attr_list_index(index, Some(list_index.as_u16()));
-            }
+            let list_index = self.dom.attrs.new_list(tag, val);
+            self.attr_list_index = Some(list_index);
+            self.dom
+                .nodes
+                .set_attr_list_index(index, Some(list_index.as_u16()));
         }
     }
 

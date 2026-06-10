@@ -19,7 +19,6 @@ mod logging {
     pub use std::println as debug;
 }
 
-use error::Context;
 pub use error::{HtmlParseError, HtmlParseResult};
 pub use logging::debug;
 
@@ -99,7 +98,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:101 fn location_test"
+        "htmlarc-dom::lib.rs:100 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

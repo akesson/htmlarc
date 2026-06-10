@@ -116,8 +116,24 @@ fn select_css() {
     where
         I: Iterator<Item = HtmlElement<'a, DomInner>>,
     {
+        // Identify each match by its own tag/id/class (a CSS-selector-like string), not by
+        // its global flat-DOM node index — so the snapshot pins *which* elements matched, in
+        // document order, and is invariant to node-numbering shifts elsewhere in the doc.
         elements
-            .map(|el| format!("{} - {}", el.index(), el.tag()))
+            .map(|el| {
+                let mut s = el.tag().to_string();
+                if let Some(id) = el.id()
+                    && !id.is_empty()
+                {
+                    s.push('#');
+                    s.push_str(id);
+                }
+                for class in el.classes() {
+                    s.push('.');
+                    s.push_str(class);
+                }
+                s
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }

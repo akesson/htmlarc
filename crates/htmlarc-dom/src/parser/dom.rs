@@ -5,7 +5,7 @@ use crate::html::{HtmlAttr, HtmlTag};
 
 use crate::{HtmlParseError, HtmlParseResult};
 
-pub trait DomStack<'a> {
+pub trait DomStack {
     fn push_tag(&mut self, tag: HtmlTag) {
         let current = self._last_tag();
         if current.auto_close_when_next(tag) {
@@ -27,7 +27,7 @@ pub trait DomStack<'a> {
     /// Only for adding comments and text
     fn add_text_tag(&mut self, tag: HtmlTag, value: &str);
 
-    fn add_attribute_and_value(&mut self, attribute: HtmlAttr, value: &'a str);
+    fn add_attribute_and_value(&mut self, attribute: HtmlAttr, value: &str);
 
     fn add_data_attribute(&mut self, attribute: &str, value: &str);
 

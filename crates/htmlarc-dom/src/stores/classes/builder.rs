@@ -2,21 +2,25 @@ use std::collections::BTreeMap;
 
 use crate::stores::{ListIndex, listvec::ListVec, stringheap::StringHeap};
 
-use super::{Class, ClassStore};
+use super::ClassStore;
 
+/// Builds the sorted class store during parsing. Class names are owned on insert (the
+/// tokenizer hands back transient buffers, not input borrows); the map deduplicates
+/// identical names before interning at [`build`](Self::build), so the output is
+/// byte-identical to a borrowed-key build. `Box<str>: Borrow<str>` lets lookups borrow the
+/// name as `&str`, so only the first occurrence of a name allocates.
 #[derive(Default)]
-pub struct ClassStoreBuilder<'a> {
+pub struct ClassStoreBuilder {
     lists: ListVec,
-    /// Sorted vec
-    classes: BTreeMap<Class<'a>, u16>,
+    classes: BTreeMap<Box<str>, u16>,
     counter: u16,
     stringbytes: usize,
 }
 
-impl<'a> ClassStoreBuilder<'a> {
-    pub fn add_class_list(&mut self, classes: &'a str) -> ListIndex {
-        let mut classes = classes.split_ascii_whitespace().map(Class);
-        let first = classes.next().unwrap_or(Class(""));
+impl ClassStoreBuilder {
+    pub fn add_class_list(&mut self, classes: &str) -> ListIndex {
+        let mut classes = classes.split_ascii_whitespace();
+        let first = classes.next().unwrap_or("");
 
         let index = self.add_list(first);
         for class in classes {
@@ -26,22 +30,23 @@ impl<'a> ClassStoreBuilder<'a> {
         index
     }
 
-    fn add_list(&mut self, class: Class<'a>) -> ListIndex {
+    fn add_list(&mut self, class: &str) -> ListIndex {
         let i = self.get_or_insert(class);
         self.lists.new_list(i)
     }
 
-    fn get_or_insert(&mut self, class: Class<'a>) -> u16 {
-        if let Some(i) = self.classes.get(&class) {
-            *i
+    fn get_or_insert(&mut self, class: &str) -> u16 {
+        if let Some(&i) = self.classes.get(class) {
+            i
         } else {
             let i = self.counter;
-            self.stringbytes += class.0.len();
-            self.classes.insert(class, i);
+            self.stringbytes += class.len();
+            self.classes.insert(Box::from(class), i);
             self.counter += 1;
             i
         }
     }
+
     pub fn build(self) -> ClassStore {
         let ClassStoreBuilder {
             mut lists,
@@ -56,7 +61,7 @@ impl<'a> ClassStoreBuilder<'a> {
 
         for (new_index, (class, old_index)) in classes.into_iter().enumerate() {
             reidx[old_index as usize] = new_index as u16;
-            let stringidx = strings.insert(class.0);
+            let stringidx = strings.insert(&class);
             attribs.push(stringidx);
         }
 
