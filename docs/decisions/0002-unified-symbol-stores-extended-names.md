@@ -3,7 +3,7 @@
 - **Status:** Accepted (pending implementation)
 - **Date:** 2026-06-10
 - **Scope:** `htmlarc-dom` (stores, node format, parser, formatter, query layer),
-  `htmlarc-archive` (bundle footer), `cli/zim2htmlarc`
+  `htmlarc-archive` (bundle footer), `cli/htmlarc-convert`
 - **Companion:** [0001](0001-string-storage-lanes.md) (two-lane storage). Amends one point:
   the Lane A shared range moves from the **low** end of the `u16` space to the **top** end.
 
@@ -25,10 +25,17 @@ entry) on live insert, and force builders to be parallel types reindexed at `bui
 
 Latent ceilings, relevant now that the target corpus is **general scraped HTML** (not
 just wiki dumps): `StringHeap::insert` silently wraps past 65,535 strings
-(`stringheap.rs`); `ListVec::new_list`/`append` silently wrap past 65,535 list entries
-(`listvec/mod.rs`) — reachable today, since nodes were lifted to u24 (16.7M) while a list
-entry exists per (node × class/attr occurrence). Pathological-but-real inputs: single-page
-specs with tens of thousands of `id`s, utility-CSS sites with thousands of class tokens.
+(`stringheap.rs`); `ListVec` silently wraps past its list-entry ceiling
+(`listvec/mod.rs`) — and that ceiling is **32,768, not 65,535**: `ListInfo`'s next-pointer
+is 15 bits (bit 15 is the head flag), so list *tails* are addressable only to `0x7FFF`
+(heads, reached directly via `ListIndex`, keep the `0xFFFE` node-slot ceiling). All
+reachable today, since nodes were lifted to u24 (16.7M) while a list entry exists per
+(node × class/attr occurrence). Pathological-but-real inputs: single-page specs with tens
+of thousands of `id`s, utility-CSS sites with thousands of class tokens.
+
+PR 1 (shipped) converts these silent wraps into checked per-document parse errors (the
+`try_insert`/`try_new_list`/`try_append` APIs + builder poison flags), so they bound
+correctness rather than corrupt it.
 
 ## Decision
 

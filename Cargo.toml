@@ -12,6 +12,8 @@ repository = "https://github.com/akesson/htmlarc"
 anyhow = "1.0"
 colorful = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
+# Pure-Rust gzip (miniz_oxide backend) for reading `.warc.gz` crawl segments.
+flate2 = "1.0"
 fs-err = "3.1"
 function_name = "0.3"
 hashbrown = "0.15"
@@ -32,6 +34,7 @@ thiserror = "2.0"
 tinyvec = { version = "1.8", features = ["alloc"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
+walkdir = "2.5"
 xflags = "0.3"
 # Fork of the unmaintained `zim` 0.4 crate, patched to open modern ZIMs (header
 # minor version >= 2, which omit the legacy title pointer list). See akesson/zim.
