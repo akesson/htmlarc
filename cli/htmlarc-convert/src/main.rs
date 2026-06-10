@@ -2,6 +2,7 @@ mod args;
 mod commands;
 mod convert;
 mod source;
+mod stats;
 #[cfg(test)]
 mod tests;
 
@@ -27,5 +28,6 @@ fn run_cli() -> Result<()> {
         HtmlarcConvertCmd::List(a) => commands::list(a),
         HtmlarcConvertCmd::Extract(a) => commands::extract(a),
         HtmlarcConvertCmd::Convert(a) => convert::run(a),
+        HtmlarcConvertCmd::Stats(a) => stats::run(a),
     }
 }
