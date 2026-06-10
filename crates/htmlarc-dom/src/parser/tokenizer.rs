@@ -243,10 +243,13 @@ impl<D: DomStack> Driver<'_, D> {
         }
         match HtmlAttr::try_from(name.as_ref()) {
             Ok(a) => self.attr = Some(AttrName::Known(a)),
-            Err(_) if name.starts_with("data-") => {
-                self.attr = Some(AttrName::Data(name.replace("data-", "")));
-            }
-            Err(_) => self.set_error(format!("Not a valid attribute: '{name}'")),
+            // Strip only the leading `data-`; a key that itself contains `data-`
+            // (e.g. `data-data-toggle`) must keep the rest intact — `str::replace`
+            // would have removed every occurrence.
+            Err(_) => match name.strip_prefix("data-") {
+                Some(key) => self.attr = Some(AttrName::Data(key.to_owned())),
+                None => self.set_error(format!("Not a valid attribute: '{name}'")),
+            },
         }
     }
 
@@ -337,6 +340,32 @@ impl<D: DomStack> Driver<'_, D> {
     fn set_error(&mut self, message: String) {
         if self.error.is_none() {
             self.error = Some(HtmlParseError::new(message));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::fmt::HtmlFormat;
+    use crate::html::HtmlDoc;
+
+    fn rt(html: &str) -> String {
+        HtmlDoc::parse(html).unwrap().to_html(HtmlFormat::Raw)
+    }
+
+    #[test]
+    fn data_attribute_key_with_embedded_data_prefix_survives_round_trip() {
+        // Regression: only the *leading* `data-` forms the prefix; the remainder is the
+        // key verbatim. A key that itself contains `data-` is legal HTML and must survive
+        // parse -> serialize. The previous `str::replace("data-", "")` stripped every
+        // occurrence, so `data-data-toggle` collapsed to `data-toggle` and `data-x-data-y`
+        // to `data-x-y`.
+        for s in [
+            r#"<div data-data-toggle="x"></div>"#,
+            r#"<div data-x-data-y="1"></div>"#,
+            r#"<div data-mw="interface"></div>"#, // ordinary single-prefix key still works
+        ] {
+            assert_eq!(rt(s), s, "data-attribute key must round-trip: {s:?}");
         }
     }
 }

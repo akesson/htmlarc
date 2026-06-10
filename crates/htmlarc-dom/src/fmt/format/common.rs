@@ -34,7 +34,7 @@ pub trait CommonFormatting<'dom> {
         }
     }
 
-    fn push_trimmed_text(&mut self, index: NodeIndex, inline: Inline) -> bool {
+    fn push_trimmed_text(&mut self, index: NodeIndex, inline: Inline, rawtext: bool) -> bool {
         let (dom, buf) = self.dom_and_buf();
 
         let text = dom.string_at(index);
@@ -49,7 +49,14 @@ pub trait CommonFormatting<'dom> {
         if inline == Inline::Start {
             buf.newline();
         }
-        buf.push_str(&entities::encode_text(&cleaned));
+        // RAWTEXT (script/style) is stored verbatim and must not be entity-encoded — doing
+        // so would corrupt `&`/`<`/`>` in JS/CSS. Every other text node was decoded on
+        // ingest and is re-encoded here. Mirrors the guard in `RawFormat`.
+        if rawtext {
+            buf.push_str(&cleaned);
+        } else {
+            buf.push_str(&entities::encode_text(&cleaned));
+        }
         true
     }
 }

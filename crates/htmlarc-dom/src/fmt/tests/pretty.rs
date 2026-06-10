@@ -112,6 +112,29 @@ fn empty_elements_stay_on_one_line() {
 }
 
 #[test]
+fn script_and_style_content_is_not_entity_encoded() {
+    // RAWTEXT (script/style) is stored verbatim, so pretty serialization must emit it
+    // unescaped — entity-encoding would corrupt `&&`, `<`, `>` in JS/CSS. Regression guard
+    // alongside RawFormat's `rawtext_depth`; the shared `push_trimmed_text` previously
+    // encoded everything.
+    const HTML: &str = r#"<body><script>if (a && b < c) { x = "&"; }</script><style>a::before{content:"<&>"}</style></body>"#;
+
+    let out = format(HTML, HtmlFormat::Pretty);
+    assert!(
+        out.contains(r#"if (a && b < c) { x = "&"; }"#),
+        "script must stay verbatim, got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"a::before{content:"<&>"}"#),
+        "style must stay verbatim, got:\n{out}"
+    );
+    assert!(
+        !out.contains("&amp;") && !out.contains("&lt;") && !out.contains("&gt;"),
+        "rawtext must not be entity-encoded, got:\n{out}"
+    );
+}
+
+#[test]
 fn inline_test2() {
     const INLINE_TEST: &str = r#"<li><sup><a>(de)</a></sup> <b>f</b></li>"#;
 
