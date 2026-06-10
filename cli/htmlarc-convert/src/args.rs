@@ -37,5 +37,16 @@ xflags::xflags! {
             /// Force the input format: zim | warc | dir.
             optional --format fmt: String
         }
+
+        /// Probe per-document and per-bundle string/list cardinalities (a tolerant pass
+        /// that does not require the documents to parse). Gates the ADR 0002 constants.
+        cmd stats {
+            /// The input: a .zim, a .warc(.gz), or a directory.
+            required input: PathBuf
+            /// Stop after this many documents (useful for sampling a huge input).
+            optional --limit count: usize
+            /// Force the input format: zim | warc | dir.
+            optional --format fmt: String
+        }
     }
 }
