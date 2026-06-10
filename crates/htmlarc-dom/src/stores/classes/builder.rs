@@ -1,75 +1,53 @@
-use std::collections::BTreeMap;
-
-use crate::stores::{ListIndex, listvec::ListVec, stringheap::StringHeap};
+use crate::stores::interner::StringInterner;
+use crate::stores::{ListIndex, listvec::ListVec};
 
 use super::ClassStore;
 
-/// Builds the sorted class store during parsing. Class names are owned on insert (the
-/// tokenizer hands back transient buffers, not input borrows); the map deduplicates
-/// identical names before interning at [`build`](Self::build), so the output is
-/// byte-identical to a borrowed-key build. `Box<str>: Borrow<str>` lets lookups borrow the
-/// name as `&str`, so only the first occurrence of a name allocates.
+/// Builds the class store during parsing. Each distinct class name is copied **once**,
+/// straight into the interned [`StringHeap`] (no `Box<str>` intermediary); the
+/// [`StringInterner`]'s hash table deduplicates names so a repeated class allocates
+/// nothing. [`build`](Self::build) sorts the index table into name order — what the
+/// runtime store's binary search expects, and identical to the old `BTreeMap` order.
 #[derive(Default)]
 pub struct ClassStoreBuilder {
     lists: ListVec,
-    classes: BTreeMap<Box<str>, u16>,
-    counter: u16,
-    stringbytes: usize,
+    classes: StringInterner,
 }
 
 impl ClassStoreBuilder {
     pub fn add_class_list(&mut self, classes: &str) -> ListIndex {
-        let mut classes = classes.split_ascii_whitespace();
-        let first = classes.next().unwrap_or("");
+        let mut names = classes.split_ascii_whitespace();
+        let first = names.next().unwrap_or("");
 
-        let index = self.add_list(first);
-        for class in classes {
-            let i = self.get_or_insert(class);
+        let index = self.lists.new_list(self.classes.intern(first));
+        for class in names {
+            let i = self.classes.intern(class);
             self.lists.list_mut_at(index).append(i);
         }
         index
     }
 
-    fn add_list(&mut self, class: &str) -> ListIndex {
-        let i = self.get_or_insert(class);
-        self.lists.new_list(i)
-    }
-
-    fn get_or_insert(&mut self, class: &str) -> u16 {
-        if let Some(&i) = self.classes.get(class) {
-            i
-        } else {
-            let i = self.counter;
-            self.stringbytes += class.len();
-            self.classes.insert(Box::from(class), i);
-            self.counter += 1;
-            i
-        }
-    }
-
     pub fn build(self) -> ClassStore {
-        let ClassStoreBuilder {
-            mut lists,
-            classes,
-            counter,
-            stringbytes,
-        } = self;
+        let ClassStoreBuilder { mut lists, classes } = self;
 
-        let mut reidx = vec![u16::MAX; counter as usize];
-        let mut strings = StringHeap::with_capacity(stringbytes, counter as usize);
-        let mut attribs: Vec<u16> = Vec::with_capacity(counter as usize);
+        // Sort the interned indices into name order (the runtime store binary-searches the
+        // class table). The heap stays in insertion order; the table points back into it by
+        // original index, so each name is copied only once (at parse).
+        let mut order: Vec<u16> = (0..classes.len()).collect();
+        order.sort_unstable_by(|&a, &b| classes.get(a).cmp(classes.get(b)));
 
-        for (new_index, (class, old_index)) in classes.into_iter().enumerate() {
-            reidx[old_index as usize] = new_index as u16;
-            let stringidx = strings.insert(&class);
-            attribs.push(stringidx);
+        let mut reidx = vec![0u16; order.len()];
+        let mut table: Vec<u16> = Vec::with_capacity(order.len());
+        for (new_index, &old) in order.iter().enumerate() {
+            reidx[old as usize] = new_index as u16;
+            table.push(old);
         }
 
         lists.reindex_value(&reidx);
         ClassStore {
             lists,
-            classes: attribs,
-            strings,
+            classes: table,
+            strings: classes.into_heap(),
         }
     }
 }

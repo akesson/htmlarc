@@ -4,8 +4,8 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStore, ListIndex,
-        StringStack,
+        AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStoreBuilder,
+        ListIndex, StringStack,
     },
 };
 
@@ -15,7 +15,7 @@ use super::dom::{DomStack, log, log_list, log_opt_i};
 pub struct DomBuilder {
     pub(crate) nodes: Nodes,
     pub(crate) attrs: AttributeStoreBuilder,
-    pub(crate) dataattrs: DataAttributeStore,
+    pub(crate) dataattrs: DataAttributeStoreBuilder,
     pub(crate) classes: ClassStoreBuilder,
     pub(crate) strings: StringStack,
 }
@@ -32,7 +32,7 @@ impl DomBuilder {
         DomInner {
             nodes: self.nodes,
             attrs: self.attrs.build(),
-            dataattrs: self.dataattrs,
+            dataattrs: self.dataattrs.build(),
             classes: self.classes.build(),
             strings: self.strings,
         }
