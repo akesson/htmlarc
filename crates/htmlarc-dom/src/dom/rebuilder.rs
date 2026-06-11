@@ -2,7 +2,7 @@ use crate::{
     dom::Nodes,
     iters::DomIterator,
     prelude::*,
-    stores::{AttributeReBuilder, DataAttributeRebuilder, RunRebuilder, StringStack},
+    stores::{NAME_EXT_BASE, RunRebuilder, StringStack},
 };
 
 impl DomInner {
@@ -12,13 +12,15 @@ impl DomInner {
         // pairs of new & old indexes in the order they are traversed by the element iterator
         let mut ordered_pairs: Vec<(NodeIndex, NodeIndex)> = Vec::with_capacity(self.nodes.len());
 
-        let mut attr_rebuilder = AttributeReBuilder::new(&self.attrs);
         let mut nodes = Nodes::new_based_on(&self.nodes);
-        // Class lists are bare `Sym` runs, so the rebuild drives `RunRebuilder` directly
-        // (no class-specific wrapper) and compacts the symbol table afterwards.
+        // Class lists and attribute lists are both bare-id runs, so the rebuild drives a
+        // `RunRebuilder` over each arena directly. The attribute entries' *names* are
+        // symbols shared with class tokens, so they must be unioned into the class rebuilder
+        // before the symbol table is compacted (below).
         let mut class_rebuilder =
             RunRebuilder::new(self.class_lists.len(), self.symbols.len() as usize);
-        let mut dataattrs_rebuilder = DataAttributeRebuilder::new(&self.dataattrs);
+        let mut attr_rebuilder =
+            RunRebuilder::new(self.attrs.lists.len(), self.attrs.entries.len());
         let mut strings = StringStack::with_capacity(self.strings.size());
 
         let iter = HtmlElement::new(self, NodeIndex::ROOT)
@@ -36,24 +38,40 @@ impl DomInner {
             indexes[old_index.as_usize()] = Some(new_index);
             ordered_pairs.push((new_index, old_index));
             if let Some(i) = self.nodes.attr_list_index(old_index) {
-                attr_rebuilder.mark_list_used(&self.attrs, i);
+                attr_rebuilder.mark_run_used(&self.attrs.lists, i);
             }
             if let Some(i) = self.nodes.class_list_index(old_index) {
                 class_rebuilder.mark_run_used(&self.class_lists, i);
             }
-            if let Some(i) = self.nodes.data_attr_list_index(old_index) {
-                dataattrs_rebuilder.mark_list_used(&self.dataattrs, i);
+        }
+
+        // Union the surviving extended attribute *names* into the class rebuilder's symbol
+        // marks: extended names live in the shared symbol table, but only class runs marked
+        // it above. Without this every `data-*`/unknown name would be dropped and its
+        // `NameSym` would dangle (ADR 0002 §3).
+        for entry_id in attr_rebuilder.used_values() {
+            let (name, _) = self.attrs.entry(entry_id as u16);
+            if name >= NAME_EXT_BASE {
+                class_rebuilder.mark_value_used(name - NAME_EXT_BASE);
             }
         }
 
-        let (attr_list_reindex, attrs) = attr_rebuilder.build(&self.attrs);
         let class_rebuilt = class_rebuilder.build(&self.class_lists);
         let class_list_reindex = class_rebuilt.runs_reidx;
         let class_lists = class_rebuilt.runs;
-        // Compact the symbol table to just the surviving class tokens; the value reindex
-        // reproduces RunRebuilder's dense numbering, so the run values map for free.
+        // Compact the symbol table to the surviving class tokens ∪ extended names; the value
+        // reindex reproduces the dense numbering, so the run values map for free.
         let symbols = self.symbols.rebuilt(&class_rebuilt.value_reidx);
-        let (dataattr_list_reindex, dataattrs) = dataattrs_rebuilder.build(&self.dataattrs);
+
+        let attr_rebuilt = attr_rebuilder.build(&self.attrs.lists);
+        let attr_list_reindex = attr_rebuilt.runs_reidx;
+        // The attribute store compacts its own value table and remaps each surviving entry's
+        // name through the symbol reindex (see `AttrStore::rebuilt`).
+        let attrs = self.attrs.rebuilt(
+            &attr_rebuilt.value_reidx,
+            &class_rebuilt.value_reidx,
+            attr_rebuilt.runs,
+        );
 
         for (new_index, old_index) in ordered_pairs {
             let tag = self.nodes.tag(old_index);
@@ -92,9 +110,8 @@ impl DomInner {
                     .and_then(|i| indexes[i.as_usize()]);
                 nodes.set_last_child_index(new_index, last_child);
 
-                // Emptying a class run drops the node's pointer at mutation time, so every
-                // surviving pointer was marked and reindexes to `Some`; the attribute
-                // stores still leave emptied list heads behind, hence their `Option`s.
+                // Emptying a class or attribute run drops the node's pointer at mutation
+                // time, so every surviving pointer was marked and reindexes to `Some`.
                 if let Some(list_index) = self.nodes.class_list_index(old_index) {
                     nodes
                         .set_class_list_index(new_index, class_list_reindex[list_index.as_usize()]);
@@ -102,18 +119,11 @@ impl DomInner {
                 if let Some(list_index) = self.nodes.attr_list_index(old_index) {
                     nodes.set_attr_list_index(new_index, attr_list_reindex[list_index.as_usize()]);
                 }
-                if let Some(list_index) = self.nodes.data_attr_list_index(old_index) {
-                    nodes.set_data_attr_list_index(
-                        new_index,
-                        dataattr_list_reindex[list_index.as_usize()],
-                    );
-                }
             }
         }
         DomInner {
             nodes,
             attrs,
-            dataattrs,
             symbols,
             class_lists,
             strings,

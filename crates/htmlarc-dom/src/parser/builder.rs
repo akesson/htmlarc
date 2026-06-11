@@ -4,8 +4,8 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        AttributeStoreBuilder, DataAttribute, DataAttributeStoreBuilder, ListIndex, RunIndex,
-        RunVec, StringStack, SymbolTableBuilder,
+        AttrName, AttrStoreBuilder, NAME_EXT_BASE, RunIndex, RunVec, StringStack,
+        SymbolTableBuilder,
     },
 };
 
@@ -14,8 +14,7 @@ use super::dom::{DomStack, log, log_list, log_opt_i};
 #[derive(Default)]
 pub struct DomBuilder {
     pub(crate) nodes: Nodes,
-    pub(crate) attrs: AttributeStoreBuilder,
-    pub(crate) dataattrs: DataAttributeStoreBuilder,
+    pub(crate) attrs: AttrStoreBuilder,
     pub(crate) symbols: SymbolTableBuilder,
     pub(crate) class_lists: RunVec,
     /// The class-run arena ceiling (one cap covers list count and entries alike — both
@@ -59,7 +58,6 @@ impl DomBuilder {
         DomInner {
             nodes: self.nodes,
             attrs: self.attrs.build(),
-            dataattrs: self.dataattrs.build(),
             symbols: self.symbols.build(),
             class_lists: self.class_lists,
             strings: self.strings,
@@ -73,7 +71,15 @@ impl DomBuilder {
             .overflow()
             .or(self.symbols.overflow())
             .or(self.class_overflow)
-            .or_else(|| self.dataattrs.overflow())
+    }
+
+    /// Resolve a parsed attribute name to its `NameSym`, interning an extended name into the
+    /// document symbol table (standard names are their `HtmlAttr` repr).
+    fn name_sym(&mut self, name: AttrName<'_>) -> u16 {
+        match name {
+            AttrName::Std(attr) => attr as u16,
+            AttrName::Ext(s) => self.symbols.intern_or_poison(s).as_u16() + NAME_EXT_BASE,
+        }
     }
 }
 
@@ -98,8 +104,7 @@ pub struct DomBuilderCursor {
     pub dom: DomBuilder,
     pub tag_stack: ArrayVec<[HtmlTag; MAX_DEPTH]>,
     pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
-    pub attr_list_index: Option<ListIndex>,
-    pub dataattr_list_index: Option<ListIndex>,
+    pub attr_list_index: Option<RunIndex>,
     /// Set (first reason wins) when the node count or nesting depth overflows; combined
     /// with the sub-store builders' flags by [`overflow`](Self::overflow).
     overflow: Option<&'static str>,
@@ -147,7 +152,6 @@ impl DomStack for DomBuilderCursor {
         }
         self.tag_stack.push(tag);
         self.attr_list_index = None;
-        self.dataattr_list_index = None;
         let i = self.dom.nodes.add_as_last_child(self.index(), tag);
         log(i, || format!("push: {tag}"));
         self.push_index(i);
@@ -169,7 +173,6 @@ impl DomStack for DomBuilderCursor {
         let i = self.index_stack.pop();
         let tag = self.tag_stack.pop();
         self.attr_list_index = None;
-        self.dataattr_list_index = None;
         log_opt_i(i, || format!("pop: {tag:?}"));
         tag
     }
@@ -180,43 +183,31 @@ impl DomStack for DomBuilderCursor {
         }
         let index = self.index();
         self.attr_list_index = None;
-        self.dataattr_list_index = None;
         log(index, || format!("add text: {:?}", text));
         self.dom.add_text_child(tag, index, text);
     }
 
-    fn add_attribute_and_value(&mut self, tag: HtmlAttr, val: &str) {
+    fn add_attribute(&mut self, name: AttrName<'_>, val: &str) {
         let index = self.index();
-        if tag == HtmlAttr::class {
+        // `class` keeps its own run of `Sym`s; every other name (std, `data-*`, unknown)
+        // flows into the single attribute store as a `(NameSym, ValueRef)` entry.
+        if let AttrName::Std(HtmlAttr::class) = name {
             log_list(index, Some(""), || format!("add class={val}"));
             let list_index = self.dom.add_class_list(val);
             self.dom
                 .nodes
                 .set_class_list_index(index, Some(list_index.as_u16()));
-        } else if let Some(list_index) = self.attr_list_index {
-            self.dom.attrs.add_attribute(list_index, tag, val);
-        } else {
-            let list_index = self.dom.attrs.new_list(tag, val);
-            self.attr_list_index = Some(list_index);
-            self.dom
-                .nodes
-                .set_attr_list_index(index, Some(list_index.as_u16()));
+            return;
         }
-    }
-
-    fn add_data_attribute(&mut self, tag: &str, val: &str) {
-        let index = self.index();
-
-        let data_attr = DataAttribute { tag, val };
-
-        if let Some(list_index) = self.dataattr_list_index {
-            self.dom.dataattrs.add_attribute(list_index, &data_attr);
+        let name_sym = self.dom.name_sym(name);
+        if let Some(start) = self.attr_list_index {
+            self.dom.attrs.append_last(start, name_sym, val);
         } else {
-            let list_index = self.dom.dataattrs.add_list(&data_attr);
-            self.dataattr_list_index = Some(list_index);
+            let start = self.dom.attrs.new_run(name_sym, val);
+            self.attr_list_index = Some(start);
             self.dom
                 .nodes
-                .set_data_attr_list_index(index, Some(list_index.as_u16()));
+                .set_attr_list_index(index, Some(start.as_u16()));
         }
     }
 }

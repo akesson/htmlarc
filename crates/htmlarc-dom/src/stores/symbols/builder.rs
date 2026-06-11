@@ -33,14 +33,8 @@ impl SymbolTableBuilder {
     }
 
     pub(crate) fn build(self) -> SymbolTable {
-        let heap = self.interner.into_heap();
-        // The heap stays in insertion order (each name copied once at parse); only this
-        // permutation is sorted, which is all `find`'s binary search needs.
-        let mut sorted: Vec<u16> = (0..heap.len()).collect();
-        {
-            let view = heap.view();
-            sorted.sort_unstable_by(|&a, &b| view.get(a).cmp(view.get(b)));
-        }
-        SymbolTable::from_parts(heap, sorted)
+        // The heap stays in insertion order (each name copied once at parse); the content
+        // permutation `find` binary-searches is computed in `from_interner`.
+        SymbolTable::from_interner(self.interner)
     }
 }

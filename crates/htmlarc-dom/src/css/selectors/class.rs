@@ -9,7 +9,8 @@ use crate::{
         logging::debug,
         patterns::{CssChar, CssPattern, TextPattern},
     },
-    stores::{Class, Sym, SymbolTableView},
+    dom::DomView,
+    stores::{Class, Sym},
 };
 
 #[derive(Debug, Error)]
@@ -74,8 +75,8 @@ impl<'s> ClassSelector<'s> {
 
     /// Bind this selector to a document by resolving its class name against the symbol
     /// table (called by the [`MatchIter`](crate::iters::MatchIter) resolve pass).
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
-        self.resolved = match symbols.find(self.name) {
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+        self.resolved = match view.symbols.find(self.name) {
             Some(sym) => ResolvedSym::Found(sym),
             None => ResolvedSym::Absent,
         };

@@ -12,7 +12,7 @@ use crate::{
         patterns::{CssPattern, text_pattern::TextPattern},
     },
     html::HtmlAttr,
-    stores::{Attribute, Class, DataAttribute},
+    stores::{AttrName, Attribute, Class},
 };
 
 use super::{attribute_value::AttributeValue, text_pattern::CssChar};
@@ -60,16 +60,18 @@ pub enum AttributeNameError {
 #[derive(Debug, Clone)]
 pub enum AttributeName<'s> {
     Text,
-    Html(HtmlAttr),
-    Data(&'s str),
+    /// A standard attribute name.
+    Std(HtmlAttr),
+    /// Any other name — `data-*` or otherwise unrecognised — kept verbatim (full name).
+    Ext(&'s str),
 }
 
 impl Display for AttributeName<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AttributeName::Text => write!(f, "text"),
-            AttributeName::Html(attr) => write!(f, "{}", attr),
-            AttributeName::Data(attr) => write!(f, "data-{}", attr),
+            AttributeName::Std(attr) => write!(f, "{attr}"),
+            AttributeName::Ext(attr) => write!(f, "{attr}"),
         }
     }
 }
@@ -78,19 +80,16 @@ impl<'s> TryFrom<&'s str> for AttributeName<'s> {
     type Error = AttributeNameError;
 
     fn try_from(value: &'s str) -> Result<Self, Self::Error> {
-        if value == "text" {
-            Ok(Self::Text)
-        } else if let Some(name) = value.strip_prefix("data-") {
-            if name.is_empty() {
-                Err(AttributeNameError::InvalidDataName)
-            } else {
-                Ok(AttributeName::Data(name))
-            }
+        // No name is rejected any more: a non-standard name is a valid extended-name
+        // selector that matches an extended attribute (ADR 0002 §3). `text` stays special.
+        Ok(if value == "text" {
+            Self::Text
         } else {
-            HtmlAttr::try_from(value)
-                .map(AttributeName::Html)
-                .map_err(|_| AttributeNameError::InvalidHtmlAttr(value.to_string()))
-        }
+            match HtmlAttr::try_from(value) {
+                Ok(attr) => AttributeName::Std(attr),
+                Err(_) => AttributeName::Ext(value),
+            }
+        })
     }
 }
 
@@ -110,68 +109,42 @@ impl Display for AttributePattern<'_> {
     }
 }
 
-/// By default, data attributes are case-insensitive.
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description
-impl PartialEq<DataAttribute<'_>> for AttributePattern<'_> {
-    fn eq(&self, data_attribute: &DataAttribute) -> bool {
-        if let AttributeName::Data(name) = self.name {
-            if name != data_attribute.tag {
-                return false;
-            }
-
-            if let Some(value) = &self.value {
-                return if let Some(CaseIndicator::Insensitive) = &value.case {
-                    let search = value.value.0.to_lowercase();
-                    let other = data_attribute.val.to_lowercase();
-
-                    value.operator.matches(&search, &other)
-                } else {
-                    value.operator.matches(&value.value.0, data_attribute.val)
-                };
-            }
-
-            true
-        } else {
-            false
-        }
-    }
-}
-
 impl PartialEq<Class<'_>> for AttributePattern<'_> {
     fn eq(&self, other: &Class) -> bool {
         self.eq_class(other)
     }
 }
 
+/// Match a pattern against an attribute (ADR 0002 §3 — std, `data-*`, and unknown share one
+/// store). The name must match; then the value (if the pattern has one). Case defaults
+/// differ by name kind: standard values are case-INsensitive unless the attribute is
+/// case-sensitive (`id`, `role`, `aria-*`); extended values default to case-SENSITIVE. An
+/// explicit `s`/`i` flag overrides either default.
+/// https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description
 impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
     fn eq(&self, other: &Attribute) -> bool {
-        if let AttributeName::Html(attr) = self.name {
-            if attr != other.tag {
-                return false;
-            }
+        let insensitive_default = match (&self.name, &other.name) {
+            (AttributeName::Std(p), AttrName::Std(a)) if p == a => !a.is_case_sensitive(),
+            (AttributeName::Ext(p), AttrName::Ext(n)) if p == n => false,
+            _ => return false,
+        };
 
-            let mut insensitive = !attr.is_case_sensitive();
+        let Some(value) = &self.value else {
+            return true;
+        };
+        let insensitive = match &value.case {
+            Some(case) => *case == CaseIndicator::Insensitive,
+            None => insensitive_default,
+        };
 
-            if let Some(value) = &self.value {
-                if let Some(case) = &value.case {
-                    insensitive = *case == CaseIndicator::Insensitive;
-                }
-
-                // The literal was entity-decoded once at parse (see QuotedString), so the
-                // match compares decoded-vs-decoded with no work here.
-                return if insensitive {
-                    let search = value.value.0.to_lowercase();
-                    let other = other.val.to_lowercase();
-
-                    value.operator.matches(&search, &other)
-                } else {
-                    value.operator.matches(&value.value.0, other.val)
-                };
-            }
-
-            true
+        // The literal was entity-decoded once at parse (see QuotedString), so the match
+        // compares decoded-vs-decoded with no work here.
+        if insensitive {
+            value
+                .operator
+                .matches(&value.value.0.to_lowercase(), &other.val.to_lowercase())
         } else {
-            false
+            value.operator.matches(&value.value.0, other.val)
         }
     }
 }
@@ -285,7 +258,7 @@ impl<'s> AttributePattern<'s> {
     /// <!-- doesn't match -->
     /// <div class="foo custombar">...</div>
     fn eq_class(&self, other: &Class) -> bool {
-        if let AttributeName::Html(HtmlAttr::class) = self.name {
+        if let AttributeName::Std(HtmlAttr::class) = self.name {
             let Some(value) = &self.value else {
                 return true;
             };
@@ -330,21 +303,21 @@ fn test_parse_attribute_pattern() {
     test_ok(
         "src",
         Some(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::src),
+            name: AttributeName::Std(HtmlAttr::src),
             value: None,
         }),
     );
     test_ok(
         "data-name",
         Some(AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: None,
         }),
     );
     test_ok(
         "data-name=\"custom\"",
         Some(AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("custom".into()),
@@ -355,7 +328,7 @@ fn test_parse_attribute_pattern() {
     test_ok(
         "href^=\"https://\" s",
         Some(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("https://".into()),
@@ -366,7 +339,7 @@ fn test_parse_attribute_pattern() {
     test_ok(
         "src='image'",
         Some(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::src),
+            name: AttributeName::Std(HtmlAttr::src),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("image".into()),
@@ -387,12 +360,13 @@ fn test_parse_attribute_pattern() {
         ),
     );
 
-    test_err(
+    // `data-` is no longer rejected — it parses to an extended-name pattern (ADR 0002 §3).
+    test_ok(
         "data-",
-        ParseError::new(AttributePatternError::InvalidName(
-            0,
-            "Invalid data attribute name".to_string(),
-        )),
+        Some(AttributePattern {
+            name: AttributeName::Ext("data-"),
+            value: None,
+        }),
     );
 
     test_err(
@@ -410,123 +384,123 @@ fn test_data_attribute_matching_sensitive() {
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: None,
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Sensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("Cus".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("uS".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "CuStom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("oM".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "CustoM",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "test Custom foo bar",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
                 case: None,
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom-foo",
         }
     );
@@ -538,99 +512,99 @@ fn test_data_attribute_matching_insensitive() {
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("Cus".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("uS".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("oM".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "Custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "test custom foo bar",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "custom",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
                 case: Some(CaseIndicator::Insensitive),
             }),
         },
-        DataAttribute {
-            tag: "name",
+        Attribute {
+            name: AttrName::Ext("data-name"),
             val: "custom-foo",
         }
     );
@@ -642,14 +616,14 @@ fn test_class_matching_sensitive() {
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: None,
         },
         Class("custom")
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("Custom".into()),
@@ -660,7 +634,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("Cus".into()),
@@ -671,7 +645,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("Us".into()),
@@ -682,7 +656,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("Om".into()),
@@ -693,7 +667,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("sTo".into()),
@@ -704,7 +678,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
@@ -715,7 +689,7 @@ fn test_class_matching_sensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("Custom".into()),
@@ -732,7 +706,7 @@ fn test_class_matching_insensitive() {
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("custom".into()),
@@ -743,7 +717,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("cus".into()),
@@ -754,7 +728,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("us".into()),
@@ -765,7 +739,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("om".into()),
@@ -776,7 +750,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("sto".into()),
@@ -787,7 +761,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("custom".into()),
@@ -798,7 +772,7 @@ fn test_class_matching_insensitive() {
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::class),
+            name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("custom".into()),
@@ -813,18 +787,18 @@ fn test_class_matching_insensitive() {
 fn test_attribute_matching() {
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::width),
+            name: AttributeName::Std(HtmlAttr::width),
             value: None
         },
         Attribute {
-            tag: HtmlAttr::width,
-            val: ""
+            name: AttrName::Std(HtmlAttr::width),
+            val: "",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("http".into()),
@@ -832,13 +806,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("httP".into()),
@@ -846,14 +820,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("http".into()),
@@ -861,13 +835,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
                 value: QuotedString("httP".into()),
@@ -875,14 +849,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("tt".into()),
@@ -890,13 +864,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("tT".into()),
@@ -904,14 +878,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("tt".into()),
@@ -919,13 +893,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString("tT".into()),
@@ -933,14 +907,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http://"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http://",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("tp".into()),
@@ -948,13 +922,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Ends,
                 value: QuotedString("Tp".into()),
@@ -962,14 +936,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::href,
-            val: "http"
+            name: AttrName::Std(HtmlAttr::href),
+            val: "http",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::lang),
+            name: AttributeName::Std(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("en-Us".into()),
@@ -977,13 +951,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::lang,
-            val: "fr-Fr en-Us"
+            name: AttrName::Std(HtmlAttr::lang),
+            val: "fr-Fr en-Us",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::lang),
+            name: AttributeName::Std(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::List,
                 value: QuotedString("en-us".into()),
@@ -991,14 +965,14 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::lang,
-            val: "fr-Fr en-Us"
+            name: AttrName::Std(HtmlAttr::lang),
+            val: "fr-Fr en-Us",
         }
     );
 
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::lang),
+            name: AttributeName::Std(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("en".into()),
@@ -1006,13 +980,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::lang,
-            val: "en"
+            name: AttrName::Std(HtmlAttr::lang),
+            val: "en",
         }
     );
     assert_eq!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::lang),
+            name: AttributeName::Std(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("en".into()),
@@ -1020,13 +994,13 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::lang,
-            val: "en-Us"
+            name: AttrName::Std(HtmlAttr::lang),
+            val: "en-Us",
         }
     );
     assert_ne!(
         AttributePattern {
-            name: AttributeName::Html(HtmlAttr::lang),
+            name: AttributeName::Std(HtmlAttr::lang),
             value: Some(AttributeValue {
                 operator: AttributeOperator::DashMatch,
                 value: QuotedString("en".into()),
@@ -1034,8 +1008,8 @@ fn test_attribute_matching() {
             }),
         },
         Attribute {
-            tag: HtmlAttr::lang,
-            val: "EN-US"
+            name: AttrName::Std(HtmlAttr::lang),
+            val: "EN-US",
         }
     );
 }
@@ -1057,7 +1031,7 @@ fn test_sensitive_attributes_matching() {
     for attr in CASE_SENSITIVE_ATTRIBUTES {
         assert_eq!(
             AttributePattern {
-                name: AttributeName::Html(attr),
+                name: AttributeName::Std(attr),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
                     value: QuotedString("Test".into()),
@@ -1065,13 +1039,13 @@ fn test_sensitive_attributes_matching() {
                 })
             },
             Attribute {
-                tag: attr,
+                name: AttrName::Std(attr),
                 val: "Test"
             }
         );
         assert_ne!(
             AttributePattern {
-                name: AttributeName::Html(attr),
+                name: AttributeName::Std(attr),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
                     value: QuotedString("Test".into()),
@@ -1079,7 +1053,7 @@ fn test_sensitive_attributes_matching() {
                 })
             },
             Attribute {
-                tag: attr,
+                name: AttrName::Std(attr),
                 val: "test"
             }
         );

@@ -16,7 +16,7 @@ pub trait CommonFormatting<'dom> {
         let (dom, buf) = self.dom_and_buf();
         buf.push_str("<!DOCTYPE");
         if let Some(list_index) = dom.nodes.attr_list_index(index) {
-            buf.add_attrs(dom.attrs.list_at(list_index));
+            buf.add_attrs(dom.attr_list_at(list_index));
         }
         buf.push('>');
     }
@@ -26,11 +26,10 @@ pub trait CommonFormatting<'dom> {
         if let Some(list_index) = dom.nodes.class_list_index(index) {
             buf.add_classes(dom.class_list_at(list_index));
         }
-        if let Some(data_list_index) = dom.nodes.data_attr_list_index(index) {
-            buf.add_data_attrs(dom.dataattrs.list_at(data_list_index));
-        }
+        // Standard, `data-*`, and unknown attributes share one run, rendered in source
+        // order (ADR 0002 §3) — no more class-then-data-then-std split.
         if let Some(list_index) = dom.nodes.attr_list_index(index) {
-            buf.add_attrs(dom.attrs.list_at(list_index));
+            buf.add_attrs(dom.attr_list_at(list_index));
         }
     }
 
