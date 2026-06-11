@@ -1,5 +1,5 @@
 use crate::entities;
-use crate::stores::{Attribute, Class, DataAttribute};
+use crate::stores::{Attribute, Class};
 
 #[derive(Default)]
 pub struct FmtBuf(String);
@@ -46,27 +46,14 @@ impl FmtBuf {
     pub fn add_attrs<'a>(&mut self, list: impl Iterator<Item = Attribute<'a>>) {
         for entry in list {
             self.push(' ');
-            let Attribute { tag, val } = entry;
-            self.push_str(tag.into());
+            let Attribute { name, val } = entry;
+            self.push_str(&name.to_string());
+            // An empty value renders as a bare attribute (`disabled`, `data-x`).
             if !val.is_empty() {
                 self.push_str("=\"");
                 self.push_str(&entities::encode_attr(val));
                 self.push('"');
             }
-        }
-    }
-
-    pub fn add_data_attrs<'a>(&mut self, list: impl Iterator<Item = DataAttribute<'a>>) {
-        for entry in list {
-            self.push(' ');
-            let DataAttribute { tag, val } = entry;
-            self.push_str("data-");
-            self.push_str(tag);
-            // if !val.is_empty() {
-            self.push_str("=\"");
-            self.push_str(&entities::encode_attr(val));
-            self.push('"');
-            // }
         }
     }
 }

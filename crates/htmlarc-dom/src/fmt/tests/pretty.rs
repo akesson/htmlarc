@@ -51,7 +51,7 @@ const FORMATTED_HTML: &str = r#"
 
 #[test]
 fn inline_formatted_html() {
-    assert_snapshot!(format(FORMATTED_HTML, HtmlFormat::Pretty), @r###"
+    assert_snapshot!(format(FORMATTED_HTML, HtmlFormat::Pretty), @r#"
     <!DOCTYPE html>
      
     <html>
@@ -63,7 +63,7 @@ fn inline_formatted_html() {
      
     	</head>
     	<body>
-    		<div class="cls" data-mw="whatever" lang="en">
+    		<div class="cls" lang="en" data-mw="whatever">
     			<p>
     				<span id="hlo">
     hello
@@ -72,7 +72,7 @@ fn inline_formatted_html() {
     		</div>
     	</body>
     </html>
-    "###);
+    "#);
 }
 
 #[test]

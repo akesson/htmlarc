@@ -27,7 +27,7 @@ where
         // those nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching
         // is integer compares (ADR 0002 §3). filter.rs clones the list per document, so this
         // only ever mutates a per-document copy.
-        iter.dom().with_view(|view| selectors.resolve(view.symbols));
+        iter.dom().with_view(|view| selectors.resolve(view));
         Self { iter, selectors }
     }
 
@@ -191,4 +191,45 @@ fn direct_matches_uses_string_fallback() {
     assert!(div.matches_css(".hello").unwrap());
     assert!(div.matches_css(".hello.world").unwrap());
     assert!(!div.matches_css(".absent").unwrap());
+}
+
+// --- resolve-once id + attribute matching (ADR 0002 §3, PR 3) ---
+
+#[test]
+fn resolve_id_matches_by_entry() {
+    let html = r#"<body><div id="main"></div><span id="side"></span></body>"#;
+    // #main resolves to the (id, "main") entry → integer compare on the div.
+    assert_eq!(find(html, "#main"), "div 2");
+    assert_eq!(find(html, "#side"), "span 3");
+    // An id the document never stored resolves to Absent → matches nothing.
+    assert_eq!(find(html, "#absent"), "");
+    // :not(#absent) negates Absent → matches every div; :not(#main) excludes only the div.
+    assert_eq!(find(html, "div:not(#absent)"), "div 2");
+    assert_eq!(find(html, "div:not(#main)"), "");
+    // Direct match (no resolve pass) falls back to the string id compare.
+    let doc = HtmlDoc::parse(html).unwrap();
+    let dom = doc.dom();
+    let div = dom
+        .root()
+        .forwards()
+        .find(|e| e.tag() == HtmlTag::div)
+        .unwrap();
+    assert!(div.matches_css("#main").unwrap());
+    assert!(!div.matches_css("#absent").unwrap());
+}
+
+#[test]
+fn resolve_attribute_name_and_value() {
+    let html = r#"<body><a href="/x" data-mw="i"></a><a href="/y"></a></body>"#;
+    // Presence by extended name (resolves the NameSym, integer prefilter per node).
+    assert_eq!(find(html, "[data-mw]"), "a 2");
+    // Standard-name exact value.
+    assert_eq!(find(html, r#"[href="/x"]"#), "a 2");
+    assert_eq!(find(html, r#"[href="/y"]"#), "a 3");
+    // A pattern op keeps the string value compare behind the integer name prefilter.
+    assert_eq!(find(html, r#"[href^="/"]"#), "a 2, a 3");
+    // An extended name the document never stored → Absent → matches nothing.
+    assert_eq!(find(html, "[data-absent]"), "");
+    // :not over an absent extended name matches every anchor.
+    assert_eq!(find(html, "a:not([data-absent])"), "a 2, a 3");
 }

@@ -13,14 +13,14 @@ use crate::{
 };
 
 use super::{Selector, complex::ComplexSelector};
-use crate::stores::SymbolTableView;
+use crate::dom::DomView;
 
 impl SelectorList<'_> {
     /// Bind every class selector in the tree to a document's symbols (the resolve pass run
     /// once by [`MatchIter`](crate::iters::MatchIter)). See [`super::ClassSelector::resolve`].
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
         for selector in &mut self.selectors {
-            selector.resolve(symbols);
+            selector.resolve(view);
         }
     }
 }
@@ -171,7 +171,7 @@ fn test_parse_selector_list() {
                 ComplexSelector {
                     first: CompoundSelector {
                         element: Some(HtmlTag::div),
-                        id: Some(IdSelector("header")),
+                        id: Some(IdSelector::new("header")),
                         ..Default::default()
                     },
                     selectors: vec![RelativeSelector {
@@ -319,8 +319,8 @@ fn test_selector_list_matching_err() {
             ComplexSelector {
                 first: CompoundSelector {
                     element: Some(HtmlTag::div),
-                    attributes: vec![AttributeSelector(AttributePattern {
-                        name: AttributeName::Html(HtmlAttr::title),
+                    attributes: vec![AttributeSelector::new(AttributePattern {
+                        name: AttributeName::Std(HtmlAttr::title),
                         value: None,
                     })],
                     ..Default::default()
