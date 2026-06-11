@@ -1230,7 +1230,14 @@ fn w3c_negated_root_pseudo_class_b() {
  </div>
 "#;
 
-    assert!(try_select(html, r#"html:not(:root), test:not(:root)"#).is_err());
+    // `html:not(:root)` matches nothing (no `<html>` in the fragment) and `test` is an
+    // unknown element. Since ADR 0002 §4 an unknown tag name is a valid *extended* selector
+    // (matching nothing here) rather than a parse error, so the list parses and selects
+    // nothing — the same visual result the W3C test intends.
+    assert_eq!(
+        select(html, r#"html:not(:root), test:not(:root)"#),
+        Vec::<String>::new()
+    );
 }
 
 /// https://www.w3.org/Style/CSS/Test/CSS3/Selectors/current/html/full/flat/css3-modsel-73.html
