@@ -6,8 +6,9 @@
 //! glue that turns its token stream into calls on htmlarc's [`DomStack`] tree builder,
 //! reproducing the behaviour of the previous hand-rolled parser:
 //!
-//! - unrecognised tags / non-`data-` attributes are a hard error (tolerance is deferred to
-//!   future work on missing element/attr tags);
+//! - unrecognised *tags* are a hard error (element-tag tolerance is ADR 0002 PR 4); an
+//!   unrecognised *attribute* name is kept as an extended name (ADR 0002 §3), so `data-*`
+//!   and arbitrary attributes both parse;
 //! - `<svg>` / `<math>` subtrees are skipped wholesale;
 //! - void / self-closing elements are popped immediately;
 //! - a `<!DOCTYPE …>` is stored as a fixed `DOCTYPE` node with a single `html` attribute.
@@ -29,6 +30,7 @@ use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
 use html5gum::{Emitter, ForwardingEmitter, State, Tokenizer};
 
 use crate::html::{HtmlAttr, HtmlTag};
+use crate::stores::AttrName;
 use crate::{HtmlParseError, HtmlParseResult};
 
 use super::dom::DomStack;
@@ -152,10 +154,11 @@ enum StartTag {
 }
 
 /// An attribute name that has been seen and is awaiting its (optional) value.
-enum AttrName {
-    Known(HtmlAttr),
-    /// A `data-*` attribute, with the `data-` prefix removed.
-    Data(String),
+enum PendingName {
+    Std(HtmlAttr),
+    /// An extended name (any `data-*` or otherwise unrecognised attribute), kept verbatim
+    /// — the full name, including any `data-` prefix.
+    Ext(String),
 }
 
 struct Driver<'d, D: DomStack> {
@@ -165,7 +168,7 @@ struct Driver<'d, D: DomStack> {
     /// docs). `None` when not inside a start tag.
     start: Option<StartTag>,
     /// An attribute name awaiting its value.
-    attr: Option<AttrName>,
+    attr: Option<PendingName>,
     /// The element currently open (materialised), for the void/self-closing pop decision.
     current: Option<HtmlTag>,
     /// The foreign element (`svg`/`math`) whose subtree is currently being dropped.
@@ -241,16 +244,13 @@ impl<D: DomStack> Driver<'_, D> {
         {
             return;
         }
-        match HtmlAttr::try_from(name.as_ref()) {
-            Ok(a) => self.attr = Some(AttrName::Known(a)),
-            // Strip only the leading `data-`; a key that itself contains `data-`
-            // (e.g. `data-data-toggle`) must keep the rest intact — `str::replace`
-            // would have removed every occurrence.
-            Err(_) => match name.strip_prefix("data-") {
-                Some(key) => self.attr = Some(AttrName::Data(key.to_owned())),
-                None => self.set_error(format!("Not a valid attribute: '{name}'")),
-            },
-        }
+        self.attr = Some(match HtmlAttr::try_from(name.as_ref()) {
+            Ok(a) => PendingName::Std(a),
+            // Any other name — `data-*` or otherwise unrecognised — is kept verbatim as an
+            // extended name (the full string, no `data-` stripping). Unknown names are no
+            // longer a parse error (ADR 0002 §3).
+            Err(_) => PendingName::Ext(name.into_owned()),
+        });
     }
 
     fn attribute_value(&mut self, value: &[u8]) {
@@ -263,8 +263,8 @@ impl<D: DomStack> Driver<'_, D> {
 
     fn flush_attr(&mut self, value: &str) {
         match self.attr.take() {
-            Some(AttrName::Known(a)) => self.dom.add_attribute_and_value(a, value),
-            Some(AttrName::Data(name)) => self.dom.add_data_attribute(&name, value),
+            Some(PendingName::Std(a)) => self.dom.add_attribute(AttrName::Std(a), value),
+            Some(PendingName::Ext(name)) => self.dom.add_attribute(AttrName::Ext(&name), value),
             None => {}
         }
     }
@@ -327,7 +327,7 @@ impl<D: DomStack> Driver<'_, D> {
             return;
         }
         self.dom.push_tag(HtmlTag::DOCTYPE);
-        self.dom.add_attribute_and_value(HtmlAttr::html, "");
+        self.dom.add_attribute(AttrName::Std(HtmlAttr::html), "");
         self.pop(HtmlTag::DOCTYPE);
     }
 

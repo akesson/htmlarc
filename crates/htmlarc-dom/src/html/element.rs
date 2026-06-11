@@ -1,14 +1,12 @@
 use crate::{
-    accessors::{
-        Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
-    },
+    accessors::{Attributes, AttributesMut, Classes, ClassesMut},
     css::{self, AttributeSelector, ClassSelector, ParseError, Selector, SelectorList},
     dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
     html::HtmlTag,
     iters::{DomIterator, ElementIter, MatchIter, RelativeIter, RevElementIter},
-    stores::Class,
+    stores::{AttrName, Class},
 };
 
 use super::HtmlAttr;
@@ -229,7 +227,10 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
             let val = view
                 .nodes
                 .attr_list_index(self.index())
-                .and_then(|idx| view.attrs.list_at(idx).find(|a| a.tag == tag))
+                .and_then(|idx| {
+                    view.attr_list_at(idx)
+                        .find(|a| a.name == AttrName::Std(tag))
+                })
                 .map(|a| a.val);
             f(val)
         })
@@ -241,10 +242,6 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     pub fn has_id(&self, id: &str) -> bool {
         self.with_view(|view| view.has_id(self.index(), id))
-    }
-
-    pub fn has_data_attributes(&self, attrs: &[AttributeSelector]) -> bool {
-        self.with_view(|view| view.has_data_attributes(self.index(), attrs))
     }
 
     pub fn has_classes<P>(&self, classes: &[P]) -> bool
@@ -348,7 +345,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
     pub fn id(&self) -> Option<&str> {
         self.attributes()
-            .find(|attr| attr.tag == HtmlAttr::id)
+            .find(|attr| attr.name == AttrName::Std(HtmlAttr::id))
             .map(|attr| attr.val)
     }
 
@@ -366,14 +363,9 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
     pub fn attributes(&self) -> Attributes<'dom, Dom> {
         Attributes {
             dom: self.dom,
-            index: self.with_nodes(|nodes| nodes.attr_list_index(self.index())),
-        }
-    }
-
-    pub fn data_attributes(&self) -> DataAttributes<'dom, Dom> {
-        DataAttributes {
-            dom: self.dom,
-            index: self.with_nodes(|nodes| nodes.data_attr_list_index(self.index())),
+            index: self
+                .with_nodes(|nodes| nodes.attr_list_index(self.index()))
+                .map(|start| start.as_u16()),
         }
     }
 
@@ -456,14 +448,6 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
     pub fn attributes_mut(&self) -> AttributesMut<'dom> {
         let index = self.with_nodes(|nodes| nodes.attr_list_index(self.index));
         AttributesMut {
-            lock: self.dom.mut_handle(),
-            node: self.index,
-            index,
-        }
-    }
-    pub fn data_attributes_mut(&self) -> DataAttributesMut<'dom> {
-        let index = self.with_nodes(|nodes| nodes.data_attr_list_index(self.index));
-        DataAttributesMut {
             lock: self.dom.mut_handle(),
             node: self.index,
             index,

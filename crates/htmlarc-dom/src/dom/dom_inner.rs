@@ -4,7 +4,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{AttributeStore, DataAttributeStore, RunVec, StringStack, SymbolTable};
+use crate::stores::{AttrStore, RunVec, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -13,10 +13,10 @@ use std::hash::Hash;
 #[derive(Default, Archive, Serialize, Deserialize, Hash, Clone)]
 pub struct DomInner {
     pub(crate) nodes: Nodes,
-    pub(crate) attrs: AttributeStore,
-    pub(crate) dataattrs: DataAttributeStore,
-    /// Deduplicated identity strings (class tokens today). Class lists in `class_lists`
-    /// store bare [`Sym`](crate::stores::Sym)s that index into this table.
+    /// Every attribute of every node — standard, `data-*`, and unknown alike (ADR 0002 §3).
+    pub(crate) attrs: AttrStore,
+    /// Deduplicated identity strings: class tokens and extended attribute names. Class lists
+    /// in `class_lists` and the attribute store's entry names index this table.
     pub(crate) symbols: SymbolTable,
     /// Per-node class lists as contiguous runs of `Sym` values; a node's class slot holds
     /// its run's start offset directly.
@@ -39,7 +39,6 @@ impl DomInner {
         DomView::new(
             self.nodes.view(),
             self.attrs.view(),
-            self.dataattrs.view(),
             self.symbols.view(),
             self.class_lists.view(),
             self.strings.view(),
@@ -344,7 +343,6 @@ impl ArchivedDomInner {
         DomView::new(
             self.nodes.view(),
             self.attrs.view(),
-            self.dataattrs.view(),
             self.symbols.view(),
             self.class_lists.view(),
             self.strings.view(),
@@ -568,8 +566,9 @@ fn spike_zero_copy_archived_dom() {
 
     // (3) Decode straight off the archived &[u8] with the real layout constants and
     //     confirm it agrees with the owned accessor — i.e. a view would Just Work.
-    // owned/un-downpacked documents are built at u24 (22-byte records)
-    const NODE_SIZE: usize = 22;
+    // owned/un-downpacked documents are built at u24 (20-byte records after the data slot
+    // was dropped in ADR 0002 PR 3: tag(1) + 5 link slots + 2 store slots, all 3-byte/u24).
+    const NODE_SIZE: usize = 20;
     let ab = archived.nodes.view().as_bytes();
     assert!(
         ab.len().is_multiple_of(NODE_SIZE),
@@ -710,7 +709,7 @@ fn append_to_element_without_existing_list() {
     head.append_child(HtmlTag::meta)
         .attributes_mut()
         .append(Attribute {
-            tag: HtmlAttr::charset,
+            name: AttrName::Std(HtmlAttr::charset),
             val: "UTF-8",
         });
 
@@ -762,5 +761,79 @@ fn repackage_after_emptying_an_attr_list() {
     assert!(
         html.contains("data-k"),
         "<p> data attribute must survive: {html}"
+    );
+}
+
+// At U16 the node record is 15 bytes; a text node's `u32` start/end overlay needs exactly
+// `1 + 3*2 + 8 = 15` bytes, and an element's class+attr store slots also end at 15 — the
+// binding layout constraint after the data slot was dropped (ADR 0002 §3). A small document
+// mixing text with attr/class-bearing elements must down-pack to U16 (15-byte stride) and
+// survive a zero-copy round-trip with its text and attributes intact.
+#[test]
+fn u16_node_record_text_overlay_boundary() {
+    use rkyv::rancor::Error;
+
+    let html = r#"<p class="c" id="i">hello<b data-x="y">bold</b> tail</p>"#;
+    let dom: DomInner = HtmlDoc::parse(html).unwrap().dom().into_optimal_width();
+    let raw = dom.to_html(HtmlFormat::Raw);
+
+    let bytes = rkyv::to_bytes::<Error>(&dom).unwrap();
+    let archived = rkyv::access::<ArchivedDomInner, Error>(&bytes[..]).unwrap();
+    assert!(
+        archived.nodes.view().as_bytes().len().is_multiple_of(15),
+        "small document must down-pack to the 15-byte U16 node stride"
+    );
+
+    let owned_again: DomInner = rkyv::deserialize::<DomInner, Error>(archived).unwrap();
+    assert_eq!(
+        owned_again.to_html(HtmlFormat::Raw),
+        raw,
+        "U16 zero-copy round-trip preserves text ranges and attributes"
+    );
+    assert!(raw.contains("data-x=\"y\"") && raw.contains("hello") && raw.contains(" tail"));
+}
+
+// Regression for the ADR 0002 §3 rebuild trap: extended attribute names live in the *same*
+// per-document symbol table as class tokens, but the class rebuilder only marks class-used
+// syms. Without the union pass in `DomInner::rebuild`, repackaging a document whose classes
+// are compacted would drop every `data-*`/unknown name and leave its `NameSym` dangling.
+#[test]
+fn repackage_keeps_extended_attr_names_when_classes_compact() {
+    // The <p class="drop"> is emptied, forcing the symbol table to compact; the <a> on a
+    // different element carries extended names (`data-mw`, the unknown `wonky`) that must
+    // survive that compaction with their values intact.
+    let html_str = "<html class='root'><body>\
+        <p class='drop keep'>x</p>\
+        <a data-mw='interface' wonky='yes' href='/x'>link</a></body></html>";
+    let dom = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+
+    dom.root()
+        .select_css("p")
+        .unwrap()
+        .first()
+        .unwrap()
+        .classes_mut()
+        .remove(|_| true);
+
+    let html = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        html.contains("data-mw=\"interface\""),
+        "extended name+value must survive symbol compaction: {html}"
+    );
+    assert!(
+        html.contains("wonky=\"yes\""),
+        "unknown extended name+value must survive: {html}"
+    );
+    assert!(
+        html.contains("href=\"/x\""),
+        "std attr must survive: {html}"
+    );
+    assert!(
+        html.contains("class=\"root\""),
+        "the untouched <html> class must survive: {html}"
+    );
+    assert!(
+        !html.contains("drop"),
+        "the emptied <p> class is gone: {html}"
     );
 }

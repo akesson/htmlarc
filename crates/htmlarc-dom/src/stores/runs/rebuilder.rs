@@ -31,6 +31,23 @@ impl RunRebuilder {
         }
     }
 
+    /// Mark a single value as used without going through a run. The attribute store shares
+    /// the document symbol table with class lists for its extended names, so a live attr
+    /// entry's name sym must be marked into the *class* rebuilder before the symbol table is
+    /// compacted — otherwise the name would be dropped and its `NameSym` dangle (ADR 0002 §3).
+    pub fn mark_value_used(&mut self, value: u16) {
+        self.value_reidx[value as usize] = Some(0);
+    }
+
+    /// The old ids of the values marked used so far (before [`build`](Self::build) renumbers
+    /// them). Lets the attribute rebuild walk its live entries' names to mark them above.
+    pub fn used_values(&self) -> impl Iterator<Item = usize> + '_ {
+        self.value_reidx
+            .iter()
+            .enumerate()
+            .filter_map(|(i, m)| m.is_some().then_some(i))
+    }
+
     pub fn build(self, runs: &RunVec) -> RunsRebuilt {
         let Self {
             mut runs_reidx,

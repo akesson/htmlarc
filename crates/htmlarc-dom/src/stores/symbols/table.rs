@@ -1,5 +1,6 @@
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::stores::interner::StringInterner;
 use crate::stores::stringheap::{StringHeap, StringHeapView};
 
 use super::{LOCAL_CAP, Sym};
@@ -22,6 +23,20 @@ pub(crate) struct SymbolTable {
 impl SymbolTable {
     pub(super) fn from_parts(heap: StringHeap, sorted: Vec<u16>) -> Self {
         Self { heap, sorted }
+    }
+
+    /// Build a table from a finished interner: the heap keeps insertion order, and the
+    /// content-sorted permutation is computed here (what `find`'s binary search needs).
+    /// Shared by [`SymbolTableBuilder`](super::SymbolTableBuilder) and the attribute
+    /// store's value table, which interns its own values.
+    pub(crate) fn from_interner(interner: StringInterner) -> Self {
+        let heap = interner.into_heap();
+        let mut sorted: Vec<u16> = (0..heap.len()).collect();
+        {
+            let view = heap.view();
+            sorted.sort_unstable_by(|&a, &b| view.get(a).cmp(view.get(b)));
+        }
+        Self::from_parts(heap, sorted)
     }
 
     pub(crate) fn len(&self) -> u16 {

@@ -27,9 +27,7 @@ pub mod prelude {
     //! iterator/accessor/error types that the [`HtmlElement`](crate::html::HtmlElement)
     //! methods return — so callers can name what the API hands back. The same items
     //! are also reachable through their domain modules (`crate::iters`, `crate::css`, …).
-    pub use crate::accessors::{
-        Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
-    };
+    pub use crate::accessors::{Attributes, AttributesMut, Classes, ClassesMut};
     pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
         ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
@@ -44,7 +42,7 @@ pub mod prelude {
         CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
         RevElementIter, Tag, TagIter,
     };
-    pub use crate::stores::{Attribute, Class, DataAttribute};
+    pub use crate::stores::{AttrName, Attribute, Class};
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -98,7 +96,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:100 fn location_test"
+        "htmlarc-dom::lib.rs:98 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

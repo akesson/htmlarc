@@ -11,7 +11,7 @@ use crate::{
     },
     dom::DomRead,
     html::HtmlElement,
-    stores::{Attribute, Class, DataAttribute},
+    stores::{Attribute, Class},
 };
 
 #[derive(Debug, Error)]
@@ -71,12 +71,6 @@ impl PartialEq<Attribute<'_>> for AttributeSelector<'_> {
     }
 }
 
-impl PartialEq<DataAttribute<'_>> for AttributeSelector<'_> {
-    fn eq(&self, other: &DataAttribute<'_>) -> bool {
-        self.0 == *other
-    }
-}
-
 impl<'s> AttributeSelector<'s> {
     fn from_chars(chars: &mut CssChars<'s>) -> ParseResult<Option<Self>> {
         let Some((i, _)) = chars.current() else {
@@ -117,14 +111,14 @@ fn test_parse_attribute_selector() {
     test_ok(
         "[href]",
         Some(AttributeSelector(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::href),
+            name: AttributeName::Std(HtmlAttr::href),
             value: None,
         })),
     );
     test_ok(
         "[src*=\".png\"]",
         Some(AttributeSelector(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::src),
+            name: AttributeName::Std(HtmlAttr::src),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Includes,
                 value: QuotedString(".png".into()),
@@ -135,7 +129,7 @@ fn test_parse_attribute_selector() {
     test_ok(
         "[action=\"POST\" s]",
         Some(AttributeSelector(AttributePattern {
-            name: AttributeName::Html(HtmlAttr::action),
+            name: AttributeName::Std(HtmlAttr::action),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
                 value: QuotedString("POST".into()),
@@ -146,7 +140,23 @@ fn test_parse_attribute_selector() {
     test_ok(
         "[data-name]",
         Some(AttributeSelector(AttributePattern {
-            name: AttributeName::Data("name"),
+            name: AttributeName::Ext("data-name"),
+            value: None,
+        })),
+    );
+    // An unknown name is no longer a parse error: it is a valid extended-name selector
+    // (ADR 0002 §3). `[srt]` and `[data-]` parse to `Ext` patterns.
+    test_ok(
+        "[srt]",
+        Some(AttributeSelector(AttributePattern {
+            name: AttributeName::Ext("srt"),
+            value: None,
+        })),
+    );
+    test_ok(
+        "[data-]",
+        Some(AttributeSelector(AttributePattern {
+            name: AttributeName::Ext("data-"),
             value: None,
         })),
     );
@@ -156,23 +166,11 @@ fn test_parse_attribute_selector() {
     }
 
     test_err("[]", AttributeSelectorError::EmptyBrackets(0).into());
+    // Missing the closing bracket is still an error (the name parses, the bracket doesn't).
     test_err(
         "[srt",
-        ParseError::new(AttributePatternError::InvalidName(
-            1,
-            "Invalid HTML attribute: srt".to_string(),
-        ))
-        .context(ParenthesizedError::InvalidContent(1))
-        .context(AttributeSelectorError::ParseFail(0)),
-    );
-    test_err(
-        "[data-]",
-        ParseError::new(AttributePatternError::InvalidName(
-            1,
-            "Invalid data attribute name".to_string(),
-        ))
-        .context(ParenthesizedError::InvalidContent(1))
-        .context(AttributeSelectorError::ParseFail(0)),
+        ParseError::new(ParenthesizedError::MissingEndDelimiter(4, ']'))
+            .context(AttributeSelectorError::ParseFail(0)),
     );
     test_err(
         "[src",
