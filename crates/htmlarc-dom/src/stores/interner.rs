@@ -42,8 +42,6 @@ impl StringInterner {
     /// Like [`try_intern`](Self::try_intern), but refuses *new* strings once the heap
     /// holds `cap` entries — an already-interned string still resolves. Lets a symbol
     /// space cap below the heap's own `u16` ceiling (ADR 0002's `LOCAL_CAP`).
-    // Wired into `SymbolTableBuilder` in the commit that ports classes onto it.
-    #[allow(dead_code)]
     pub(crate) fn try_intern_capped(&mut self, s: &str, cap: u16) -> Option<u16> {
         let Self {
             heap,
@@ -64,10 +62,6 @@ impl StringInterner {
 
     pub(crate) fn get(&self, index: u16) -> &str {
         &self.heap[index]
-    }
-
-    pub(crate) fn len(&self) -> u16 {
-        self.heap.len()
     }
 
     /// Consumes the interner, yielding the heap (insertion order).

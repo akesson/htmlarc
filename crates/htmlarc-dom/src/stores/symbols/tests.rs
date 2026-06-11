@@ -1,6 +1,7 @@
 use rkyv::rancor::Error;
 
 use crate::stores::listvec::{ListRebuilder, ListVec};
+use crate::stores::{ListIndex, ListRemovalResult};
 
 use super::table::ArchivedSymbolTable;
 use super::{LOCAL_CAP, Sym, SymbolTable, SymbolTableBuilder};
@@ -12,6 +13,69 @@ fn built(strings: &[&str]) -> SymbolTable {
         b.intern_or_poison(s);
     }
     b.build()
+}
+
+/// Compose a `SymbolTable` + `ListVec` the way the class accessors do, so the add/remove
+/// behaviour ported from the former `ClassStore` tests is exercised end-to-end.
+fn class_list(tokens: &[&str]) -> (SymbolTable, ListVec, ListIndex) {
+    let mut symbols = SymbolTable::default();
+    let mut lists = ListVec::default();
+    let mut iter = tokens.iter();
+    let first = symbols.get_or_insert(iter.next().unwrap());
+    let head = lists.new_list(first.as_u16());
+    for t in iter {
+        let sym = symbols.get_or_insert(t);
+        lists.list_mut_at(head).append(sym.as_u16());
+    }
+    (symbols, lists, head)
+}
+
+fn dbg(symbols: &SymbolTable, lists: &ListVec, head: ListIndex) -> String {
+    lists
+        .list_at(head)
+        .map(|v| symbols.get(Sym(v)).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+// Ported from the former `ClassStore::classes_add_and_remove`: insert (with dedup), remove
+// by string, NotFound, and the EntryRemoved → ListRemoved transitions, now composed over a
+// SymbolTable + ListVec directly.
+#[test]
+fn class_list_add_and_remove() {
+    let (mut symbols, mut lists, head) = class_list(&["val1", "val2", "val1"]);
+    assert_eq!(dbg(&symbols, &lists, head), "val1, val2");
+
+    // insert the empty class
+    let s = symbols.get_or_insert("");
+    lists.list_mut_at(head).append(s.as_u16());
+    assert_eq!(dbg(&symbols, &lists, head), "val1, val2, ");
+
+    // remove the last (empty) entry
+    let s = symbols.find("").unwrap();
+    assert_eq!(
+        lists.list_mut_at(head).remove(s.as_u16()),
+        ListRemovalResult::EntryRemoved
+    );
+    assert_eq!(dbg(&symbols, &lists, head), "val1, val2");
+
+    // a class that was never interned is simply absent
+    assert_eq!(symbols.find("val3"), None);
+
+    // remove down to one, then empty the list entirely
+    let s = symbols.find("val1").unwrap();
+    assert_eq!(
+        lists.list_mut_at(head).remove(s.as_u16()),
+        ListRemovalResult::EntryRemoved
+    );
+    assert_eq!(dbg(&symbols, &lists, head), "val2");
+
+    let s = symbols.find("val2").unwrap();
+    assert_eq!(
+        lists.list_mut_at(head).remove(s.as_u16()),
+        ListRemovalResult::ListRemoved
+    );
+    assert_eq!(dbg(&symbols, &lists, head), "");
 }
 
 #[test]

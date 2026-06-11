@@ -5,12 +5,6 @@
 //! stable [`Sym`] per distinct string. Ids are insertion-ordered heap indices and never
 //! change; the sort order lives in a separate permutation, so symbols compare as plain
 //! integers and live inserts cost one memmove instead of a value reindex.
-//
-// The whole module is wired into `DomInner`, the parser, and the selector engine in the
-// commit that follows; until then its items (and the re-exports below) have no caller in
-// the non-test library build, so dead-code / unused-import analysis would fire. This
-// blanket allow is removed in that commit, when everything gains a real caller.
-#![allow(dead_code, unused_imports)]
 
 #[cfg(test)]
 mod tests;
@@ -31,7 +25,11 @@ pub(crate) use table::{SymbolTable, SymbolTableView};
 /// also coincides in value with the `ListVec` empty-head marker and the node slot's "no
 /// list" sentinel, which is safe for exactly the same reason.
 pub(crate) const LOCAL_CAP: u16 = 0xEF00; // 61,184 — per-document symbol ceiling
+// Reserved for the bundle Lane A shared dictionary, which is deferred (ADR 0002 §7); these
+// have no caller until it lands, by design.
+#[allow(dead_code)]
 pub(crate) const SHARED_BASE: u16 = 0xF000; // start of the dormant bundle-shared range
+#[allow(dead_code)]
 pub(crate) const NONE: u16 = 0xFFFF;
 
 /// A stable, insertion-ordered id of a deduplicated identity string in a document's
@@ -53,6 +51,24 @@ impl From<u16> for Sym {
 }
 
 impl Display for Sym {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A single CSS class name, borrowed either from a document's [`SymbolTable`] (when a
+/// class list is iterated) or from a selector string. The one user-facing handle the
+/// store layer exposes (re-exported through the crate prelude).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Class<'a>(pub(crate) &'a str);
+
+impl<'a> From<&'a str> for Class<'a> {
+    fn from(value: &'a str) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Class<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
