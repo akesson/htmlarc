@@ -81,6 +81,35 @@ pub fn selectors(c: &mut Criterion) {
             html.root().select(selector).for_each(|_e| {})
         })
     });
+
+    // Resolve-once id / attribute matching (ADR 0002 §3, PR 3). Each selector is parsed once
+    // and cloned per iteration so the per-document resolve pass runs fresh each time, exactly
+    // as the engine binds a `'static` selector to a document. `#id` resolves to an attribute
+    // entry id (integer scan); attribute names resolve to a `NameSym` (integer prefilter).
+    let id = parse_css("#vector-toc").unwrap();
+    c.bench_function("select id in fr.serrer.html", |b| {
+        b.iter(|| html.root().select(id.clone()).for_each(|_e| {}))
+    });
+
+    // `[role="navigation"]` — `role` is case-sensitive, so this is a name prefilter plus a
+    // sensitive value compare.
+    let attr_exact = parse_css(r#"[role="navigation"]"#).unwrap();
+    c.bench_function("select attr exact in fr.serrer.html", |b| {
+        b.iter(|| html.root().select(attr_exact.clone()).for_each(|_e| {}))
+    });
+
+    // `[typeof="mw:File"]` — case-insensitive default: integer name prefilter, then the
+    // lowercased value compare on the (few) name-matching entries.
+    let attr_ci = parse_css(r#"[typeof="mw:File"]"#).unwrap();
+    c.bench_function("select attr insensitive in fr.serrer.html", |b| {
+        b.iter(|| html.root().select(attr_ci.clone()).for_each(|_e| {}))
+    });
+
+    // `[data-word]` — an extended (data-*) name resolved to its `NameSym`; presence only.
+    let ext_attr = parse_css("[data-word]").unwrap();
+    c.bench_function("select ext attr in fr.serrer.html", |b| {
+        b.iter(|| html.root().select(ext_attr.clone()).for_each(|_e| {}))
+    });
 }
 
 criterion_group!(benches, selectors,);
