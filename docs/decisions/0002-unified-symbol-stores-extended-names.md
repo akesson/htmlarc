@@ -212,9 +212,8 @@ Shared dict: **K=1024 → 95.6 % mean** Lane A reference coverage (95.0 % worst 
 Conclusions, and how they move the open decisions:
 
 - **`LOCAL_CAP` (61,184) is hugely comfortable here** — worst `sym_union` is 3,927, ~16× under.
-  No u24-ref pressure *from wiki*. But wiki per-doc vocabularies are tiny; this does **not**
-  settle the PR 6 u24 question, which hinges on the general-web tail (single-page specs with
-  10⁴+ ids, utility-CSS pages). **Still needs a Common Crawl WARC run** — not available locally.
+  No u24-ref pressure *from wiki*. But wiki per-doc vocabularies are tiny; the general-web run
+  below tells a very different story.
 - **The 32,768 list-entry ceiling is real and crossed**: 10 / 8.87 M docs exceed it (worst the
   `-i` page at 44,232 — huge inflection tables). Pre-PR-1 these silently corrupted their lists;
   now they are cleanly skipped (a 0.0001 % loss on wiki) until the redesign lifts the ceiling.
@@ -227,45 +226,45 @@ Conclusions, and how they move the open decisions:
 
 ### General web — Common Crawl
 
-`stats` over a 200 MB Range-prefix of one **CC-MAIN-2024-10** WARC segment — 8,417 HTML
-response docs, 1 bundle (the reader stops cleanly at the truncated tail):
+`stats` over **4 full CC-MAIN-2024-10 WARC segments** (spread across the crawl) — 136,447
+HTML response docs, 14 bundles, 91 s, ~30 GB RSS (the in-memory WARC read held all four):
 
 | metric | p50 | p99 | p99.9 | max | cap | over cap |
 |---|---|---|---|---|---|---|
-| nodes | 2,047 | 16,383 | 32,767 | 41,116 | 16,777,215 | 0 |
-| max_depth | 31 | 127 | 1,023 | **2,950** | 256 | **19** |
-| list_entries | 1,023 | 16,383 | 32,767 | 58,289 | 32,768 | 1 |
-| distinct_pairs | 511 | 4,095 | 8,191 | 16,571 | 65,535 | 0 |
-| ext_tag_names | 1 | 31 | 127 | **194** | 63 | **10** |
-| ext_attr_names | 15 | 511 | 2,047 | 4,547 | — | — |
-| sym_union | 255 | 2,047 | 4,095 | 7,090 | 61,184 | 0 |
+| nodes | 2,047 | 16,383 | 32,767 | 84,356 | 16,777,215 | 0 |
+| max_depth | 31 | 127 | 1,023 | **9,047** | 256 | **487** (0.36 %) |
+| list_entries | 2,047 | 16,383 | 32,767 | **71,682** | 32,768 | **30** (0.022 %) |
+| distinct_pairs | 511 | 4,095 | 8,191 | 32,436 | 65,535 | 0 |
+| ext_tag_names | 1 | 31 | 127 | **2,658** | 63 | **226** (0.17 %) |
+| ext_attr_names | 31 | 1,023 | 2,047 | **32,039** | — | — |
+| sym_union | 511 | 2,047 | 4,095 | **32,229** | 61,184 | 0 |
 
-Shared dict: **K=1024 → 23.9 %**, **K=4095 → 36.4 %** Lane A coverage (single heterogeneous
-bundle). Caveat: 8,417 diverse pages is one bundle's worth; real per-bundle runs over 10 k
-*consecutive* crawl records are somewhat site-clustered and would score higher.
+Shared dict, stable across the 14 bundles: **K=1024 → 22.0 % mean** (20.7–23.7 %),
+**K=4095 → 34.9 % mean** (33.9–36.2 %); 160 MiB vs 237 MiB saved. (An earlier 8,417-doc
+200 MB prefix agreed: 23.9 % / 36.4 %.)
 
-This leg is the one that matters, and it **moves three constants**:
+This leg is the one that matters, and it **moves four things**:
 
-- **Depth 256 is too low for general web.** 19 / 8,417 docs (0.23 %) exceed it; the worst is
-  2,950-deep `<div>` soup. The shipped PR-1 guard (`MAX_DEPTH = 256`) skips those.
-  **Decision (2026-06-11): keep 256 for now** — those docs are cleanly skipped, not crashed —
-  and revisit when the redesign reworks the parse stacks: switch the fixed `ArrayVec` to a
-  heap `Vec` with a high sanity cap (≈ 8,192), since an `ArrayVec` that large is too much
-  stack per parse. Tracked at `parser/builder.rs` `MAX_DEPTH`.
-- **`EXT_BASE` 63-slot vocab is too small for general web.** 10 / 8,417 docs (0.12 %) exceed
-  63 distinct extended tag names (worst 194 — web-component / SVG-heavy pages). → Lower
-  `EXT_BASE` to widen the per-doc vocab (e.g. 128 → 127 slots) and/or accept the overflow
-  side-map firing on these. The tag byte trades enum headroom for vocab headroom; pick the
-  split with this in hand.
-- **Shared dict: 4095 ≫ 1024 on heterogeneous data** — 36.4 % vs 23.9 % (+12.5 pp, vs wiki's
-  +1.9 pp). Confirms 4095 over 0001's ~1000, and confirms **per-bundle, not corpus-wide**
-  (the absolute hit rate already collapses within a single heterogeneous bundle). A still
-  larger shared range is worth probing for general-web bundles.
+- **`LOCAL_CAP` is the real question now.** The worst `sym_union` is **32,229 — 53 % of
+  `LOCAL_CAP` (61,184)** on only 136 k docs, driven by `ext_attr_names` (max 32,039: a
+  generated/framework-attribute page). The wiki margin of ~16× has collapsed to <2×, and the
+  max climbs with sample size. → **PR 6 u24 refs are likely required for general web** (or the
+  rare per-million doc that exceeds 61,184 syms is skipped). The decision is no longer "open
+  pending data" — the data leans **toward implementing u24**; confirm against a multi-million
+  run before freezing. The driver is *extended attribute names*, not classes/ids, so Lane B
+  routing cannot relieve it (names are always Lane A).
+- **Depth 256 too low; the tail is long.** 0.36 % of docs exceed 256, max **9,047**. Even a
+  heap `Vec` sanity cap should be generous (≈ 8 k still clips the worst); kept at 256 for PR 1
+  (skipped, not crashed) per the decision above.
+- **`EXT_BASE` 63-slot vocab too small.** 0.17 % of docs exceed 63 distinct extended tags,
+  max **2,658** (auto-generated / web-component pages). The overflow side-map stays rare
+  (0.17 %) but can be large when it fires — design it for thousands of entries, not a handful.
+- **Shared dict: 4095 ≫ 1024, and absolutely low.** 34.9 % vs 22.0 % mean (+12.9 pp, vs
+  wiki's +1.9 pp) — confirms 4095 over 0001's ~1000 and **per-bundle, not corpus-wide**. But
+  even 4095 covers only ~35 % of general-web Lane A refs (vs 97 % on wiki); a larger shared
+  range and Lane B compression carry more of the general-web weight than the Lane A dict does.
 
-Holding firm: **`LOCAL_CAP` 61,184** clears even the general-web max `sym_union` of 7,090
-(~8× margin) — but on only 8,417 docs; the multi-million-doc tail (single-page specs with
-10⁴ ids) is still unmeasured, so the **PR 6 u24 decision stays open** pending a fuller crawl
-run. The 32,768 list ceiling is crossed on both corpora.
+The 32,768 list ceiling is crossed on both corpora (wiki and general web).
 
 ## Open questions
 
