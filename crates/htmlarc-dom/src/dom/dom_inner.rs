@@ -4,7 +4,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{AttributeStore, DataAttributeStore, ListVec, StringStack, SymbolTable};
+use crate::stores::{AttributeStore, DataAttributeStore, RunVec, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -18,7 +18,9 @@ pub struct DomInner {
     /// Deduplicated identity strings (class tokens today). Class lists in `class_lists`
     /// store bare [`Sym`](crate::stores::Sym)s that index into this table.
     pub(crate) symbols: SymbolTable,
-    pub(crate) class_lists: ListVec,
+    /// Per-node class lists as contiguous runs of `Sym` values; a node's class slot holds
+    /// its run's start offset directly.
+    pub(crate) class_lists: RunVec,
     pub(crate) strings: StringStack,
 }
 
@@ -59,15 +61,12 @@ impl DomInner {
     pub(crate) fn add_classes(&mut self, index: NodeIndex, classes: &str) {
         let mut names = classes.split_ascii_whitespace();
         let first = self.symbols.get_or_insert(names.next().unwrap_or(""));
-        let list_index = self.class_lists.new_list(first.as_u16());
+        let mut start = self.class_lists.new_run(first.as_u16());
         for name in names {
             let sym = self.symbols.get_or_insert(name);
-            self.class_lists
-                .list_mut_at(list_index)
-                .append(sym.as_u16());
+            start = self.class_lists.append(start, sym.as_u16());
         }
-        self.nodes
-            .set_class_list_index(index, Some(list_index.as_u16()));
+        self.nodes.set_class_list_index(index, Some(start.as_u16()));
     }
 
     pub(crate) fn replace_text(&mut self, index: NodeIndex, string: &str) {

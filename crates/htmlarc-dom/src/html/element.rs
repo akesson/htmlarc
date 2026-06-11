@@ -382,7 +382,7 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
         let index = self.with_nodes(|nodes| nodes.class_list_index(self.index));
         Classes {
             dom: self.dom,
-            index,
+            index: index.map(|start| start.as_u16()),
         }
     }
 }

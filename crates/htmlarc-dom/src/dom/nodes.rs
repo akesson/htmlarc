@@ -7,7 +7,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dom::NodeIndex;
 use crate::html::HtmlTag;
-use crate::stores::ListIndex;
+use crate::stores::{ListIndex, RunIndex};
 
 /// Per-document node-index width.
 ///
@@ -251,11 +251,11 @@ impl<'a> NodesView<'a> {
         start..end
     }
 
-    pub fn class_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
+    pub fn class_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         if self.is_string_node(index) {
             None
         } else {
-            read_u16_slot(self.bytes, self.base(index) + self.width.class()).map(ListIndex::from)
+            read_u16_slot(self.bytes, self.base(index) + self.width.class()).map(RunIndex::from)
         }
     }
 
@@ -382,7 +382,7 @@ impl Nodes {
         self.view().last_child_index(index)
     }
 
-    pub fn class_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
+    pub fn class_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         self.view().class_list_index(index)
     }
 

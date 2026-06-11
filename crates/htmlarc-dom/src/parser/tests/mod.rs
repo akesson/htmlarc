@@ -106,13 +106,18 @@ fn attribute_value_overflow_is_a_per_document_error() {
 #[test]
 fn class_list_overflow_is_a_per_document_error() {
     use std::fmt::Write;
-    // A single element with > 32,768 distinct classes overflows one list (the 15-bit
-    // next-pointer ceiling).
-    let mut html = String::from("<div class=\"");
-    for i in 0..33_000u32 {
-        write!(html, "c{i} ").unwrap();
+    // The class-run arena holds at most 65,535 slots (values + one terminator per list).
+    // 9,000 elements × 7 classes = 72,000 slots — drawn from a pool of 70 distinct names
+    // so the symbol table (61,184 cap) stays far below its own ceiling and the *arena*
+    // is what overflows.
+    let mut html = String::new();
+    for i in 0..9_000u32 {
+        html.push_str("<i class=\"");
+        for j in 0..7u32 {
+            write!(html, "c{} ", (i * 7 + j) % 70).unwrap();
+        }
+        html.push_str("\"></i>");
     }
-    html.push_str("\"></div>");
     assert!(parse_overflow(&html).contains("capacity"));
 }
 

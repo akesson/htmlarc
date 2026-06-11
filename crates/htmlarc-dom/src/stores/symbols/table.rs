@@ -67,10 +67,10 @@ impl SymbolTable {
     }
 
     /// Rebuild-path compaction (called from the document repackage). `value_reidx` is the
-    /// [`crate::stores::listvec::ListRebuilder`] output: indexed by old [`Sym`], it gives
-    /// the dense new id of each *used* symbol (numbered in ascending old-id order) or
-    /// `None` for the dropped ones. Re-inserting the used strings in that same ascending
-    /// order reproduces exactly those new ids, and filtering the old (content-sorted)
+    /// [`crate::stores::RunRebuilder`] output: indexed by old [`Sym`], it gives the dense
+    /// new id of each *used* symbol (numbered in ascending old-id order) or `None` for
+    /// the dropped ones. Re-inserting the used strings in that same ascending order
+    /// reproduces exactly those new ids, and filtering the old (content-sorted)
     /// permutation through `value_reidx` keeps it sorted without re-sorting.
     pub(crate) fn rebuilt(&self, value_reidx: &[Option<u16>]) -> Self {
         let view = self.view();

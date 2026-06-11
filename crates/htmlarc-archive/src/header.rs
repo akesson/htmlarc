@@ -6,19 +6,20 @@
 //! | bytes  | meaning                                  |
 //! |--------|------------------------------------------|
 //! | 0..8   | magic `b"HTMLARC1"`                      |
-//! | 8      | format version (5 = unified symbol table)|
+//! | 8      | format version (6 = class-list run arena)|
 //! | 9      | endianness (0 = little-endian)           |
 //! | 10..16 | reserved (zero)                          |
 //!
-//! Version 5 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
+//! Version 6 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
 //! [`crate::doc_table`], [`crate::bundle`]) whose per-document DOM stores class tokens in a
-//! unified symbol table (ADR 0002 §1); v4 and older layouts are no longer read — re-pack to
-//! upgrade.
+//! unified symbol table (ADR 0002 §1) and class lists as contiguous `Sym` runs in one
+//! arena (ADR 0002, list storage plan); v5 and older layouts are no longer read — re-pack
+//! to upgrade.
 
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 5;
+pub(crate) const VERSION: u8 = 6;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 

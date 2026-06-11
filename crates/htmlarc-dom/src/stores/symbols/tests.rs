@@ -1,7 +1,6 @@
 use rkyv::rancor::Error;
 
-use crate::stores::listvec::{ListRebuilder, ListVec};
-use crate::stores::{ListIndex, ListRemovalResult};
+use crate::stores::{RunIndex, RunRebuilder, RunVec};
 
 use super::table::ArchivedSymbolTable;
 use super::{LOCAL_CAP, Sym, SymbolTable, SymbolTableBuilder};
@@ -15,67 +14,57 @@ fn built(strings: &[&str]) -> SymbolTable {
     b.build()
 }
 
-/// Compose a `SymbolTable` + `ListVec` the way the class accessors do, so the add/remove
+/// Compose a `SymbolTable` + `RunVec` the way the class accessors do, so the add/remove
 /// behaviour ported from the former `ClassStore` tests is exercised end-to-end.
-fn class_list(tokens: &[&str]) -> (SymbolTable, ListVec, ListIndex) {
+fn class_list(tokens: &[&str]) -> (SymbolTable, RunVec, RunIndex) {
     let mut symbols = SymbolTable::default();
-    let mut lists = ListVec::default();
+    let mut runs = RunVec::default();
     let mut iter = tokens.iter();
     let first = symbols.get_or_insert(iter.next().unwrap());
-    let head = lists.new_list(first.as_u16());
+    let mut start = runs.new_run(first.as_u16());
     for t in iter {
         let sym = symbols.get_or_insert(t);
-        lists.list_mut_at(head).append(sym.as_u16());
+        start = runs.append(start, sym.as_u16());
     }
-    (symbols, lists, head)
+    (symbols, runs, start)
 }
 
-fn dbg(symbols: &SymbolTable, lists: &ListVec, head: ListIndex) -> String {
-    lists
-        .list_at(head)
+fn dbg(symbols: &SymbolTable, runs: &RunVec, start: RunIndex) -> String {
+    runs.run_at(start)
         .map(|v| symbols.get(Sym(v)).to_string())
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 // Ported from the former `ClassStore::classes_add_and_remove`: insert (with dedup), remove
-// by string, NotFound, and the EntryRemoved → ListRemoved transitions, now composed over a
-// SymbolTable + ListVec directly.
+// by string, absent values, and the emptied-run signal, now composed over a SymbolTable +
+// RunVec the way the class accessors drive them.
 #[test]
 fn class_list_add_and_remove() {
-    let (mut symbols, mut lists, head) = class_list(&["val1", "val2", "val1"]);
-    assert_eq!(dbg(&symbols, &lists, head), "val1, val2");
+    let (mut symbols, mut runs, start) = class_list(&["val1", "val2", "val1"]);
+    assert_eq!(dbg(&symbols, &runs, start), "val1, val2");
 
     // insert the empty class
     let s = symbols.get_or_insert("");
-    lists.list_mut_at(head).append(s.as_u16());
-    assert_eq!(dbg(&symbols, &lists, head), "val1, val2, ");
+    let start = runs.append(start, s.as_u16());
+    assert_eq!(dbg(&symbols, &runs, start), "val1, val2, ");
 
     // remove the last (empty) entry
     let s = symbols.find("").unwrap();
-    assert_eq!(
-        lists.list_mut_at(head).remove(s.as_u16()),
-        ListRemovalResult::EntryRemoved
-    );
-    assert_eq!(dbg(&symbols, &lists, head), "val1, val2");
+    assert_eq!(runs.remove(start, &[s.as_u16()]), (1, false));
+    assert_eq!(dbg(&symbols, &runs, start), "val1, val2");
 
     // a class that was never interned is simply absent
     assert_eq!(symbols.find("val3"), None);
 
-    // remove down to one, then empty the list entirely
+    // remove down to one, then empty the run entirely
     let s = symbols.find("val1").unwrap();
-    assert_eq!(
-        lists.list_mut_at(head).remove(s.as_u16()),
-        ListRemovalResult::EntryRemoved
-    );
-    assert_eq!(dbg(&symbols, &lists, head), "val2");
+    assert_eq!(runs.remove(start, &[s.as_u16()]), (1, false));
+    assert_eq!(dbg(&symbols, &runs, start), "val2");
 
     let s = symbols.find("val2").unwrap();
-    assert_eq!(
-        lists.list_mut_at(head).remove(s.as_u16()),
-        ListRemovalResult::ListRemoved
-    );
-    assert_eq!(dbg(&symbols, &lists, head), "");
+    assert_eq!(runs.remove(start, &[s.as_u16()]), (1, true));
+    assert_eq!(dbg(&symbols, &runs, start), "");
 }
 
 #[test]
@@ -176,20 +165,20 @@ fn archived_round_trip() {
 }
 
 #[test]
-fn rebuilt_drops_unused_and_matches_listrebuilder_numbering() {
-    // Five symbols; two class lists reference a subset, leaving "b" (id 1) and "d" (id 3)
-    // dropped. The rebuild must compact to {a,c,e} with new ids matching ListRebuilder.
+fn rebuilt_drops_unused_and_matches_rebuilder_numbering() {
+    // Five symbols; two class runs reference a subset, leaving "b" (id 1) and "d" (id 3)
+    // dropped. The rebuild must compact to {a,c,e} with new ids matching RunRebuilder.
     let t = built(&["a", "b", "c", "d", "e"]);
-    let mut lists = ListVec::default();
-    // list 0: a(0), e(4); list 1: c(2)
-    let l0 = lists.new_list(0);
-    assert!(lists.list_mut_at(l0).try_append(4));
-    let _l1 = lists.new_list(2);
+    let mut runs = RunVec::default();
+    // run 0: a(0), e(4); run 1: c(2)
+    let r0 = runs.new_run(0);
+    assert!(runs.try_append_last(r0, 4));
+    let r1 = runs.new_run(2);
 
-    let mut rb = ListRebuilder::new(lists.len(), t.len() as usize);
-    rb.mark_list_used(&lists, l0);
-    rb.mark_list_used(&lists, _l1);
-    let rebuilt = rb.build(&lists);
+    let mut rb = RunRebuilder::new(runs.len(), t.len() as usize);
+    rb.mark_run_used(&runs, r0);
+    rb.mark_run_used(&runs, r1);
+    let rebuilt = rb.build(&runs);
 
     // Used old ids in ascending order: 0(a),2(c),4(e) → new dense ids 0,1,2.
     assert_eq!(rebuilt.value_reidx[0], Some(0));
