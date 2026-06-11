@@ -189,6 +189,43 @@ Follow-ups, not in scope: enum promotion curation (MathML core / common SVG, dat
 after PR 5); deriving `page-<title>` classes and externalizing `data-ety-tree-json`
 (0001 §Extraction opportunities).
 
+## Measured — PR 1 gate (2026-06-11)
+
+`htmlarc-convert stats` over **`wiktionary_en_all_nopic_2026-05.zim`** — 8,868,024 docs,
+879 bundles, 67 s wall on 14 cores, 5.7 GB peak RSS. Per-document distribution (log-bucket
+percentiles, exact max) and the per-bundle Lane A shared-dictionary simulation:
+
+| metric | p50 | p99 | p99.9 | max | cap | over cap |
+|---|---|---|---|---|---|---|
+| nodes | 255 | 4,095 | 8,191 | 55,373 | 16,777,215 | 0 |
+| max_depth | 15 | 31 | 31 | 50 | 256 | 0 |
+| list_entries | 255 | 2,047 | 8,191 | 44,232 | 32,768 | **10** |
+| distinct_pairs | 63 | 511 | 1,023 | 10,299 | 65,535 | 0 |
+| ext_tag_names | 0 | 0 | 0 | 17 | 63 | 0 |
+| ext_attr_names | 1 | 15 | 15 | 23 | — | — |
+| sym_union | 127 | 255 | 511 | 3,927 | 61,184 | 0 |
+
+Shared dict: **K=1024 → 95.6 % mean** Lane A reference coverage (95.0 % worst bundle);
+**K=4095 → 97.5 % mean** (97.0 % worst); ~12.2 GiB saved corpus-wide. (Smaller
+`wiktionary_co.zim`, 9,567 docs: max sym_union 217, K=1024 = 97.8 %.)
+
+Conclusions, and how they move the open decisions:
+
+- **`LOCAL_CAP` (61,184) is hugely comfortable here** — worst `sym_union` is 3,927, ~16× under.
+  No u24-ref pressure *from wiki*. But wiki per-doc vocabularies are tiny; this does **not**
+  settle the PR 6 u24 question, which hinges on the general-web tail (single-page specs with
+  10⁴+ ids, utility-CSS pages). **Still needs a Common Crawl WARC run** — not available locally.
+- **The 32,768 list-entry ceiling is real and crossed**: 10 / 8.87 M docs exceed it (worst the
+  `-i` page at 44,232 — huge inflection tables). Pre-PR-1 these silently corrupted their lists;
+  now they are cleanly skipped (a 0.0001 % loss on wiki) until the redesign lifts the ceiling.
+  Confirms the guardrail is load-bearing and that lifting this ceiling is a real goal, not
+  hypothetical.
+- **`EXT_BASE` 63-slot vocab and depth 256 are safe** for wiki (max 17 ext tags, depth 50). The
+  64→256 depth bump is validated headroom; general web will sit higher.
+- **1024 vs 4095 shared slots**: on homogeneous wiki, 4095 buys only +1.9 % coverage over 1024.
+  The ADR's 4095 is justified by the heterogeneous general-web case (utility-CSS vocabularies),
+  which this corpus cannot exercise — **revisit once a WARC sample is measured**.
+
 ## Open questions
 
 - Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs) — decide in PR 3.
