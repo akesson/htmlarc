@@ -2,7 +2,7 @@ use crate::{
     dom::Nodes,
     iters::DomIterator,
     prelude::*,
-    stores::{NAME_EXT_BASE, RunRebuilder, StringStack},
+    stores::{EXT_BASE, ExtTags, NAME_EXT_BASE, RunRebuilder, StringStack, Sym},
 };
 
 impl DomInner {
@@ -43,6 +43,15 @@ impl DomInner {
             if let Some(i) = self.nodes.class_list_index(old_index) {
                 class_rebuilder.mark_run_used(&self.class_lists, i);
             }
+            // Extended tag *names* also live in the shared symbol table, so mark each live
+            // custom element's name sym into the class rebuilder before the table compacts —
+            // the tag-name twin of the attribute-name union below (without it, every custom
+            // element's name would dangle after repackage).
+            let byte = self.nodes.tag_byte(old_index);
+            if byte >= EXT_BASE {
+                let sym = self.ext_tags.view().sym_at(old_index, byte);
+                class_rebuilder.mark_value_used(sym.as_u16());
+            }
         }
 
         // Union the surviving extended attribute *names* into the class rebuilder's symbol
@@ -59,22 +68,29 @@ impl DomInner {
         let class_rebuilt = class_rebuilder.build(&self.class_lists);
         let class_list_reindex = class_rebuilt.runs_reidx;
         let class_lists = class_rebuilt.runs;
-        // Compact the symbol table to the surviving class tokens ∪ extended names; the value
-        // reindex reproduces the dense numbering, so the run values map for free.
-        let symbols = self.symbols.rebuilt(&class_rebuilt.value_reidx);
+        // The symbol reindex maps each surviving old sym to its dense new id; kept for the
+        // node-write loop, which remaps extended tag-name syms through it.
+        let sym_reidx = class_rebuilt.value_reidx;
+        // Compact the symbol table to the surviving class tokens ∪ extended attr/tag names;
+        // the value reindex reproduces the dense numbering, so the run values map for free.
+        let symbols = self.symbols.rebuilt(&sym_reidx);
 
         let attr_rebuilt = attr_rebuilder.build(&self.attrs.lists);
         let attr_list_reindex = attr_rebuilt.runs_reidx;
         // The attribute store compacts its own value table and remaps each surviving entry's
         // name through the symbol reindex (see `AttrStore::rebuilt`).
-        let attrs = self.attrs.rebuilt(
-            &attr_rebuilt.value_reidx,
-            &class_rebuilt.value_reidx,
-            attr_rebuilt.runs,
-        );
+        let attrs = self
+            .attrs
+            .rebuilt(&attr_rebuilt.value_reidx, &sym_reidx, attr_rebuilt.runs);
+
+        // Re-derive the extended-tag vocab from scratch in new-traversal order — `encode` is
+        // shared with parse, so rebuild ≡ parse: freed vocab slots compact and overflow tags
+        // promote into the vocab automatically (ADR 0002 §4).
+        let mut ext_tags = ExtTags::default();
 
         for (new_index, old_index) in ordered_pairs {
             let tag = self.nodes.tag(old_index);
+            let byte = self.nodes.tag_byte(old_index);
 
             let parent_index = self
                 .nodes
@@ -89,7 +105,17 @@ impl DomInner {
                 .next_sibling_index(old_index)
                 .and_then(|i| indexes[i.as_usize()]);
 
-            nodes.add_node(tag, parent_index, prev_sibling, next_sibling);
+            // An extended tag's byte is a per-document vocab index: remap its name sym through
+            // `sym_reidx` and re-encode against the fresh vocab. Standard bytes copy verbatim.
+            let new_byte = if byte >= EXT_BASE {
+                let old_sym = self.ext_tags.view().sym_at(old_index, byte);
+                let new_sym = sym_reidx[old_sym.as_u16() as usize]
+                    .expect("a live extended tag name must have been marked");
+                ext_tags.encode(Sym::from(new_sym), new_index)
+            } else {
+                byte
+            };
+            nodes.add_node_byte(new_byte, parent_index, prev_sibling, next_sibling);
 
             if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
                 let text = self.string_at(old_index);
@@ -126,6 +152,7 @@ impl DomInner {
             attrs,
             symbols,
             class_lists,
+            ext_tags,
             strings,
         }
     }

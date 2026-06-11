@@ -1,6 +1,9 @@
 use crate::{
     accessors::{Attributes, AttributesMut, Classes, ClassesMut},
-    css::{self, AttributeSelector, ClassSelector, IdSelector, ParseError, Selector, SelectorList},
+    css::{
+        self, AttributeSelector, ClassSelector, ExtTagSelector, IdSelector, ParseError, Selector,
+        SelectorList,
+    },
     dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -250,6 +253,13 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.with_view(|view| view.has_id_selector(self.index(), id))
     }
 
+    /// The resolve-aware extended-tag check used by the compound selector matcher: the
+    /// resolved vocab byte / overflow symbol matches by integer compare (or a tag-name string
+    /// compare when unresolved). See [`DomView::matches_ext_tag`](crate::dom::DomView).
+    pub(crate) fn matches_ext_tag(&self, sel: &ExtTagSelector) -> bool {
+        self.with_view(|view| view.matches_ext_tag(self.index(), sel))
+    }
+
     pub fn has_classes<P>(&self, classes: &[P]) -> bool
     where
         P: for<'a> PartialEq<Class<'a>>,
@@ -355,8 +365,16 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
             .map(|attr| attr.val)
     }
 
+    /// The element's tag name as a string — a standard tag's static name, or an extended
+    /// (custom/unknown) element's real name resolved through the per-document vocab (ADR 0002
+    /// §4). Unlike [`tag`](Self::tag), which returns `HtmlTag::extended` for custom elements,
+    /// this never yields the `extended` marker spelling.
+    pub fn tag_name(&self) -> &'dom str {
+        self.dom.dom_view().tag_name(self.index())
+    }
+
     pub fn tag_id_class(&self) -> String {
-        let mut tag_id_class = self.tag().to_string();
+        let mut tag_id_class = self.tag_name().to_string();
         if let Some(id) = self.id() {
             tag_id_class.push_str(&format!("#{}", id));
         }

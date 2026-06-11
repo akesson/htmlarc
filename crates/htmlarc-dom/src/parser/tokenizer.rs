@@ -6,9 +6,9 @@
 //! glue that turns its token stream into calls on htmlarc's [`DomStack`] tree builder,
 //! reproducing the behaviour of the previous hand-rolled parser:
 //!
-//! - unrecognised *tags* are a hard error (element-tag tolerance is ADR 0002 PR 4); an
-//!   unrecognised *attribute* name is kept as an extended name (ADR 0002 §3), so `data-*`
-//!   and arbitrary attributes both parse;
+//! - unrecognised *tags* parse as extended (custom) elements via a per-document vocab (ADR
+//!   0002 §4); an unrecognised *attribute* name is likewise kept as an extended name (ADR
+//!   0002 §3), so `data-*`, arbitrary attributes, and custom elements all parse;
 //! - `<svg>` / `<math>` subtrees are skipped wholesale;
 //! - void / self-closing elements are popped immediately;
 //! - a `<!DOCTYPE …>` is stored as a fixed `DOCTYPE` node with a single `html` attribute.
@@ -33,7 +33,7 @@ use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::AttrName;
 use crate::{HtmlParseError, HtmlParseResult};
 
-use super::dom::DomStack;
+use super::dom::{DomStack, TagName};
 
 /// The next tokenizer state to switch into after a start tag, restricted to the elements the
 /// previous hand-rolled parser treated as raw: `script`/`style` (verbatim) and
@@ -148,7 +148,11 @@ pub(crate) fn parse_into<D: DomStack>(input: &str, dom: &mut D) -> HtmlParseResu
 
 /// A start tag seen via `OpenStartTag` but not yet materialised — see [`Driver::start`].
 enum StartTag {
-    Element(HtmlTag),
+    /// A recognised HTML element.
+    Std(HtmlTag),
+    /// An extended (custom/unknown) element — the verbatim name, kept owned because the
+    /// html5gum event slice is transient and the tag commits lazily (ADR 0002 §4).
+    Ext(String),
     /// `svg`/`math`, whose subtree is dropped wholesale.
     Foreign(HtmlTag),
 }
@@ -201,9 +205,13 @@ impl<D: DomStack> Driver<'_, D> {
     /// foreign one. A no-op once already materialised.
     fn commit_start(&mut self) {
         match self.start.take() {
-            Some(StartTag::Element(tag)) => {
-                self.dom.push_tag(tag);
+            Some(StartTag::Std(tag)) => {
+                self.dom.push_tag(TagName::Std(tag));
                 self.current = Some(tag);
+            }
+            Some(StartTag::Ext(name)) => {
+                self.dom.push_tag(TagName::Ext(&name));
+                self.current = Some(HtmlTag::extended);
             }
             Some(StartTag::Foreign(tag)) => {
                 self.skip = Some(tag);
@@ -218,11 +226,13 @@ impl<D: DomStack> Driver<'_, D> {
             return; // a tag nested inside a skipped foreign subtree
         }
         let name = String::from_utf8_lossy(name);
-        match HtmlTag::try_from(name.as_ref()) {
-            Ok(tag @ (HtmlTag::svg | HtmlTag::math)) => self.start = Some(StartTag::Foreign(tag)),
-            Ok(tag) => self.start = Some(StartTag::Element(tag)),
-            Err(_) => self.set_error(format!("Not a valid tag: '{name}'")),
-        }
+        // Unknown names are no longer a hard error: they parse as extended (custom) tags
+        // (ADR 0002 §4). `svg`/`math` still enter foreign-skip mode (untouched until PR 5).
+        self.start = Some(match TagName::parse(&name) {
+            TagName::Std(tag @ (HtmlTag::svg | HtmlTag::math)) => StartTag::Foreign(tag),
+            TagName::Std(tag) => StartTag::Std(tag),
+            TagName::Ext(_) => StartTag::Ext(name.to_string()),
+        });
     }
 
     fn attribute_name(&mut self, name: &[u8]) {
@@ -285,7 +295,10 @@ impl<D: DomStack> Driver<'_, D> {
         if let Some(tag) = self.current.take()
             && (self_closing || tag.is_void_element())
         {
-            self.pop(tag);
+            // This element was pushed an instant ago, so an identity check would be vacuous
+            // (and impossible for an extended tag, whose kind alone is `extended`); pop it
+            // directly.
+            self.dom._pop_tag();
         }
     }
 
@@ -298,10 +311,9 @@ impl<D: DomStack> Driver<'_, D> {
             }
             return;
         }
-        match HtmlTag::try_from(name.as_ref()) {
-            Ok(tag) => self.pop(tag),
-            Err(_) => self.set_error(format!("Not a valid tag: '{name}'")),
-        }
+        // Unknown end-tag names parse as extended tags rather than erroring (ADR 0002 §4); a
+        // genuine mismatch is still caught by `pop_tag`'s identity check.
+        self.pop(TagName::parse(&name));
     }
 
     fn text(&mut self, value: &[u8]) {
@@ -326,20 +338,15 @@ impl<D: DomStack> Driver<'_, D> {
         if self.skip.is_some() {
             return;
         }
-        self.dom.push_tag(HtmlTag::DOCTYPE);
+        self.dom.push_tag(TagName::Std(HtmlTag::DOCTYPE));
         self.dom.add_attribute(AttrName::Std(HtmlAttr::html), "");
-        self.pop(HtmlTag::DOCTYPE);
+        // Just pushed, so pop it directly (see `close_start_tag`).
+        self.dom._pop_tag();
     }
 
-    fn pop(&mut self, tag: HtmlTag) {
-        if let Err(err) = self.dom.pop_tag(tag) {
+    fn pop(&mut self, name: TagName<'_>) {
+        if let Err(err) = self.dom.pop_tag(name) {
             self.error = Some(err);
-        }
-    }
-
-    fn set_error(&mut self, message: String) {
-        if self.error.is_none() {
-            self.error = Some(HtmlParseError::new(message));
         }
     }
 }

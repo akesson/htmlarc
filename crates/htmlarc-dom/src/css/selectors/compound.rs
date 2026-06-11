@@ -9,7 +9,10 @@ use crate::{
         chars::CssChars,
         logging::debug,
         patterns::CssPattern,
-        selectors::{pseudo_class::PseudoClassSelector, tag::TagSelector},
+        selectors::{
+            pseudo_class::PseudoClassSelector,
+            tag::{ExtTagSelector, TagSelector},
+        },
     },
     dom::DomRead,
     html::{HtmlAttr, HtmlDoc, HtmlElement, HtmlTag},
@@ -24,6 +27,9 @@ impl CompoundSelector<'_> {
     /// id and attribute names/values to entry/name refs, the classes to `Sym`s, and the
     /// nested selectors of `:not`/`:is`/`:has`.
     pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+        if let Some(ext) = &mut self.ext_element {
+            ext.resolve(view);
+        }
         if let Some(id) = &mut self.id {
             id.resolve(view);
         }
@@ -95,7 +101,12 @@ impl IndexedError for CompoundSelectorError {
 /// [mdn: Compound selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_selectors/Selector_structure#compound_selector)
 #[derive(Debug, Default, Clone)]
 pub struct CompoundSelector<'s> {
+    /// A standard type selector (`div`). Extended/custom-element selectors live in
+    /// [`ext_element`](Self::ext_element); a compound holds at most one of the two.
     pub element: Option<HtmlTag>,
+    /// An extended (custom/unknown) type selector (`my-widget`) — matched against the
+    /// per-document extended-tag vocab (ADR 0002 §4), separate from the `HtmlTag` fast path.
+    pub ext_element: Option<ExtTagSelector<'s>>,
     pub id: Option<IdSelector<'s>>,
     pub classes: Vec<ClassSelector<'s>>,
     /// Standard, `data-*`, and unknown attribute selectors — all matched against the unified
@@ -110,6 +121,9 @@ impl Display for CompoundSelector<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(tag) = &self.element {
             write!(f, "{}", tag)?;
+        }
+        if let Some(ext) = &self.ext_element {
+            write!(f, "{}", ext)?;
         }
         if let Some(id) = &self.id {
             write!(f, "{}", id)?;
@@ -158,17 +172,15 @@ impl<'s> CompoundSelector<'s> {
         }
 
         debug!("Trying to parse tag selector at {}", chars.last_index());
-        let element = TagSelector::from_chars(chars)?;
-
-        let mut compound = Self {
-            element: element.map(|tag| tag.inner()),
-            id: None,
-            classes: Vec::new(),
-            attributes: Vec::new(),
-            class_attributes: Vec::new(),
-            pseudo_classes: Vec::new(),
-            text: None,
-        };
+        // A standard tag binds the `HtmlTag` fast path; an extended/custom name binds the
+        // `ext_element` slot (ADR 0002 §4). They are mutually exclusive — a compound has at
+        // most one leading type selector.
+        let mut compound = Self::default();
+        match TagSelector::from_chars(chars)? {
+            Some(TagSelector::Std(tag)) => compound.element = Some(tag),
+            Some(TagSelector::Ext(ext)) => compound.ext_element = Some(ext),
+            None => {}
+        }
 
         while let Some((index, char)) = chars.current() {
             match char {
@@ -251,6 +263,13 @@ impl<'s> CompoundSelector<'s> {
             && tag != el.tag()
         {
             debug!("Tag mismatch: {} != {}", tag, el.tag());
+            return false;
+        }
+
+        if let Some(ext) = &self.ext_element
+            && !el.matches_ext_tag(ext)
+        {
+            debug!("Extended tag mismatch: {}", ext);
             return false;
         }
 

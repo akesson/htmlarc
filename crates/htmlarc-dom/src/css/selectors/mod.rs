@@ -22,7 +22,8 @@ pub use list::{SelectorList, SelectorListError};
 pub use list_relative::{RelativeSelectorList, RelativeSelectorListError};
 pub use pseudo_class::{PseudoClassSelector, PseudoClassSelectorError};
 pub use relative::{RelativeSelector, RelativeSelectorError};
-pub use tag::TagSelector;
+pub(crate) use tag::ResolvedTag;
+pub use tag::{ExtTagSelector, TagSelector};
 
 use crate::{dom::DomRead, html::HtmlElement};
 

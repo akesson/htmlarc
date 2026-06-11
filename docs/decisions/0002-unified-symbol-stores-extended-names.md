@@ -190,10 +190,12 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    −7.8 % / load −9.7 % (build-time reindex passes deleted), attr-order round-trip snapshots
    (pure reorder, no content change). The width-flag byte is **not** reserved here — that is
    PR 6's holistic mutable⇒wide work, not a speculative dead field now.
-4. **Extended tags.** `ext_tags` vocab + byte ranges + overflow side map +
-   `HtmlTag::extended` normalization + `tag_name()`; tokenizer accepts unknown tags;
-   formatter renders extended names; demote `hnan`/`figure_inline`. Format bump.
-   *Gates:* custom-element round-trip fixtures, parse neutral.
+4. **Extended tags.** ✅ *(shipped — see §Measured PR 4 results).* `ext_tags` vocab + byte
+   ranges + overflow side map + `HtmlTag::extended` normalization + `tag_name()`; tokenizer
+   accepts unknown tags; formatter renders extended names; `hnan`/`figure_inline` demoted.
+   `DomStack` reshaped to carry full tag identity; extended tag selectors resolve-once. Format
+   bump 7 → 8. *Gates met:* size +0.44 % (the empty-`ext_tags` per-doc overhead), parse neutral
+   (own comparison p = 0.49), custom-element round-trip + repackage-survival fixtures.
 5. **Foreign content.** Delete skip machinery; svg/math subtrees stored; WHATWG case
    adjustment tables at the formatter; childless-extended render rule; CDATA-in-foreign
    tests. *Gates:* svg/math round-trip fixtures; **size growth measured and documented**
@@ -448,6 +450,62 @@ order. `#id` and attribute selectors join classes in resolve-once integer matchi
   `[data-mw]` attribute probe resolves; the v7 binary rejects v6 archives. 302 dom tests +
   full workspace green; the only snapshot change is attribute reordering (verified as a pure
   reorder — every line's attribute multiset is preserved, no content delta).
+
+### PR 4 results — extended tags (2026-06-11)
+
+Shipped (branch `feat/extended-tags`, 3 commits): unknown/custom tag names stop being parse
+errors and are stored in a per-document `ExtTags` vocab encoded in the node's 1-byte tag —
+`[0,192)` enum discriminants, `[192,255)` vocab indices (≤63 `Sym`s into the shared symbol
+table), `255` an overflow sentinel resolved via a node-index-keyed side map. `nodes.tag()`
+normalizes any byte ≥ `EXT_BASE` to a new `HtmlTag::extended` marker (absent from every
+classifier, so custom elements are non-void / non-raw-text / never-auto-close); `tag_name()`
+resolves the real string. `hnan`/`figure_inline` are demoted out of the enum. The `DomStack`
+tree-builder gains an associated `Tag` type carrying full identity (a `Sym` in the builder, a
+`String` in the test DOM) so two distinct custom elements — which share the `extended` kind —
+never close one another. Extended tag selectors join classes/id/attrs in resolve-once integer
+matching (`ExtTagSelector` → vocab byte / overflow sym / `Absent`). Archive 7 → 8.
+
+- **Size (small, deterministic increase):** `wiktionary_co.zim` → `.htmlarc` 71,561,464 B (v7)
+  → 71,877,824 B (v8), **+0.44 %** (+316 KB). The cost is the per-document `ext_tags` field —
+  two rkyv `Vec` headers on every doc even though almost none hold custom elements — plus the
+  two demoted MediaWiki tags (`hnan`, `figure-inline`), which moved from a free enum byte to a
+  symbol-heap string + a vocab entry. Anticipated and accepted: it buys storing custom
+  elements that previously failed the whole document, and is dwarfed on general web where
+  custom elements are common (and, on main, fatal).
+- **Parse neutral.** Branch-vs-`main` on `parse fr.serrer.html`: **−0.27 % (p = 0.49, "no
+  change")** — the standard-tag path is unchanged work (`from_tag_name` wraps the same
+  `HtmlTag::try_from`; node creation goes through the byte twin of `add_as_last_child`). The
+  *unchanged* `iteration` bench swung **−10 %** between captures on identical code, the
+  documented host drift (see [[bench-host diagnosis]]) — so finer deltas are unquotable, but
+  parse's own comparison is squarely neutral.
+- **Extended tag selectors (new, informational — no `main` baseline; they were parse errors
+  before):** `select absent ext tag` 134 µs on the wiktionary fixture (≈ `select divs` 135 µs
+  — the `Absent` prune is as cheap as a standard-tag walk); `select ext tag (vocab byte)`
+  173 µs over a ~4,000-element custom-element doc (a single per-node tag-byte compare).
+- **The rebuild trap, handled (the one real design hazard):** extended tag *names* share the
+  symbol table with class tokens and extended attr names, so the rebuild adds a tag-name union
+  pass (the twin of PR 3's attr-name pass) marking live custom-element name syms before the
+  table compacts; the vocab is then re-derived from scratch via the shared `encode`,
+  auto-compacting freed slots and rewriting the node-keyed overflow map. Pinned by a
+  repackage-keeps-extended-tag-names regression test and an overflow-vocab re-derive test.
+- **The silent-corruption trap, fixed:** the width-`repack` now copies the raw tag byte, not
+  `tag() as u8`, which would have collapsed every extended byte to the `extended` marker on the
+  U24→U16 down-pack (only at serialize time, far from parse tests). Pinned by a U16 archived
+  round-trip over a custom-element document.
+- End-to-end: `.mw-parser-output` class probe parity (9,567 hits) on the v8 archive; the v8
+  binary rejects a forged-v7 archive. Full workspace green (372 tests); **zero snapshot
+  churn** — no fixture contains a custom element, and the demoted MediaWiki tags appear in
+  none, exactly as predicted.
+
+**Decisions recorded:** (1) the rebuild re-derives the vocab from scratch rather than keeping
+it stable — one code path shared with parse, free compaction, and the overflow map must be
+rewritten anyway. (2) Reserved spellings (`extended`, `text`, `comment`, `doctype`) route to
+extended tags, so `<text>` is a custom element rather than a malformed system node — a small
+correctness fix bundled in. (3) Unknown CSS tag selectors stop being parse errors (the
+selector-side mirror), matching nothing unless the document holds that element. (4)
+`CompoundSelector.element: Option<HtmlTag>` was kept and a separate `ext_element` field added,
+rather than widening `element` to an enum — the latter would have churned 102 standard-tag
+construction sites across the test suite for no behavioural gain.
 
 ## Open questions
 

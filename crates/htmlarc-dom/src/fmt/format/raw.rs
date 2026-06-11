@@ -67,7 +67,9 @@ impl<'dom> RawFormat<'dom> {
 
     fn add_start_tag(&mut self, index: NodeIndex, tag: HtmlTag) {
         self.buf.push('<');
-        self.buf.push_str(tag.into());
+        // `tag_name` resolves extended (custom/unknown) tags to their real name; `tag` is the
+        // normalized `HtmlTag` (`extended` for those) kept only for the `auto_close` check.
+        self.buf.push_str(self.dom.tag_name(index));
         self.push_attributes(index);
         if tag.auto_close() {
             self.buf.push(' ');
@@ -88,7 +90,7 @@ impl<'dom> RawFormat<'dom> {
             return;
         }
         self.buf.push_str("</");
-        self.buf.push_str(self.dom.nodes.tag(index).into());
+        self.buf.push_str(self.dom.tag_name(index));
         self.buf.push('>');
     }
 }
