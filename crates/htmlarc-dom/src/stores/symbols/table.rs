@@ -176,9 +176,8 @@ impl<'a> SymbolTableView<'a> {
         Err(left)
     }
 
-    /// Resolve `s` to its stable [`Sym`], or `None` if absent. The first non-test caller is
-    /// the selector resolve pass added in the commit that follows this one.
-    #[allow(dead_code)]
+    /// Resolve `s` to its stable [`Sym`], or `None` if absent. Used by the selector resolve
+    /// pass ([`crate::css::ClassSelector::resolve`]) to bind a class name to a document.
     pub(crate) fn find(&self, s: &str) -> Option<Sym> {
         self.search(s).ok()
     }

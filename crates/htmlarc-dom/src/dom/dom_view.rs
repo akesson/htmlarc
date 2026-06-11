@@ -1,4 +1,4 @@
-use crate::css::AttributeSelector;
+use crate::css::{AttributeSelector, ClassSelector, ResolvedSym};
 use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
@@ -104,6 +104,30 @@ impl<'a> DomView<'a> {
         }
     }
 
+    /// The compound selector's class check (ADR 0002 §3). Each selector takes its resolved
+    /// path: `Found(sym)` is an integer compare over the node's class syms; `Absent` never
+    /// matches (correct through `:not`, which negates the inner result); `Unresolved` falls
+    /// back to a string compare for the direct-matching entry points that skip the resolve
+    /// pass. A node with no class list never matches.
+    pub(crate) fn has_class_selectors(&self, node: NodeIndex, sels: &[ClassSelector]) -> bool {
+        let Some(list) = self.nodes.class_list_index(node) else {
+            return false;
+        };
+        sels.iter().all(|sel| match sel.resolved {
+            ResolvedSym::Found(sym) => self.class_syms_at(list).any(|v| v == sym),
+            ResolvedSym::Absent => false,
+            ResolvedSym::Unresolved => self.class_list_at(list).any(|c| *sel == c),
+        })
+    }
+
+    /// Walk the raw [`Sym`]s of a class list — the integer fast path for matching.
+    fn class_syms_at(&self, index: ListIndex) -> ClassSymIter<'a> {
+        ClassSymIter {
+            lists: self.class_lists,
+            index: self.class_lists.head_index_at(index),
+        }
+    }
+
     pub(crate) fn has_data_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
         if let Some(list_index) = self.nodes.data_attr_list_index(node) {
             attrs
@@ -178,5 +202,22 @@ impl<'a> Iterator for ClassListIter<'a> {
         let (next, val) = self.lists.next(index);
         self.index = next;
         Some(Class(self.symbols.get(Sym(val))))
+    }
+}
+
+/// Iterates the raw [`Sym`]s of a class list — the integer fast path used by matching.
+struct ClassSymIter<'a> {
+    lists: ListVecView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl Iterator for ClassSymIter<'_> {
+    type Item = Sym;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.lists.next(index);
+        self.index = next;
+        Some(Sym(val))
     }
 }
