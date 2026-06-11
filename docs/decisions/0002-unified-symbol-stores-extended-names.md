@@ -223,8 +223,48 @@ Conclusions, and how they move the open decisions:
 - **`EXT_BASE` 63-slot vocab and depth 256 are safe** for wiki (max 17 ext tags, depth 50). The
   64→256 depth bump is validated headroom; general web will sit higher.
 - **1024 vs 4095 shared slots**: on homogeneous wiki, 4095 buys only +1.9 % coverage over 1024.
-  The ADR's 4095 is justified by the heterogeneous general-web case (utility-CSS vocabularies),
-  which this corpus cannot exercise — **revisit once a WARC sample is measured**.
+  The general-web case below tells a very different story.
+
+### General web — Common Crawl
+
+`stats` over a 200 MB Range-prefix of one **CC-MAIN-2024-10** WARC segment — 8,417 HTML
+response docs, 1 bundle (the reader stops cleanly at the truncated tail):
+
+| metric | p50 | p99 | p99.9 | max | cap | over cap |
+|---|---|---|---|---|---|---|
+| nodes | 2,047 | 16,383 | 32,767 | 41,116 | 16,777,215 | 0 |
+| max_depth | 31 | 127 | 1,023 | **2,950** | 256 | **19** |
+| list_entries | 1,023 | 16,383 | 32,767 | 58,289 | 32,768 | 1 |
+| distinct_pairs | 511 | 4,095 | 8,191 | 16,571 | 65,535 | 0 |
+| ext_tag_names | 1 | 31 | 127 | **194** | 63 | **10** |
+| ext_attr_names | 15 | 511 | 2,047 | 4,547 | — | — |
+| sym_union | 255 | 2,047 | 4,095 | 7,090 | 61,184 | 0 |
+
+Shared dict: **K=1024 → 23.9 %**, **K=4095 → 36.4 %** Lane A coverage (single heterogeneous
+bundle). Caveat: 8,417 diverse pages is one bundle's worth; real per-bundle runs over 10 k
+*consecutive* crawl records are somewhat site-clustered and would score higher.
+
+This leg is the one that matters, and it **moves three constants**:
+
+- **Depth 256 is too low for general web.** 19 / 8,417 docs (0.23 %) exceed it; the worst is
+  2,950-deep `<div>` soup. The shipped PR-1 guard (`MAX_DEPTH = 256`) would skip those. →
+  Switch the parse stacks from a fixed `ArrayVec` to a heap `Vec` with a high sanity cap
+  (≈ 8,192), or raise the fixed cap well past 4,096. **Decision pending** (a stack `ArrayVec`
+  at that size is too large; lean toward a heap `Vec`).
+- **`EXT_BASE` 63-slot vocab is too small for general web.** 10 / 8,417 docs (0.12 %) exceed
+  63 distinct extended tag names (worst 194 — web-component / SVG-heavy pages). → Lower
+  `EXT_BASE` to widen the per-doc vocab (e.g. 128 → 127 slots) and/or accept the overflow
+  side-map firing on these. The tag byte trades enum headroom for vocab headroom; pick the
+  split with this in hand.
+- **Shared dict: 4095 ≫ 1024 on heterogeneous data** — 36.4 % vs 23.9 % (+12.5 pp, vs wiki's
+  +1.9 pp). Confirms 4095 over 0001's ~1000, and confirms **per-bundle, not corpus-wide**
+  (the absolute hit rate already collapses within a single heterogeneous bundle). A still
+  larger shared range is worth probing for general-web bundles.
+
+Holding firm: **`LOCAL_CAP` 61,184** clears even the general-web max `sym_union` of 7,090
+(~8× margin) — but on only 8,417 docs; the multi-million-doc tail (single-page specs with
+10⁴ ids) is still unmeasured, so the **PR 6 u24 decision stays open** pending a fuller crawl
+run. The 32,768 list ceiling is crossed on both corpora.
 
 ## Open questions
 

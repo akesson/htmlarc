@@ -153,7 +153,21 @@ fn consume<R: BufRead>(
     wordlist: Option<&HashSet<String>>,
     limit: Option<usize>,
 ) -> Result<bool> {
-    while let Some(rec) = read_record(r)? {
+    loop {
+        // Tolerate a truncated or corrupt tail (e.g. a Range-downloaded prefix, or a crawl
+        // file cut short): keep every complete record read so far and stop, rather than
+        // discarding the whole file. Consistent with the converter skipping bad documents.
+        let rec = match read_record(r) {
+            Ok(Some(rec)) => rec,
+            Ok(None) => return Ok(false),
+            Err(e) => {
+                eprintln!(
+                    "warc: stopping at an unreadable record ({e}); kept {} document(s)",
+                    docs.len()
+                );
+                return Ok(false);
+            }
+        };
         if let Some(lim) = limit
             && docs.len() >= lim
         {
@@ -180,7 +194,6 @@ fn consume<R: BufRead>(
             String::from_utf8_lossy(body).into_owned(),
         ));
     }
-    Ok(false)
 }
 
 impl WarcSource {
