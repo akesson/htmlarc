@@ -176,6 +176,12 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    hold `Sym`s; class matching goes resolve-once + integer-compare. Format bump 4 → 5.
    *Gates met:* `select class` −6 %, parse −2.6 %, size neutral (−0.01 %). Contiguous-runs
    list storage split out to a follow-up (PR 2.5); `has_id`/attr value matching still string.
+
+   **2.5 — Contiguous-run class lists** ✅ *(shipped — see §Measured PR 2.5 results).*
+   `RunVec` arena replaces the class `ListVec` (2 B/entry + terminator vs 4 B/entry);
+   node slots hold run starts directly; the linked list (and its u15 ceiling) survives
+   only inside the attribute stores until PR 3 deletes them. Format bump 5 → 6.
+   *Gates met:* size −0.93 %, class-select family ≈ −5 %, parse/repack/load neutral.
 3. **Unified `AttrStore`.** `(NameSym, ValueRef)` entries; tokenizer accepts unknown
    attr names; `DataAttributeStore` family deleted; node data slot dropped (node_size
    20/15, U16 text-overlay boundary test); public `Attribute`/`AttrName` API;
@@ -338,7 +344,7 @@ shrink is topology packing, not strings.
 u16 narrow + per-doc u24 escalation confirmed; the shared dictionary itself **deferred**
 (see §7) — the PR sequence proceeds with all symbols doc-local.
 
-### List storage plan (from the index-width data)
+### List storage plan (from the index-width data) — shipped for classes in PR 2.5
 
 In the redesign, replace the per-doc linked lists (4 B/entry: u16 value + u15 next-pointer +
 head bit) with **contiguous runs in an append-only arena** (2 B/entry + terminator): a node's
@@ -375,6 +381,34 @@ lists become a bare `ListVec` of `Sym`s; the rebuild path drives `ListRebuilder`
   value-reindex pass that the old `ClassStoreBuilder` ran); iteration −1…−2.5 % / repack +1.6 %
   / load −1.3 %, all within criterion's noise threshold. 297 dom tests + full workspace green.
 
+### PR 2.5 results — contiguous-run class lists (2026-06-11)
+
+Shipped (branch `feat/class-run-arena`): `RunVec` — one append-only `Vec<u16>` arena where
+each class list is a contiguous run of `Sym`s ended by a `0xFFFF` terminator — replaces the
+linked `ListVec` backing of class lists (4 B/entry: value + u15 next-pointer/head bit →
+2 B/entry + 2 B/list). Node class slots hold the run's start offset directly (no list-table
+indirection); matching scans a contiguous slice. The two class ceilings (65,534 lists /
+32,768 next-pointer-addressable entries) collapse into one 65,535-slot arena cap (u24
+escalation in PR 6). Live mutation extends the trailing run in place, relocates any other
+run to the arena end (garbage until repackage — the same GC point that compacts the symbol
+table), and emptying a run drops the node's pointer immediately. `ListVec` survives only
+inside the attribute stores until PR 3 deletes them. Archive format 5 → 6.
+
+- **Size:** `wiktionary_co.zim` → `.htmlarc` 75,331,392 B (v5) → 74,628,384 B (v6),
+  **−0.93 %** — the class-list halving against a topology-dominated archive.
+- **Class matching (the win):** back-to-back vs main — `select class` **−5.0 %**
+  (113.3 → 107.7 µs), `select multi-class` **−4.6 %**, `select absent class` **−4.5 %**:
+  the per-node Sym scan is now a contiguous slice instead of a pointer chase.
+- **Everything else neutral** once corrected for machine drift: parse +0.2 %, repack +1.0 %,
+  load +0.3 %, `select divs` −1.5 %, iteration −1.6…−2.6 % (mechanism-free; layout/cache
+  luck). *Method note:* a **null run** (main re-benched against its own baseline) showed
+  parse "−10 %", load "−3.6 %" and `iteration safe` "+11.9 %" on identical code — raw
+  criterion change-vs-baseline numbers on this machine include that much drift, so the
+  table above compares consecutive absolute times and the null run is the noise floor.
+- End-to-end: class-selector probe over the converted v6 archive matches (9,567 hits for
+  `.mw-parser-output`); the v6 binary cleanly rejects v5 archives. 303 dom tests + full
+  workspace green, snapshots untouched.
+
 ## Open questions
 
 - Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs) — decide in PR 3.
@@ -384,6 +418,18 @@ lists become a bare `ListVec` of `Sym`s; the rebuild path drives `ListRebuilder`
   attractive for heterogeneous corpora.
 - Topology packing for general web (the ~62 % post-compression share) — candidate levers:
   delta/implicit sibling links, varint offsets; measure after PR 3.
+- `RunVec` terminator → side bitvec (possible future optimization, analyzed 2026-06-11 and
+  parked). Replacing the 2 B/run `0xFFFF` terminator with a 1-bit-per-slot boundary bitvec
+  would save ~0.39 % of the archive on wiktionary_co (terminators are 361,110 B = 25.3 % of
+  the class arena; the bitvec would be 66,523 B). Parked because: (a) it adds a second
+  dependent load to the per-node match scan — the exact path that produced PR 2.5's −5 %
+  class-select win (cf. the NodeWidth +65 % lesson on breaking the single-load pattern);
+  (b) in-place remove/relocate must shift bits in lockstep across byte boundaries —
+  complexity on an already-subtle mutation path; (c) Lane B per-bundle zstd (PR 8) will
+  compress the highly regular terminator pattern to near-zero, so the raw saving mostly
+  evaporates post-compression. Re-evaluate with real numbers when PR 3 moves attribute
+  lists onto `RunVec` (a several-times-larger arena, so terminators grow in absolute
+  bytes), and only if a post-Lane-B measurement still shows them as a real cost.
 - Archive key index (`htmlarc-archive` doc table, outside this ADR's stores): `fst::Map`
   measured **4.6× smaller** than the current keys + 4 B/doc permutation on wiktionary_en
   (8.87 M keys: 199 MiB → 43 MiB) with **1.6× faster** exact lookups (332 vs 544 ns) and

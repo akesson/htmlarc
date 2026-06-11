@@ -3,8 +3,8 @@ use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
-    AttributeStoreView, Class, DataAttributeStoreView, ListIndex, ListVecView, StringStackView,
-    Sym, SymbolTableView,
+    AttributeStoreView, Class, DataAttributeStoreView, RunIndex, RunValues, RunVecView,
+    StringStackView, Sym, SymbolTableView,
 };
 
 /// A borrowed, read-only view over a DOM document.
@@ -23,7 +23,7 @@ pub struct DomView<'a> {
     pub(crate) attrs: AttributeStoreView<'a>,
     pub(crate) dataattrs: DataAttributeStoreView<'a>,
     pub(crate) symbols: SymbolTableView<'a>,
-    pub(crate) class_lists: ListVecView<'a>,
+    pub(crate) class_lists: RunVecView<'a>,
     pub(crate) strings: StringStackView<'a>,
 }
 
@@ -33,7 +33,7 @@ impl<'a> DomView<'a> {
         attrs: AttributeStoreView<'a>,
         dataattrs: DataAttributeStoreView<'a>,
         symbols: SymbolTableView<'a>,
-        class_lists: ListVecView<'a>,
+        class_lists: RunVecView<'a>,
         strings: StringStackView<'a>,
     ) -> Self {
         Self {
@@ -48,20 +48,17 @@ impl<'a> DomView<'a> {
 
     /// Iterate a node's class list, dereferencing each [`Sym`] through the symbol table
     /// into a borrowed [`Class`]. Used by the formatter and the `classes()` accessor.
-    pub(crate) fn class_list_at(&self, index: ListIndex) -> ClassListIter<'a> {
+    pub(crate) fn class_list_at(&self, start: RunIndex) -> ClassListIter<'a> {
         ClassListIter {
             symbols: self.symbols,
-            lists: self.class_lists,
-            index: self.class_lists.head_index_at(index),
+            syms: self.class_lists.run_at(start),
         }
     }
 
-    /// Advance an externally-held class-list cursor (the [`crate::accessors::Classes`]
-    /// iterator), yielding the next [`Class`].
-    pub(crate) fn next_class_in_list(&self, index: &mut Option<ListIndex>) -> Option<Class<'a>> {
-        let i = (*index)?;
-        let (next, val) = self.class_lists.next(i);
-        *index = next;
+    /// Advance an externally-held class-list cursor (an arena offset, held by the
+    /// [`crate::accessors::Classes`] iterator), yielding the next [`Class`].
+    pub(crate) fn next_class_in_list(&self, offset: &mut Option<u16>) -> Option<Class<'a>> {
+        let val = self.class_lists.next_in_run(offset)?;
         Some(Class(self.symbols.get(Sym(val))))
     }
 
@@ -120,12 +117,10 @@ impl<'a> DomView<'a> {
         })
     }
 
-    /// Walk the raw [`Sym`]s of a class list — the integer fast path for matching.
-    fn class_syms_at(&self, index: ListIndex) -> ClassSymIter<'a> {
-        ClassSymIter {
-            lists: self.class_lists,
-            index: self.class_lists.head_index_at(index),
-        }
+    /// Walk the raw [`Sym`]s of a class list — the integer fast path for matching is a
+    /// contiguous scan of the node's run.
+    fn class_syms_at(&self, start: RunIndex) -> impl Iterator<Item = Sym> + 'a {
+        self.class_lists.run_at(start).map(Sym)
     }
 
     pub(crate) fn has_data_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
@@ -186,38 +181,18 @@ impl<'a> DomView<'a> {
     }
 }
 
-/// Iterates a class list, dereferencing each stored [`Sym`] into a borrowed [`Class`].
-/// Replaces the old `ClassListView`; the symbol indirection is the only change.
+/// Iterates a class list's run, dereferencing each stored [`Sym`] into a borrowed
+/// [`Class`].
 pub(crate) struct ClassListIter<'a> {
     symbols: SymbolTableView<'a>,
-    lists: ListVecView<'a>,
-    index: Option<ListIndex>,
+    syms: RunValues<'a>,
 }
 
 impl<'a> Iterator for ClassListIter<'a> {
     type Item = Class<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index?;
-        let (next, val) = self.lists.next(index);
-        self.index = next;
+        let val = self.syms.next()?;
         Some(Class(self.symbols.get(Sym(val))))
-    }
-}
-
-/// Iterates the raw [`Sym`]s of a class list — the integer fast path used by matching.
-struct ClassSymIter<'a> {
-    lists: ListVecView<'a>,
-    index: Option<ListIndex>,
-}
-
-impl Iterator for ClassSymIter<'_> {
-    type Item = Sym;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index?;
-        let (next, val) = self.lists.next(index);
-        self.index = next;
-        Some(Sym(val))
     }
 }

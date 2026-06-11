@@ -4,8 +4,8 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        AttributeStoreBuilder, DataAttribute, DataAttributeStoreBuilder, ListIndex, ListVec,
-        StringStack, SymbolTableBuilder,
+        AttributeStoreBuilder, DataAttribute, DataAttributeStoreBuilder, ListIndex, RunIndex,
+        RunVec, StringStack, SymbolTableBuilder,
     },
 };
 
@@ -17,9 +17,10 @@ pub struct DomBuilder {
     pub(crate) attrs: AttributeStoreBuilder,
     pub(crate) dataattrs: DataAttributeStoreBuilder,
     pub(crate) symbols: SymbolTableBuilder,
-    pub(crate) class_lists: ListVec,
-    /// The class-list ceilings (list count / per-list entries). Symbol-heap overflow is
-    /// tracked by `symbols` itself; both are folded into [`overflow`](Self::overflow).
+    pub(crate) class_lists: RunVec,
+    /// The class-run arena ceiling (one cap covers list count and entries alike — both
+    /// are arena slots). Symbol-heap overflow is tracked by `symbols` itself; both are
+    /// folded into [`overflow`](Self::overflow).
     class_overflow: Option<&'static str>,
     pub(crate) strings: StringStack,
 }
@@ -32,30 +33,26 @@ impl DomBuilder {
         index
     }
 
-    /// Intern a whitespace-separated `class` attribute into the symbol table and append a
-    /// list of its tokens (as bare `Sym`s) to `class_lists`, returning the list's head.
-    /// On a per-document capacity overflow the builder is poisoned and the document later
-    /// discarded; the returned index is then meaningless but never observed.
-    pub(crate) fn add_class_list(&mut self, classes: &str) -> ListIndex {
+    /// Intern a whitespace-separated `class` attribute into the symbol table and write a
+    /// run of its tokens (as bare `Sym`s) into the `class_lists` arena, returning the
+    /// run's start. On a per-document capacity overflow the builder is poisoned and the
+    /// document later discarded; the returned index is then meaningless but never observed.
+    pub(crate) fn add_class_list(&mut self, classes: &str) -> RunIndex {
+        const OVERFLOW: &str = "class lists exceed 65,535 arena entries";
         let mut names = classes.split_ascii_whitespace();
         let first = self.symbols.intern_or_poison(names.next().unwrap_or(""));
-        let index = match self.class_lists.try_new_list(first.as_u16()) {
-            Some(list) => list,
-            None => {
-                self.class_overflow
-                    .get_or_insert("class list count exceeds 65,534");
-                return ListIndex::from(0);
-            }
+        let Some(start) = self.class_lists.try_new_run(first.as_u16()) else {
+            self.class_overflow.get_or_insert(OVERFLOW);
+            return RunIndex::from(0);
         };
         for class in names {
             let sym = self.symbols.intern_or_poison(class);
-            if !self.class_lists.list_mut_at(index).try_append(sym.as_u16()) {
-                self.class_overflow
-                    .get_or_insert("class list entries exceed 32,768");
+            if !self.class_lists.try_append_last(start, sym.as_u16()) {
+                self.class_overflow.get_or_insert(OVERFLOW);
                 break;
             }
         }
-        index
+        start
     }
 
     pub fn build(self) -> DomInner {
@@ -225,7 +222,7 @@ impl DomStack for DomBuilderCursor {
 }
 
 #[cfg(test)]
-fn dbg_class_list(dom: &DomInner, index: ListIndex) -> String {
+fn dbg_class_list(dom: &DomInner, index: RunIndex) -> String {
     dom.view()
         .class_list_at(index)
         .map(|c| c.to_string())

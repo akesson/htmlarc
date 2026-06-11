@@ -2,7 +2,7 @@ use crate::{
     dom::Nodes,
     iters::DomIterator,
     prelude::*,
-    stores::{AttributeReBuilder, DataAttributeRebuilder, ListRebuilder, StringStack},
+    stores::{AttributeReBuilder, DataAttributeRebuilder, RunRebuilder, StringStack},
 };
 
 impl DomInner {
@@ -14,10 +14,10 @@ impl DomInner {
 
         let mut attr_rebuilder = AttributeReBuilder::new(&self.attrs);
         let mut nodes = Nodes::new_based_on(&self.nodes);
-        // Class lists are now bare `Sym` lists, so the rebuild drives `ListRebuilder`
-        // directly (no class-specific wrapper) and compacts the symbol table afterwards.
+        // Class lists are bare `Sym` runs, so the rebuild drives `RunRebuilder` directly
+        // (no class-specific wrapper) and compacts the symbol table afterwards.
         let mut class_rebuilder =
-            ListRebuilder::new(self.class_lists.len(), self.symbols.len() as usize);
+            RunRebuilder::new(self.class_lists.len(), self.symbols.len() as usize);
         let mut dataattrs_rebuilder = DataAttributeRebuilder::new(&self.dataattrs);
         let mut strings = StringStack::with_capacity(self.strings.size());
 
@@ -39,7 +39,7 @@ impl DomInner {
                 attr_rebuilder.mark_list_used(&self.attrs, i);
             }
             if let Some(i) = self.nodes.class_list_index(old_index) {
-                class_rebuilder.mark_list_used(&self.class_lists, i);
+                class_rebuilder.mark_run_used(&self.class_lists, i);
             }
             if let Some(i) = self.nodes.data_attr_list_index(old_index) {
                 dataattrs_rebuilder.mark_list_used(&self.dataattrs, i);
@@ -48,10 +48,10 @@ impl DomInner {
 
         let (attr_list_reindex, attrs) = attr_rebuilder.build(&self.attrs);
         let class_rebuilt = class_rebuilder.build(&self.class_lists);
-        let class_list_reindex = class_rebuilt.lists_reidx;
-        let class_lists = class_rebuilt.lists;
+        let class_list_reindex = class_rebuilt.runs_reidx;
+        let class_lists = class_rebuilt.runs;
         // Compact the symbol table to just the surviving class tokens; the value reindex
-        // reproduces ListRebuilder's dense numbering, so the list values map for free.
+        // reproduces RunRebuilder's dense numbering, so the run values map for free.
         let symbols = self.symbols.rebuilt(&class_rebuilt.value_reidx);
         let (dataattr_list_reindex, dataattrs) = dataattrs_rebuilder.build(&self.dataattrs);
 
@@ -92,10 +92,9 @@ impl DomInner {
                     .and_then(|i| indexes[i.as_usize()]);
                 nodes.set_last_child_index(new_index, last_child);
 
-                // A reindex of `None` means the list was emptied by a mutation: its head
-                // slot is now an empty head that `mark_list_used` intentionally skips, so it
-                // is not carried into the rebuilt store. Drop the node's stale pointer
-                // instead of unwrapping it.
+                // Emptying a class run drops the node's pointer at mutation time, so every
+                // surviving pointer was marked and reindexes to `Some`; the attribute
+                // stores still leave emptied list heads behind, hence their `Option`s.
                 if let Some(list_index) = self.nodes.class_list_index(old_index) {
                     nodes
                         .set_class_list_index(new_index, class_list_reindex[list_index.as_usize()]);
