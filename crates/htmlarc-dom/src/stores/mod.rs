@@ -2,6 +2,7 @@ mod attributes;
 mod dataattributes;
 mod interner;
 mod listvec;
+mod runs;
 mod stringheap;
 mod stringstack;
 mod symbols;
@@ -14,10 +15,12 @@ pub use dataattributes::{DataAttribute, DataAttributeStore};
 pub(crate) use dataattributes::{
     DataAttributeRebuilder, DataAttributeStoreBuilder, DataAttributeStoreView, data_attr_list,
 };
+// `ListVec` and its rebuilder stay internal to the attribute stores until ADR 0002 PR 3
+// replaces them; only the list-slot index type remains part of their shared API.
 pub use listvec::ListIndex;
-// Class lists hold bare `Sym`s now, so `dom`/`accessors` reach the list machinery directly
-// rather than through a class-specific store.
-pub(crate) use listvec::{ListRebuilder, ListVec, ListVecView};
+// Class lists are contiguous runs of bare `Sym`s, so `dom`/`accessors` reach the run
+// arena directly rather than through a class-specific store.
+pub(crate) use runs::{RunIndex, RunRebuilder, RunValues, RunVec, RunVecView};
 pub use stringstack::StringStack;
 pub(crate) use stringstack::StringStackView;
 pub use symbols::Class;
