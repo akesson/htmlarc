@@ -4,12 +4,28 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        AttrName, AttrStoreBuilder, NAME_EXT_BASE, RunIndex, RunVec, StringStack,
+        AttrName, AttrStoreBuilder, ExtTags, NAME_EXT_BASE, RunIndex, RunVec, StringStack, Sym,
         SymbolTableBuilder,
     },
 };
 
-use super::dom::{DomStack, log, log_list, log_opt_i};
+use super::dom::{DomStack, TagName, log, log_list, log_opt_i};
+
+/// A tag on the parse stack: a standard [`HtmlTag`], or an extended (custom/unknown) tag held
+/// as its interned [`Sym`]. The symbol is full identity, so two distinct custom elements never
+/// close one another (ADR 0002 §4).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum CursorTag {
+    Std(HtmlTag),
+    Ext(Sym),
+}
+
+impl Default for CursorTag {
+    fn default() -> Self {
+        // `ArrayVec` fills its backing slots with `Default`; this filler is never read.
+        CursorTag::Std(HtmlTag::sys_root)
+    }
+}
 
 #[derive(Default)]
 pub struct DomBuilder {
@@ -17,6 +33,8 @@ pub struct DomBuilder {
     pub(crate) attrs: AttrStoreBuilder,
     pub(crate) symbols: SymbolTableBuilder,
     pub(crate) class_lists: RunVec,
+    /// Extended (custom/unknown) tag names, encoded into the node tag byte (ADR 0002 §4).
+    pub(crate) ext_tags: ExtTags,
     /// The class-run arena ceiling (one cap covers list count and entries alike — both
     /// are arena slots). Symbol-heap overflow is tracked by `symbols` itself; both are
     /// folded into [`overflow`](Self::overflow).
@@ -60,6 +78,7 @@ impl DomBuilder {
             attrs: self.attrs.build(),
             symbols: self.symbols.build(),
             class_lists: self.class_lists,
+            ext_tags: self.ext_tags,
             strings: self.strings,
         }
     }
@@ -102,7 +121,7 @@ const MAX_NODES: usize = 0x00FF_FFFF;
 #[derive(Default)]
 pub struct DomBuilderCursor {
     pub dom: DomBuilder,
-    pub tag_stack: ArrayVec<[HtmlTag; MAX_DEPTH]>,
+    pub tag_stack: ArrayVec<[CursorTag; MAX_DEPTH]>,
     pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
     pub attr_list_index: Option<RunIndex>,
     /// Set (first reason wins) when the node count or nesting depth overflows; combined
@@ -139,7 +158,33 @@ impl DomBuilderCursor {
 }
 
 impl DomStack for DomBuilderCursor {
-    fn _push_tag(&mut self, tag: HtmlTag) {
+    type Tag = CursorTag;
+
+    fn make_tag(&mut self, name: TagName<'_>) -> CursorTag {
+        match name {
+            TagName::Std(tag) => CursorTag::Std(tag),
+            // Extended names share the document symbol table with class tokens and extended
+            // attribute names. Interning an end tag's name is harmless: a matching name is
+            // already interned, and a mismatching one only poisons a document already doomed.
+            TagName::Ext(s) => CursorTag::Ext(self.dom.symbols.intern_or_poison(s)),
+        }
+    }
+
+    fn kind_of(tag: &CursorTag) -> HtmlTag {
+        match tag {
+            CursorTag::Std(t) => *t,
+            CursorTag::Ext(_) => HtmlTag::extended,
+        }
+    }
+
+    fn tag_display(&self, tag: &CursorTag) -> String {
+        match tag {
+            CursorTag::Std(t) => t.as_str().to_string(),
+            CursorTag::Ext(sym) => self.dom.symbols.resolve(*sym).to_string(),
+        }
+    }
+
+    fn _push_tag(&mut self, tag: CursorTag) {
         // Over-deep or over-large documents are poisoned and the offending node skipped.
         // Both stacks are left untouched (they stay in lock-step), so the matching close
         // tag still pops cleanly — the document is discarded by `HtmlDoc::parse` anyway.
@@ -152,24 +197,33 @@ impl DomStack for DomBuilderCursor {
         }
         self.tag_stack.push(tag);
         self.attr_list_index = None;
-        let i = self.dom.nodes.add_as_last_child(self.index(), tag);
-        log(i, || format!("push: {tag}"));
+        // A standard tag stores its `HtmlTag` repr; an extended tag stores a vocab byte
+        // encoding its symbol for the node about to be appended (its index is the count).
+        let byte = match tag {
+            CursorTag::Std(t) => t as u8,
+            CursorTag::Ext(sym) => {
+                let node = NodeIndex::new(self.dom.nodes.len() as u32);
+                self.dom.ext_tags.encode(sym, node)
+            }
+        };
+        let i = self.dom.nodes.add_as_last_child_byte(self.index(), byte);
+        log(i, || format!("push: {tag:?}"));
         self.push_index(i);
     }
 
     fn stack_info(&self) -> String {
         self.tag_stack
             .iter()
-            .map(HtmlTag::as_str)
+            .map(|t| self.tag_display(t))
             .collect::<Vec<_>>()
             .join(" > ")
     }
 
-    fn _last_tag(&mut self) -> HtmlTag {
-        self.tag_stack.last().copied().unwrap_or(HtmlTag::sys_root)
+    fn _last_tag(&self) -> Option<CursorTag> {
+        self.tag_stack.last().copied()
     }
 
-    fn _pop_tag(&mut self) -> Option<HtmlTag> {
+    fn _pop_tag(&mut self) -> Option<CursorTag> {
         let i = self.index_stack.pop();
         let tag = self.tag_stack.pop();
         self.attr_list_index = None;

@@ -102,6 +102,103 @@ fn body_p_section() {
     roundtrip("<body><p><section></section></p></body>")
 }
 
+// --- extended tags (ADR 0002 §4, PR 4) ---
+
+#[test]
+fn custom_element_round_trips() {
+    // Unknown tag names are no longer a parse error — they parse as extended (custom)
+    // elements and render with their real name (never the `extended` marker).
+    roundtrip(r#"<my-widget class="x"><span>hi</span></my-widget>"#);
+    roundtrip("<x-y></x-y>");
+    roundtrip(r#"<my-card data-id="7" title="t"><p>body</p></my-card>"#);
+    // A self-closing custom element has no void semantics: it renders an explicit close tag.
+    roundtrip_to("<x-y/>", "<x-y></x-y>");
+    roundtrip_to("<x-y />", "<x-y></x-y>");
+}
+
+#[test]
+fn nested_distinct_custom_elements_round_trip() {
+    roundtrip("<a-a><b-b><c-c></c-c></b-b></a-a>");
+}
+
+#[test]
+fn custom_element_with_standard_and_extended_attributes() {
+    roundtrip(r#"<my-el id="a" data-x="1" href="/h" wonky="y"></my-el>"#);
+}
+
+#[test]
+fn demoted_mediawiki_tags_round_trip_as_extended() {
+    // `hnan` and `figure-inline` were demoted from the `HtmlTag` enum (ADR 0002 §4); they now
+    // parse as ordinary extended tags, indistinguishable from any other custom element.
+    roundtrip("<hnan></hnan>");
+    roundtrip("<figure-inline></figure-inline>");
+}
+
+#[test]
+fn reserved_spellings_parse_as_custom_elements() {
+    // `extended`, `text`, and `comment` would alias onto a normalization/system variant via
+    // strum's case-insensitive `FromStr`; they must round-trip as custom elements instead —
+    // in particular `<extended>` is a custom element, never the `extended` marker spelling.
+    roundtrip("<extended></extended>");
+    roundtrip("<text></text>");
+    roundtrip("<comment></comment>");
+}
+
+#[test]
+fn mismatched_custom_end_tag_is_a_parse_error() {
+    // Two distinct custom elements share the `extended` kind, but full identity keeps them
+    // apart: `</b-b>` cannot close `<a-a>`. The error names the offending tags.
+    let err = parse_error("<a-a></b-b>");
+    assert!(
+        err.contains("a-a") && err.contains("b-b"),
+        "error should name both custom tags: {err}"
+    );
+    // A standard end tag cannot close a custom element, nor vice versa.
+    assert!(parse_error("<x-y></div>").contains("x-y"));
+    assert!(parse_error("<div></x-y>").contains("x-y"));
+    // Matching identity closes cleanly.
+    roundtrip("<a-a></a-a>");
+}
+
+#[test]
+fn standard_auto_close_fires_inside_a_custom_element() {
+    // `<li>`→`<li>` implied end tags still fire under a custom ancestor (an extended element
+    // itself never auto-closes), and the custom element opens/closes by identity.
+    roundtrip_to(
+        "<x-y><ul><li>a<li>b</li></ul></x-y>",
+        "<x-y><ul><li>a</li><li>b</li></ul></x-y>",
+    );
+}
+
+#[test]
+fn many_distinct_custom_elements_overflow_vocab_and_round_trip() {
+    use std::fmt::Write;
+    // 70 distinct custom-element names exceed the 63-slot vocab; the surplus spill to the
+    // overflow side map and must still round-trip byte-exact (ADR 0002 §4).
+    let mut html = String::from("<div>");
+    for i in 0..70u32 {
+        write!(html, "<x-{i}>t</x-{i}>").unwrap();
+    }
+    html.push_str("</div>");
+    roundtrip(&html);
+}
+
+#[test]
+fn extended_marker_never_leaks_into_output() {
+    // Both formatters must render the real custom-element name, never the `extended` marker
+    // spelling that `nodes.tag()` normalizes to.
+    let doc = "<div><my-widget data-x=\"1\"><span>hi</span></my-widget></div>";
+    let parsed = HtmlDoc::parse(doc).unwrap();
+    let raw = parsed.to_html(HtmlFormat::Raw);
+    let pretty = parsed.to_html(HtmlFormat::Pretty);
+    assert!(raw.contains("<my-widget") && raw.contains("</my-widget>"));
+    assert!(pretty.contains("<my-widget") && pretty.contains("</my-widget>"));
+    assert!(
+        !raw.contains("extended") && !pretty.contains("extended"),
+        "the `extended` marker must never appear:\n raw: {raw}\n pretty: {pretty}"
+    );
+}
+
 // --- per-document overflow guardrails (ADR 0002, PR 1) ---
 //
 // Each pathological document below used to either silently corrupt its stores (a u16
@@ -157,6 +254,16 @@ fn nesting_depth_boundary() {
 
     let too_deep = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
     assert!(parse_overflow(&too_deep).contains("capacity"));
+}
+
+/// Parse `html`, asserting it fails, and return the error message. Like
+/// [`parse_overflow`] but for ordinary (non-capacity) parse errors, e.g. a tag mismatch.
+#[track_caller]
+fn parse_error(html: &str) -> String {
+    match HtmlDoc::parse(html) {
+        Ok(_) => panic!("expected a parse error, but parse succeeded"),
+        Err(e) => e.to_string(),
+    }
 }
 
 #[track_caller] // Will show the location of the caller in test failure messages

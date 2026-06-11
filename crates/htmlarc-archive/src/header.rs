@@ -6,20 +6,20 @@
 //! | bytes  | meaning                                  |
 //! |--------|------------------------------------------|
 //! | 0..8   | magic `b"HTMLARC1"`                      |
-//! | 8      | format version (7 = unified attr store)  |
+//! | 8      | format version (8 = extended tags)       |
 //! | 9      | endianness (0 = little-endian)           |
 //! | 10..16 | reserved (zero)                          |
 //!
-//! Version 7 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
+//! Version 8 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
 //! [`crate::doc_table`], [`crate::bundle`]) whose per-document DOM unifies standard, `data-*`,
-//! and unknown attributes into one attribute store (ADR 0002 §3) — `(NameSym, ValueRef)`
-//! entries with per-element runs — and drops the node's data slot; v6 and older layouts are
-//! no longer read — re-pack to upgrade.
+//! and unknown attributes into one attribute store (ADR 0002 §3) and stores extended
+//! (custom/unknown) tag names in a per-document vocab encoded in the node tag byte (ADR 0002
+//! §4); v7 and older layouts are no longer read — re-pack to upgrade.
 
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 7;
+pub(crate) const VERSION: u8 = 8;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 

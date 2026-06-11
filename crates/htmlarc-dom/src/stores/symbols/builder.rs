@@ -26,10 +26,19 @@ impl SymbolTableBuilder {
         match self.interner.try_intern_capped(s, LOCAL_CAP) {
             Some(i) => Sym(i),
             None => {
-                self.overflow.get_or_insert("class strings exceed 61,184");
+                // The table holds class tokens, extended attribute names, and extended tag
+                // names alike (ADR 0002 §3–§4), so the reason is phrased generically.
+                self.overflow
+                    .get_or_insert("identity strings exceed 61,184");
                 Sym(0)
             }
         }
+    }
+
+    /// Resolve an already-interned [`Sym`] back to its string before [`build`](Self::build).
+    /// Used by the parse builder to name an extended tag in a mismatched-end-tag error.
+    pub(crate) fn resolve(&self, sym: Sym) -> &str {
+        self.interner.get(sym.as_u16())
     }
 
     pub(crate) fn build(self) -> SymbolTable {

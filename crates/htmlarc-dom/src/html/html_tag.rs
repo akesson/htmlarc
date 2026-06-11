@@ -144,15 +144,50 @@ pub enum HtmlTag {
     var,
     video,
     wbr,
-    // NON-STANDARD TAGS USED BY MEDIAWIKI
-    hnan,
-    #[strum(serialize = "figure-inline")]
-    figure_inline,
+    /// Normalization marker for an *extended* (custom/unknown) tag — any name not in this
+    /// enum (ADR 0002 §4). It is the in-memory result of [`crate::dom::nodes`] decoding a
+    /// node byte `>= EXT_BASE`; the real name lives in the per-document `ext_tags` vocab and
+    /// is resolved via `DomView::tag_name`. It is **never stored as a node's own
+    /// discriminant** (a node byte is either a sub-`EXT_BASE` discriminant or a vocab index)
+    /// and is intentionally absent from every classifier below, so the default arms apply:
+    /// extended elements are non-void, non-raw-text, non-inline/block, and never auto-close.
+    /// Must remain the LAST variant so `from_repr(extended as u8 + 1)` is `None`.
+    extended,
 }
 
 impl HtmlTag {
     pub fn as_str(&self) -> &'static str {
         self.into()
+    }
+
+    /// Parse a *tag name* — from a start/end tag or a CSS type selector — into a real HTML
+    /// element. Returns `None` both for unknown names (custom elements) and for the reserved
+    /// system/normalization spellings (`text`, `comment`, `doctype`, `extended`, …) that
+    /// strum's case-insensitive `FromStr` would otherwise alias onto a non-element variant.
+    /// Those become *extended* tags, so `<text>` round-trips as a custom element rather than a
+    /// malformed system node, and `extended` can never be conjured from a name (ADR 0002 §4).
+    /// `<!DOCTYPE …>` is unaffected: the tokenizer emits it through its own doctype path, not
+    /// this name lookup.
+    pub(crate) fn from_tag_name(name: &str) -> Option<HtmlTag> {
+        match HtmlTag::try_from(name) {
+            Ok(tag) if tag.is_reserved_spelling() => None,
+            Ok(tag) => Some(tag),
+            Err(_) => None,
+        }
+    }
+
+    /// Whether this variant's spelling names a system/normalization marker rather than a
+    /// parseable HTML element (see [`from_tag_name`](Self::from_tag_name)).
+    fn is_reserved_spelling(self) -> bool {
+        matches!(
+            self,
+            HtmlTag::sys_root
+                | HtmlTag::sys_deleted
+                | HtmlTag::sys_text
+                | HtmlTag::sys_comment
+                | HtmlTag::DOCTYPE
+                | HtmlTag::extended
+        )
     }
 
     /// Raw text elements are elements with text/script content that

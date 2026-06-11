@@ -164,7 +164,7 @@ impl<'dom> ElementFormat<'dom> {
 
         ElementString {
             style: self.style,
-            tag: element.tag(),
+            tag_name: element.tag_name(),
             attrs,
             with_words: self.with_words,
         }
@@ -296,4 +296,23 @@ fn test_css_terse() {
     let fmt = ElementFormat::try_from("CssTerse[id^=x][class*=x][data-foo*=x][text*=x]").unwrap();
     let out = fmt.format(&el).to_string();
     assert_eq!(out, "div");
+}
+
+#[test]
+fn test_extended_element_fmt() {
+    // A custom element formats with its real name, never the `extended` marker (ADR 0002 §4).
+    let dom = HtmlDoc::parse(r#"<my-widget class="hi" data-id="7">x</my-widget>"#)
+        .unwrap()
+        .dom();
+    let root = dom.root();
+    let el = root.forwards().next().unwrap();
+
+    let fmt = ElementFormat::try_from("HtmlFmt[class]").unwrap();
+    assert_eq!(fmt.format(&el).to_string(), "<my-widget class='hi'>");
+
+    let fmt = ElementFormat::try_from("CssFmt[data-id]").unwrap();
+    assert_eq!(fmt.format(&el).to_string(), "my-widget[data-id='7']");
+
+    let fmt = ElementFormat::try_from("CssTerse[class]").unwrap();
+    assert_eq!(fmt.format(&el).to_string(), "my-widget.hi");
 }

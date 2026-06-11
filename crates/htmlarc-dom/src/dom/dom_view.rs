@@ -1,10 +1,13 @@
-use crate::css::{AttributeSelector, ClassSelector, IdSelector, ResolvedRef, ResolvedSym};
+use crate::css::{
+    AttributeSelector, ClassSelector, ExtTagSelector, IdSelector, ResolvedRef, ResolvedSym,
+    ResolvedTag,
+};
 use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
-    AttrName, AttrStoreView, Attribute, Class, RunIndex, RunValues, RunVecView, StringStackView,
-    Sym, SymbolTableView,
+    AttrName, AttrStoreView, Attribute, Class, EXT_BASE, EXT_OVERFLOW, ExtTagsView, RunIndex,
+    RunValues, RunVecView, StringStackView, Sym, SymbolTableView,
 };
 
 /// A borrowed, read-only view over a DOM document.
@@ -23,6 +26,7 @@ pub struct DomView<'a> {
     pub(crate) attrs: AttrStoreView<'a>,
     pub(crate) symbols: SymbolTableView<'a>,
     pub(crate) class_lists: RunVecView<'a>,
+    pub(crate) ext_tags: ExtTagsView<'a>,
     pub(crate) strings: StringStackView<'a>,
 }
 
@@ -32,6 +36,7 @@ impl<'a> DomView<'a> {
         attrs: AttrStoreView<'a>,
         symbols: SymbolTableView<'a>,
         class_lists: RunVecView<'a>,
+        ext_tags: ExtTagsView<'a>,
         strings: StringStackView<'a>,
     ) -> Self {
         Self {
@@ -39,6 +44,7 @@ impl<'a> DomView<'a> {
             attrs,
             symbols,
             class_lists,
+            ext_tags,
             strings,
         }
     }
@@ -90,6 +96,38 @@ impl<'a> DomView<'a> {
             Some(self.string_at(index))
         } else {
             None
+        }
+    }
+
+    /// The element's tag name as a string. A standard tag yields its static name; an extended
+    /// (custom/unknown) tag — node byte `>= EXT_BASE` — resolves through the `ext_tags` vocab
+    /// to the symbol table (ADR 0002 §4). The formatter and `tag_id_class` render through this
+    /// so an extended element prints `<my-widget>`, never the `extended` marker.
+    pub(crate) fn tag_name(&self, index: NodeIndex) -> &'a str {
+        let byte = self.nodes.tag_byte(index);
+        if byte >= EXT_BASE {
+            self.symbols.get(self.ext_tags.sym_at(index, byte))
+        } else {
+            HtmlTag::from_repr(byte).unwrap().as_str()
+        }
+    }
+
+    /// The compound selector's extended-tag check (ADR 0002 §4). `Byte` is a single tag-byte
+    /// equality; `OverflowSym` confirms the overflow sentinel then the side-map symbol;
+    /// `Absent` never matches (correct through `:not`); `Unresolved` falls back to a string
+    /// compare of the node's tag name for the direct entry points that skip the resolve pass.
+    pub(crate) fn matches_ext_tag(&self, node: NodeIndex, sel: &ExtTagSelector) -> bool {
+        match sel.resolved {
+            ResolvedTag::Byte(b) => self.nodes.tag_byte(node) == b,
+            ResolvedTag::OverflowSym(sym) => {
+                let byte = self.nodes.tag_byte(node);
+                byte == EXT_OVERFLOW && self.ext_tags.sym_at(node, byte) == sym
+            }
+            ResolvedTag::Absent => false,
+            ResolvedTag::Unresolved => {
+                let byte = self.nodes.tag_byte(node);
+                byte >= EXT_BASE && self.tag_name(node) == sel.name
+            }
         }
     }
 
