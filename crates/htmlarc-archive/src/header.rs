@@ -3,21 +3,22 @@
 //! Layout (16 bytes — a multiple of 8 so the first rkyv doc blob that follows keeps its
 //! 8-byte alignment when accessed at `&bytes[HEADER_LEN..]`):
 //!
-//! | bytes  | meaning                                |
-//! |--------|----------------------------------------|
-//! | 0..8   | magic `b"HTMLARC1"`                    |
-//! | 8      | format version (4 = bundle-segmented)  |
-//! | 9      | endianness (0 = little-endian)         |
-//! | 10..16 | reserved (zero)                        |
+//! | bytes  | meaning                                  |
+//! |--------|------------------------------------------|
+//! | 0..8   | magic `b"HTMLARC1"`                      |
+//! | 8      | format version (5 = unified symbol table)|
+//! | 9      | endianness (0 = little-endian)           |
+//! | 10..16 | reserved (zero)                          |
 //!
-//! Version 4 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
-//! [`crate::doc_table`], [`crate::bundle`]); the older flat v3 and legacy layouts are no longer
-//! read — re-pack to upgrade.
+//! Version 5 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
+//! [`crate::doc_table`], [`crate::bundle`]) whose per-document DOM stores class tokens in a
+//! unified symbol table (ADR 0002 §1); v4 and older layouts are no longer read — re-pack to
+//! upgrade.
 
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 4;
+pub(crate) const VERSION: u8 = 5;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 

@@ -24,7 +24,7 @@ pub trait CommonFormatting<'dom> {
     fn push_attributes(&mut self, index: NodeIndex) {
         let (dom, buf) = self.dom_and_buf();
         if let Some(list_index) = dom.nodes.class_list_index(index) {
-            buf.add_classes(dom.classes.list_at(list_index));
+            buf.add_classes(dom.class_list_at(list_index));
         }
         if let Some(data_list_index) = dom.nodes.data_attr_list_index(index) {
             buf.add_data_attrs(dom.dataattrs.list_at(data_list_index));

@@ -24,25 +24,17 @@ impl SymbolTable {
         Self { heap, sorted }
     }
 
-    pub(crate) fn with_capacity_as(other: &Self) -> Self {
-        Self {
-            heap: StringHeap::with_capacity_as(&other.heap),
-            sorted: Vec::with_capacity(other.sorted.len()),
-        }
-    }
-
     pub(crate) fn len(&self) -> u16 {
         self.heap.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.heap.is_empty()
     }
 
     pub(crate) fn get(&self, sym: Sym) -> &str {
         &self.heap[sym.as_u16()]
     }
 
+    /// Resolve a string to its stable [`Sym`]. Only the unit tests need the owned form;
+    /// the query layer resolves through a [`SymbolTableView`] (owned or archived).
+    #[cfg(test)]
     pub(crate) fn find(&self, s: &str) -> Option<Sym> {
         self.view().find(s)
     }
@@ -52,7 +44,7 @@ impl SymbolTable {
     /// permutation. Returns `None` only when the document already holds `LOCAL_CAP`
     /// distinct symbols (an existing string still resolves at the cap).
     pub(crate) fn try_get_or_insert(&mut self, s: &str) -> Option<Sym> {
-        match self.search(s) {
+        match self.view().search(s) {
             Ok(sym) => Some(sym),
             Err(pos) => {
                 if self.heap.len() >= LOCAL_CAP {
@@ -72,15 +64,6 @@ impl SymbolTable {
     pub(crate) fn get_or_insert(&mut self, s: &str) -> Sym {
         self.try_get_or_insert(s)
             .expect("SymbolTable overflow: more than 61,184 distinct symbols in one document")
-    }
-
-    /// Binary-search the permutation, returning `Ok(sym)` on a hit or `Err(pos)` with the
-    /// permutation slot where `s` would be inserted to keep it sorted.
-    fn search(&self, s: &str) -> Result<Sym, usize> {
-        let view = self.view();
-        self.sorted
-            .binary_search_by(|&sym| view.get(Sym(sym)).cmp(s))
-            .map(|i| Sym(self.sorted[i]))
     }
 
     /// Rebuild-path compaction (called from the document repackage). `value_reidx` is the
@@ -110,7 +93,9 @@ impl SymbolTable {
         rebuilt
     }
 
-    #[cfg(debug_assertions)]
+    // Always compiled (not `#[cfg(debug_assertions)]`): `debug_assert!` expands its
+    // condition with a runtime `cfg!`, so the call site exists in release builds too — it
+    // is just never taken. The body is optimized out when debug assertions are off.
     fn is_content_sorted(&self) -> bool {
         let view = self.view();
         self.sorted
@@ -171,9 +156,11 @@ impl<'a> SymbolTableView<'a> {
         self.strings.get(sym.as_u16())
     }
 
-    /// Binary-search the permutation for `s`, returning its stable [`Sym`]. Byte-exact and
-    /// case-sensitive — class matching never folds case.
-    pub(crate) fn find(&self, s: &str) -> Option<Sym> {
+    /// Binary-search the permutation for `s`. `Ok(sym)` is the matching stable id; `Err(pos)`
+    /// is the permutation slot a new symbol would take to keep it sorted (used by
+    /// [`SymbolTable::try_get_or_insert`]). Byte-exact and case-sensitive — class matching
+    /// never folds case.
+    pub(crate) fn search(&self, s: &str) -> Result<Sym, usize> {
         use std::cmp::Ordering::*;
         let mut left = 0usize;
         let mut right = self.sorted.len();
@@ -183,10 +170,17 @@ impl<'a> SymbolTableView<'a> {
             match self.strings.get(sym).cmp(s) {
                 Less => left = mid + 1,
                 Greater => right = mid,
-                Equal => return Some(Sym(sym)),
+                Equal => return Ok(Sym(sym)),
             }
         }
-        None
+        Err(left)
+    }
+
+    /// Resolve `s` to its stable [`Sym`], or `None` if absent. The first non-test caller is
+    /// the selector resolve pass added in the commit that follows this one.
+    #[allow(dead_code)]
+    pub(crate) fn find(&self, s: &str) -> Option<Sym> {
+        self.search(s).ok()
     }
 }
 
