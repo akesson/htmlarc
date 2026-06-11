@@ -36,7 +36,7 @@ fn has_suffix(path: &Path, suffix: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn gather_warc_files(input: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn gather_warc_files(input: &Path) -> Result<Vec<PathBuf>> {
     if input.is_dir() {
         let mut files: Vec<PathBuf> = std::fs::read_dir(input)?
             .filter_map(|e| e.ok())

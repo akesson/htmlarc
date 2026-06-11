@@ -17,7 +17,7 @@ pub(crate) mod zim;
 
 use std::collections::BTreeMap;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, mpsc};
 
@@ -113,6 +113,17 @@ pub(crate) fn open_source(
         Format::Warc => Box::new(WarcSource::open(input, wordlist, limit)?),
         Format::Dir => Box::new(DirSource::open(input, wordlist, limit)?),
     })
+}
+
+/// If `input` resolves to the WARC format, return the list of WARC files to process
+/// (a single file, or every `.warc`/`.warc.gz` in a directory, sorted); `None` for ZIM and
+/// directory sources, which are already lazy. `stats` uses this to stream WARC segments one
+/// file at a time, keeping memory bounded to a single segment over an arbitrarily large crawl.
+pub(crate) fn warc_files(input: &Path, format: Option<&str>) -> Result<Option<Vec<PathBuf>>> {
+    match detect_format(input, format)? {
+        Format::Warc => Ok(Some(warc::gather_warc_files(input)?)),
+        _ => Ok(None),
+    }
 }
 
 /// NFC-normalize a string. ZIM titles and the wordlist are compared in NFC.

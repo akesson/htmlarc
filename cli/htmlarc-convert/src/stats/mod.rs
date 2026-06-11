@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::args::Stats;
-use crate::source::{DocSink, drive_runs_parallel, open_source};
+use crate::source::{DocSink, Source, WarcSource, drive_runs_parallel, open_source, warc_files};
 use counter::{DocStats, count_doc};
 
 // ADR 0002 ceilings (the values a per-document count must stay under).
@@ -226,19 +226,8 @@ impl DocSink for StatsSink {
     }
 }
 
-pub(crate) fn run(args: Stats) -> Result<()> {
-    let Stats {
-        input,
-        limit,
-        format,
-    } = args;
-
-    let source = open_source(&input, format.as_deref(), None, limit)?;
-    let source = source.as_ref();
-
-    let mut global = HistSet::new();
-    let mut bundles: Vec<BundleDict> = Vec::new();
-
+/// Count every run of `source` in parallel, merging into the running totals.
+fn accumulate(source: &dyn Source, global: &mut HistSet, bundles: &mut Vec<BundleDict>) {
     drive_runs_parallel(
         source.run_count(),
         |rank| {
@@ -251,8 +240,46 @@ pub(crate) fn run(args: Stats) -> Result<()> {
             bundles.push(dict);
         },
     );
+}
 
-    print_report(source.stats().prepared, &global, &bundles);
+pub(crate) fn run(args: Stats) -> Result<()> {
+    let Stats {
+        input,
+        limit,
+        format,
+    } = args;
+
+    let mut global = HistSet::new();
+    let mut bundles: Vec<BundleDict> = Vec::new();
+    let mut counted = 0usize;
+
+    if let Some(files) = warc_files(&input, format.as_deref())? {
+        // Stream WARC segments one file at a time — the WARC reader holds a whole file in
+        // memory, so processing (then dropping) each in turn keeps memory bounded to a single
+        // segment over a corpus of any size.
+        for (i, file) in files.iter().enumerate() {
+            let remaining = match limit {
+                Some(l) if counted >= l => break,
+                Some(l) => Some(l - counted),
+                None => None,
+            };
+            let source = WarcSource::open(file, None, remaining)?;
+            counted += source.stats().prepared;
+            accumulate(&source, &mut global, &mut bundles);
+            eprintln!(
+                "  [{}/{}] {} — {counted} docs cumulative",
+                i + 1,
+                files.len(),
+                file.display()
+            );
+        }
+    } else {
+        let source = open_source(&input, format.as_deref(), None, limit)?;
+        counted = source.stats().prepared;
+        accumulate(source.as_ref(), &mut global, &mut bundles);
+    }
+
+    print_report(counted, &global, &bundles);
     Ok(())
 }
 
