@@ -47,6 +47,8 @@ xflags::xflags! {
             optional --limit count: usize
             /// Force the input format: zim | warc | dir.
             optional --format fmt: String
+            /// Also measure per-bundle zstd compression of Lane A vs Lane B (slow).
+            optional --compress
         }
     }
 }

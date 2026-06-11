@@ -40,6 +40,9 @@ pub(crate) struct DocStats {
     pub sym_union: u32,
     /// The Lane A symbol strings of this document (for the per-bundle shared-dict simulation).
     pub lane_a: Vec<String>,
+    /// The Lane B bytes of this document — text/comment payload and content-attribute values
+    /// (everything routed to the compress lane). Empty unless compression measurement is on.
+    pub lane_b: Vec<u8>,
 }
 
 type FixedHasher = BuildHasherDefault<DefaultHasher>;
@@ -58,6 +61,10 @@ struct Counter {
     ext_attrs: HashSet<String>,
     pair_hashes: HashSet<u64>,
     hasher: FixedHasher,
+
+    // Lane B (compress lane) bytes; only collected when `capture_b` is set.
+    capture_b: bool,
+    lane_b: Vec<u8>,
 
     // Transient per-tag state.
     cur_attr: Option<String>,
@@ -119,6 +126,10 @@ impl Counter {
             self.ids.insert(value);
         } else if SEARCHED_ATTRS.contains(&lname.as_str()) {
             self.searched.insert(value);
+        } else if self.capture_b {
+            // A content attribute value (href/title/src/alt/data-*/…) → Lane B.
+            self.lane_b.extend_from_slice(value.as_bytes());
+            self.lane_b.push(b'\n');
         }
     }
 
@@ -145,9 +156,20 @@ impl Counter {
             CallbackEvent::String { value } => {
                 if !value.is_empty() {
                     self.nodes += 1;
+                    if self.capture_b {
+                        self.lane_b.extend_from_slice(value);
+                        self.lane_b.push(b'\n');
+                    }
                 }
             }
-            CallbackEvent::Comment { .. } | CallbackEvent::Doctype { .. } => self.nodes += 1,
+            CallbackEvent::Comment { value } => {
+                self.nodes += 1;
+                if self.capture_b {
+                    self.lane_b.extend_from_slice(value);
+                    self.lane_b.push(b'\n');
+                }
+            }
+            CallbackEvent::Doctype { .. } => self.nodes += 1,
             CallbackEvent::Error(_) => {}
         }
     }
@@ -178,13 +200,18 @@ impl Counter {
             ext_attr_names,
             sym_union: union.len() as u32,
             lane_a: union.into_iter().collect(),
+            lane_b: std::mem::take(&mut self.lane_b),
         }
     }
 }
 
-/// Count one document's cardinalities with a tolerant tokenizer pass.
-pub(crate) fn count_doc(html: &str) -> DocStats {
-    let mut counter = Counter::default();
+/// Count one document's cardinalities with a tolerant tokenizer pass. When `capture_b` is
+/// set, also collect the document's Lane B bytes (text + content-attribute values).
+pub(crate) fn count_doc(html: &str, capture_b: bool) -> DocStats {
+    let mut counter = Counter {
+        capture_b,
+        ..Default::default()
+    };
     {
         let emitter: CallbackEmitter<_, (), ()> =
             CallbackEmitter::new(|event: CallbackEvent<'_>, _span| {
@@ -210,7 +237,7 @@ mod tests {
             <my-widget data-foo="1" data-bar="2" class="a b a" id="w"></my-widget>
             <custom-thing aria-zonk="x"></custom-thing>
         </body></html>"#;
-        let s = count_doc(html);
+        let s = count_doc(html, true);
 
         // path, g, circle, mrow, mi, my-widget, custom-thing  (svg/math are enum tags).
         assert_eq!(s.ext_tag_names, 7);
@@ -220,13 +247,17 @@ mod tests {
         assert_eq!(s.list_entries, 10);
         // classes{a,b}=2, ids{w}=1, ext_tags=7, ext_attrs=6 → 16.
         assert_eq!(s.sym_union, 16);
+        // capture_b=true collected text + content-attr values into Lane B.
+        assert!(!s.lane_b.is_empty());
     }
 
     #[test]
     fn plain_document_has_no_extended_names() {
-        let s = count_doc("<div class='x'><p>hi</p><a href='/y'>link</a></div>");
+        let s = count_doc("<div class='x'><p>hi</p><a href='/y'>link</a></div>", false);
         assert_eq!(s.ext_tag_names, 0);
         assert_eq!(s.ext_attr_names, 0);
         assert!(s.max_depth >= 2);
+        // capture_b=false leaves Lane B empty.
+        assert!(s.lane_b.is_empty());
     }
 }

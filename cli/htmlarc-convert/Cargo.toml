@@ -20,6 +20,7 @@ unicode-normalization.workspace = true
 walkdir.workspace = true
 xflags.workspace = true
 zim.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

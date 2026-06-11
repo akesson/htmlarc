@@ -701,6 +701,7 @@ dependencies = [
  "walkdir",
  "xflags",
  "zim",
+ "zstd",
 ]
 
 [[package]]
