@@ -418,6 +418,18 @@ inside the attribute stores until PR 3 deletes them. Archive format 5 → 6.
   attractive for heterogeneous corpora.
 - Topology packing for general web (the ~62 % post-compression share) — candidate levers:
   delta/implicit sibling links, varint offsets; measure after PR 3.
+- `RunVec` terminator → side bitvec (possible future optimization, analyzed 2026-06-11 and
+  parked). Replacing the 2 B/run `0xFFFF` terminator with a 1-bit-per-slot boundary bitvec
+  would save ~0.39 % of the archive on wiktionary_co (terminators are 361,110 B = 25.3 % of
+  the class arena; the bitvec would be 66,523 B). Parked because: (a) it adds a second
+  dependent load to the per-node match scan — the exact path that produced PR 2.5's −5 %
+  class-select win (cf. the NodeWidth +65 % lesson on breaking the single-load pattern);
+  (b) in-place remove/relocate must shift bits in lockstep across byte boundaries —
+  complexity on an already-subtle mutation path; (c) Lane B per-bundle zstd (PR 8) will
+  compress the highly regular terminator pattern to near-zero, so the raw saving mostly
+  evaporates post-compression. Re-evaluate with real numbers when PR 3 moves attribute
+  lists onto `RunVec` (a several-times-larger arena, so terminators grow in absolute
+  bytes), and only if a post-Lane-B measurement still shows them as a real cost.
 - Archive key index (`htmlarc-archive` doc table, outside this ADR's stores): `fst::Map`
   measured **4.6× smaller** than the current keys + 4 B/doc permutation on wiktionary_en
   (8.87 M keys: 199 MiB → 43 MiB) with **1.6× faster** exact lookups (332 vs 544 ns) and
