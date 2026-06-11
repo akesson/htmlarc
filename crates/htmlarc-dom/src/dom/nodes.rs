@@ -7,7 +7,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dom::NodeIndex;
 use crate::html::HtmlTag;
-use crate::stores::RunIndex;
+use crate::stores::{EXT_BASE, RunIndex};
 
 /// Per-document node-index width.
 ///
@@ -205,7 +205,21 @@ impl<'a> NodesView<'a> {
     }
 
     pub fn tag(&self, index: NodeIndex) -> HtmlTag {
-        HtmlTag::from_repr(self.bytes[self.base(index)]).unwrap()
+        let byte = self.tag_byte(index);
+        if byte >= EXT_BASE {
+            // A vocab index or the overflow sentinel — an extended (custom/unknown) tag.
+            // `tag()` stays infallible; the real name is resolved via `DomView::tag_name`.
+            HtmlTag::extended
+        } else {
+            HtmlTag::from_repr(byte).unwrap()
+        }
+    }
+
+    /// The raw tag byte: a sub-[`EXT_BASE`] `HtmlTag` discriminant, or an extended-tag vocab
+    /// index / overflow sentinel. The width-invariant repack and the extended-tag matching
+    /// fast paths read this directly rather than the normalized [`tag`](Self::tag).
+    pub(crate) fn tag_byte(&self, index: NodeIndex) -> u8 {
+        self.bytes[self.base(index)]
     }
 
     pub fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
@@ -353,6 +367,10 @@ impl Nodes {
         self.view().tag(index)
     }
 
+    pub(crate) fn tag_byte(&self, index: NodeIndex) -> u8 {
+        self.view().tag_byte(index)
+    }
+
     pub fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         self.view().parent_index(index)
     }
@@ -451,11 +469,22 @@ impl Nodes {
     }
 
     pub fn add_as_last_child(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
+        debug_assert!(
+            tag != HtmlTag::extended,
+            "extended is a normalization marker; store an extended tag via its vocab byte"
+        );
+        self.add_as_last_child_byte(index, tag as u8)
+    }
+
+    /// [`add_as_last_child`](Self::add_as_last_child) taking a raw tag byte — the parse
+    /// builder's path for extended tags, whose byte is a vocab index rather than an
+    /// `HtmlTag` discriminant.
+    pub(crate) fn add_as_last_child_byte(&mut self, index: NodeIndex, tag: u8) -> NodeIndex {
         // the added node parent is the current node and the previous sibling is the current last child
         let parent_index = Some(index);
         let prev_sibling = self.last_child_index(index);
 
-        let new_index = self.add_node(tag, parent_index, prev_sibling, None);
+        let new_index = self.add_node_byte(tag, parent_index, prev_sibling, None);
 
         // the former last child now has the new node as next sibling
         if let Some(child) = prev_sibling {
@@ -775,6 +804,24 @@ impl Nodes {
         prev_sibling: Option<NodeIndex>,
         next_sibling: Option<NodeIndex>,
     ) -> NodeIndex {
+        debug_assert!(
+            tag != HtmlTag::extended,
+            "extended is a normalization marker; store an extended tag via its vocab byte"
+        );
+        self.add_node_byte(tag as u8, parent_index, prev_sibling, next_sibling)
+    }
+
+    /// [`add_node`](Self::add_node) taking a raw tag byte — the path for extended tags, whose
+    /// byte is a per-document vocab index (`>= EXT_BASE`) rather than an `HtmlTag`
+    /// discriminant. A byte is a string node iff it spells `sys_text`/`sys_comment` (both
+    /// sub-`EXT_BASE`), so an extended tag always takes the element layout.
+    pub(crate) fn add_node_byte(
+        &mut self,
+        tag: u8,
+        parent_index: Option<NodeIndex>,
+        prev_sibling: Option<NodeIndex>,
+        next_sibling: Option<NodeIndex>,
+    ) -> NodeIndex {
         let width = self.width();
         let node_size = width.node_size();
         let new = self.bytes.len() / node_size;
@@ -789,11 +836,11 @@ impl Nodes {
         // explicitly because a zeroed slot would read back as node 0, not `None`.
         self.bytes.resize(self.bytes.len() + node_size, 0);
         let base = self.base(index);
-        self.bytes[base] = tag as u8;
+        self.bytes[base] = tag;
         self.set_parent_index(index, parent_index);
         self.set_prev_sibling_index(index, prev_sibling);
         self.set_next_sibling_index(index, next_sibling);
-        if tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment {
+        if tag == HtmlTag::sys_text as u8 || tag == HtmlTag::sys_comment as u8 {
             self.set_text_range(index, 0..0);
         } else {
             self.set_first_child_index(index, None);
@@ -833,7 +880,9 @@ fn repack(src: NodesView, dst: NodeWidth) -> Vec<u8> {
     for i in 0..n {
         let idx = NodeIndex::new(i as u32);
         let base = i * dst.node_size();
-        out[base] = src.tag(idx) as u8;
+        // Copy the raw byte, not `src.tag(idx) as u8`: an extended tag's byte is a vocab
+        // index, which `tag()` would collapse to `HtmlTag::extended` and corrupt on down-pack.
+        out[base] = src.tag_byte(idx);
         write_node_slot(&mut out, base + dst.parent(), dst, src.parent_index(idx));
         write_node_slot(
             &mut out,

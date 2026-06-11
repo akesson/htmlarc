@@ -14,7 +14,9 @@ use crate::probe::format::*;
 pub struct ElementString<'dom> {
     /// The style decides how the tag and attributes are formatted.
     pub(super) style: ElementStyle,
-    pub(super) tag: HtmlTag,
+    /// The element's tag name (an extended/custom element resolves to its real name, never
+    /// the `extended` marker — ADR 0002 §4).
+    pub(super) tag_name: &'dom str,
     /// The attributes are the one that matches the selection criteria,
     /// and are thus included in the string.
     pub(super) attrs: SmallVec<[ElementAttribute<'dom>; 4]>,
@@ -24,14 +26,14 @@ pub struct ElementString<'dom> {
 impl Hash for ElementString<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.style.hash(state);
-        self.tag.hash(state);
+        self.tag_name.hash(state);
         self.attrs.hash(state);
     }
 }
 
 impl PartialEq for ElementString<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.style == other.style && self.tag == other.tag && self.attrs == other.attrs
+        self.style == other.style && self.tag_name == other.tag_name && self.attrs == other.attrs
     }
 }
 
@@ -44,7 +46,7 @@ impl Display for ElementString<'_> {
                     .iter()
                     .partition(|a| matches!(a, ElementAttribute::Class(_)));
 
-                write!(f, "<{}", self.tag)?;
+                write!(f, "<{}", self.tag_name)?;
 
                 if !classes.is_empty() {
                     write!(
@@ -64,14 +66,14 @@ impl Display for ElementString<'_> {
                 write!(f, ">")?;
             }
             ElementStyle::CssFmt => {
-                write!(f, "{}", self.tag)?;
+                write!(f, "{}", self.tag_name)?;
 
                 for attr in self.attrs.iter() {
                     write!(f, "{}", attr.format(&self.style))?;
                 }
             }
             ElementStyle::CssTerse => {
-                write!(f, "{}", self.tag)?;
+                write!(f, "{}", self.tag_name)?;
 
                 for attr in self.attrs.iter() {
                     write!(f, "{}", attr.format(&self.style))?;

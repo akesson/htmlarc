@@ -137,7 +137,7 @@ fn builder_overflow_poisons_at_local_cap() {
     }
     assert!(b.overflow().is_none());
     b.intern_or_poison("one too many");
-    assert_eq!(b.overflow(), Some("class strings exceed 61,184"));
+    assert_eq!(b.overflow(), Some("identity strings exceed 61,184"));
 }
 
 #[test]

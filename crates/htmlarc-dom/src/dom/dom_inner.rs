@@ -4,7 +4,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{AttrStore, RunVec, StringStack, SymbolTable};
+use crate::stores::{AttrStore, ExtTags, RunVec, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -21,6 +21,10 @@ pub struct DomInner {
     /// Per-node class lists as contiguous runs of `Sym` values; a node's class slot holds
     /// its run's start offset directly.
     pub(crate) class_lists: RunVec,
+    /// Extended (custom/unknown) tag names: the per-document vocab + overflow side map that a
+    /// node's `>= EXT_BASE` tag byte resolves through (ADR 0002 §4). Names are `Sym`s into
+    /// `symbols`, shared with class tokens and extended attribute names.
+    pub(crate) ext_tags: ExtTags,
     pub(crate) strings: StringStack,
 }
 
@@ -41,6 +45,7 @@ impl DomInner {
             self.attrs.view(),
             self.symbols.view(),
             self.class_lists.view(),
+            self.ext_tags.view(),
             self.strings.view(),
         )
     }
@@ -345,6 +350,7 @@ impl ArchivedDomInner {
             self.attrs.view(),
             self.symbols.view(),
             self.class_lists.view(),
+            self.ext_tags.view(),
             self.strings.view(),
         )
     }
@@ -836,4 +842,102 @@ fn repackage_keeps_extended_attr_names_when_classes_compact() {
         !html.contains("drop"),
         "the emptied <p> class is gone: {html}"
     );
+}
+
+// Regression for the ADR 0002 §4 rebuild trap: extended *tag* names live in the same
+// per-document symbol table as class tokens and extended attribute names, but the class
+// rebuilder only marks class-used syms. Without the tag-name union pass in `DomInner::rebuild`
+// (the twin of the attr-name pass), repackaging a document whose classes are compacted would
+// drop every custom element's name and leave its `Sym` dangling.
+#[test]
+fn repackage_keeps_extended_tag_names_when_classes_compact() {
+    // The <p class="drop keep"> is emptied, forcing the symbol table to compact; the custom
+    // <my-widget>/<data-card> elements carry names that must survive that compaction.
+    let html_str = "<html class='root'><body>\
+        <p class='drop keep'>x</p>\
+        <my-widget><data-card>c</data-card></my-widget></body></html>";
+    let dom = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+
+    dom.root()
+        .select_css("p")
+        .unwrap()
+        .first()
+        .unwrap()
+        .classes_mut()
+        .remove(|_| true);
+
+    let html = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        html.contains("<my-widget>"),
+        "custom element name must survive symbol compaction: {html}"
+    );
+    assert!(
+        html.contains("<data-card>"),
+        "nested custom element name must survive: {html}"
+    );
+    assert!(
+        html.contains("class=\"root\""),
+        "the untouched <html> class must survive: {html}"
+    );
+    assert!(
+        !html.contains("drop"),
+        "the emptied <p> class is gone: {html}"
+    );
+}
+
+#[test]
+fn repackage_re_derives_overflow_extended_tag_vocab() {
+    use std::fmt::Write;
+    // 70 distinct custom elements overflow the 63-slot vocab; repackage re-derives the vocab
+    // and rewrites the node-index-keyed overflow side map, so every name — vocab and overflow
+    // alike — must survive with its node indices remapped (ADR 0002 §4).
+    let mut html_str = String::from("<div>");
+    for i in 0..70u32 {
+        write!(html_str, "<x-{i}>t</x-{i}>").unwrap();
+    }
+    html_str.push_str("</div>");
+
+    let dom = HtmlDoc::parse(&html_str).unwrap().dom();
+    let repacked = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    // A vocab tag, the boundary, and an overflow tag.
+    for name in ["<x-0>", "<x-62>", "<x-63>", "<x-69>"] {
+        assert!(
+            repacked.contains(name),
+            "{name} must survive repackage of the overflow vocab: {repacked}"
+        );
+    }
+}
+
+#[test]
+fn extended_tags_survive_u16_archived_round_trip() {
+    use rkyv::rancor::Error;
+
+    // A small document of custom elements mixed with text/attrs must down-pack to U16 and
+    // render identically through the zero-copy archived view (exercising `ExtTagsView`'s
+    // archived paths and the `repack` raw-byte copy of the extended tag bytes).
+    let html = r#"<my-card id="i" data-x="y"><x-leaf>hi</x-leaf>tail</my-card>"#;
+    let dom: DomInner = HtmlDoc::parse(html).unwrap().dom().into_optimal_width();
+    let raw = dom.to_html(HtmlFormat::Raw);
+
+    let bytes = rkyv::to_bytes::<Error>(&dom).unwrap();
+    let archived = rkyv::access::<ArchivedDomInner, Error>(&bytes[..]).unwrap();
+    assert!(
+        archived.nodes.view().as_bytes().len().is_multiple_of(15),
+        "small document must down-pack to the 15-byte U16 node stride"
+    );
+    // Render directly off the archived view: `tag_name` resolves through `ExtTagsView::Archived`.
+    assert_eq!(
+        archived.to_html(HtmlFormat::Raw),
+        raw,
+        "archived zero-copy render preserves extended tag names"
+    );
+    assert!(raw.contains("<my-card") && raw.contains("<x-leaf>") && raw.contains("</x-leaf>"));
+    // And a custom-element selector resolves against the archived document.
+    let leaf: Vec<_> = archived
+        .root()
+        .select_css("x-leaf")
+        .unwrap()
+        .map(|el| el.tag_name().to_string())
+        .collect();
+    assert_eq!(leaf, ["x-leaf"]);
 }
