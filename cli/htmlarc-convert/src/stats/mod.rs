@@ -1,10 +1,12 @@
 //! The `stats` command: probe per-document and per-bundle cardinalities to gate ADR 0002's
 //! reference-space constants. Each run is counted in parallel; the coordinator merges the
-//! per-metric histograms and collects each run's shared-dictionary simulation.
+//! per-metric histograms and collects each run's shared-dictionary simulation. With
+//! `--compress`, it also measures per-bundle zstd of Lane A vs Lane B.
 
 mod counter;
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use anyhow::Result;
 
@@ -21,8 +23,12 @@ const SYM_LOCAL_CAP: u32 = 0xEF00; // 61,184 per-doc Lane A symbols
 const EXT_TAG_VOCAB: u32 = 63; // EXT_BASE..255 tag-byte vocabulary
 const NO_CAP: u32 = u32::MAX;
 
-// Shared-dictionary sizes to simulate (ADR 0002: 1024 vs 4095).
-const SHARED_K: [usize; 2] = [1024, 4095];
+// Shared-dictionary sizes to sweep.
+const SHARED_K: [usize; 5] = [256, 1024, 4096, 16384, 65535];
+
+// zstd level for the (optional) Lane A / Lane B compression measurement — matches the
+// reference level in ADR 0001.
+const ZSTD_LEVEL: i32 = 19;
 
 /// A log2-bucketed histogram with an exact max (and the document that produced it) and a
 /// count of documents over a hard ceiling.
@@ -97,6 +103,14 @@ impl Hist {
         self.max
     }
 
+    /// Number of documents whose value exceeds `2^exp` (i.e. would not fit a field sized to
+    /// hold values `≤ 2^exp`). Coarse to the log bucket.
+    fn over_pow2(&self, exp: usize) -> u64 {
+        self.buckets[(exp + 1).min(self.buckets.len())..]
+            .iter()
+            .sum()
+    }
+
     fn report_line(&self) -> String {
         let over = if self.threshold == NO_CAP {
             "—".to_string()
@@ -104,13 +118,14 @@ impl Hist {
             format!("{} (>{})", self.over, self.threshold)
         };
         format!(
-            "{:<16} max={:<10} p50={:<7} p90={:<8} p99={:<9} p99.9={:<10} over_cap={}",
+            "{:<15} max={:<9} p50={:<7} p99={:<8} p99.9={:<8} p99.99={:<8} p99.999={:<8} over_cap={}",
             self.label,
             self.max,
             self.percentile(0.50),
-            self.percentile(0.90),
             self.percentile(0.99),
             self.percentile(0.999),
+            self.percentile(0.9999),
+            self.percentile(0.99999),
             over,
         )
     }
@@ -167,25 +182,98 @@ impl HistSet {
             a.merge(b);
         }
     }
+
+    fn by_label(&self, label: &str) -> &Hist {
+        self.hists.iter().find(|h| h.label == label).unwrap()
+    }
 }
 
-/// One bundle's shared-dictionary simulation result.
+/// Per-bundle zstd measurement of the two lanes.
+#[derive(Clone, Copy, Default)]
+struct Compression {
+    a_raw: u64, // Lane A bytes stored per-doc (no cross-doc dedup)
+    a_z: u64,   // …compressed
+    b_raw: u64, // Lane B bytes (text + content-attr values)
+    b_z: u64,   // …compressed
+}
+
+/// A byte-counting sink — the encoders write into it; we only want the compressed length.
+#[derive(Default)]
+struct CountWriter(u64);
+
+impl Write for CountWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Streaming zstd encoders for one bundle's two lanes, plus raw byte tallies.
+struct CompressAcc {
+    a: zstd::stream::write::Encoder<'static, CountWriter>,
+    b: zstd::stream::write::Encoder<'static, CountWriter>,
+    a_raw: u64,
+    b_raw: u64,
+}
+
+impl CompressAcc {
+    fn new() -> Self {
+        Self {
+            a: zstd::stream::write::Encoder::new(CountWriter::default(), ZSTD_LEVEL).unwrap(),
+            b: zstd::stream::write::Encoder::new(CountWriter::default(), ZSTD_LEVEL).unwrap(),
+            a_raw: 0,
+            b_raw: 0,
+        }
+    }
+
+    fn feed_a(&mut self, s: &str) {
+        self.a.write_all(s.as_bytes()).unwrap();
+        self.a_raw += s.len() as u64;
+    }
+
+    fn feed_b(&mut self, bytes: &[u8]) {
+        self.b.write_all(bytes).unwrap();
+        self.b_raw += bytes.len() as u64;
+    }
+
+    fn finish(self) -> Compression {
+        let a_z = self.a.finish().unwrap().0;
+        let b_z = self.b.finish().unwrap().0;
+        Compression {
+            a_raw: self.a_raw,
+            a_z,
+            b_raw: self.b_raw,
+            b_z,
+        }
+    }
+}
+
+/// One bundle's results: shared-dictionary coverage, node total, and (optionally) compression.
 struct BundleDict {
-    /// `(coverage_fraction, bytes_saved)` at each of [`SHARED_K`].
     at_k: [(f64, u64); SHARED_K.len()],
+    node_sum: u64,
+    compression: Option<Compression>,
 }
 
-/// Accumulates one run's documents: histograms plus the run's Lane A document-frequency map.
+/// Accumulates one run's documents: histograms, the Lane A doc-frequency map, node total, and
+/// (optionally) the per-bundle compression encoders.
 struct StatsSink {
     hists: HistSet,
     freq: HashMap<String, (u32, u32)>, // symbol -> (doc frequency, byte length)
+    node_sum: u64,
+    compress: Option<CompressAcc>,
 }
 
 impl StatsSink {
-    fn new() -> Self {
+    fn new(compress: bool) -> Self {
         Self {
             hists: HistSet::new(),
             freq: HashMap::new(),
+            node_sum: 0,
+            compress: compress.then(CompressAcc::new),
         }
     }
 
@@ -208,14 +296,23 @@ impl StatsSink {
                 .sum();
             at_k[i] = (covered as f64 / total_refs.max(1) as f64, bytes);
         }
-        (self.hists, BundleDict { at_k })
+        let compression = self.compress.map(CompressAcc::finish);
+        (
+            self.hists,
+            BundleDict {
+                at_k,
+                node_sum: self.node_sum,
+                compression,
+            },
+        )
     }
 }
 
 impl DocSink for StatsSink {
     fn accept(&mut self, key: &str, html: &str) {
-        let stats = count_doc(html);
+        let stats = count_doc(html, self.compress.is_some());
         self.hists.record(&stats, key);
+        self.node_sum += stats.nodes as u64;
         for token in &stats.lane_a {
             if let Some(e) = self.freq.get_mut(token) {
                 e.0 += 1;
@@ -223,15 +320,26 @@ impl DocSink for StatsSink {
                 self.freq.insert(token.clone(), (1, token.len() as u32));
             }
         }
+        if let Some(c) = &mut self.compress {
+            for token in &stats.lane_a {
+                c.feed_a(token);
+            }
+            c.feed_b(&stats.lane_b);
+        }
     }
 }
 
 /// Count every run of `source` in parallel, merging into the running totals.
-fn accumulate(source: &dyn Source, global: &mut HistSet, bundles: &mut Vec<BundleDict>) {
+fn accumulate(
+    source: &dyn Source,
+    compress: bool,
+    global: &mut HistSet,
+    bundles: &mut Vec<BundleDict>,
+) {
     drive_runs_parallel(
         source.run_count(),
         |rank| {
-            let mut sink = StatsSink::new();
+            let mut sink = StatsSink::new(compress);
             source.drive_run(rank, &mut sink);
             sink.into_bundle_dict()
         },
@@ -247,6 +355,7 @@ pub(crate) fn run(args: Stats) -> Result<()> {
         input,
         limit,
         format,
+        compress,
     } = args;
 
     let mut global = HistSet::new();
@@ -265,7 +374,7 @@ pub(crate) fn run(args: Stats) -> Result<()> {
             };
             let source = WarcSource::open(file, None, remaining)?;
             counted += source.stats().prepared;
-            accumulate(&source, &mut global, &mut bundles);
+            accumulate(&source, compress, &mut global, &mut bundles);
             eprintln!(
                 "  [{}/{}] {} — {counted} docs cumulative",
                 i + 1,
@@ -276,7 +385,7 @@ pub(crate) fn run(args: Stats) -> Result<()> {
     } else {
         let source = open_source(&input, format.as_deref(), None, limit)?;
         counted = source.stats().prepared;
-        accumulate(source.as_ref(), &mut global, &mut bundles);
+        accumulate(source.as_ref(), compress, &mut global, &mut bundles);
     }
 
     print_report(counted, &global, &bundles);
@@ -300,6 +409,28 @@ fn print_report(prepared: usize, global: &HistSet, bundles: &[BundleDict]) {
         }
     }
 
+    // What index width covers what fraction of docs (for sizing the list pointer / sym refs).
+    let total = prepared.max(1) as f64;
+    println!("\nIndex-width coverage (docs NOT fitting an N-bit field):");
+    println!(
+        "  {:<15} >2^15(32768)   >2^16(65536)   >2^17(131072)",
+        "metric"
+    );
+    for label in ["list_entries", "sym_union", "distinct_pairs"] {
+        let h = global.by_label(label);
+        let pct = |n: u64| 100.0 * n as f64 / total;
+        println!(
+            "  {:<15} {:>7} ({:.4}%)  {:>6} ({:.4}%)  {:>5} ({:.4}%)",
+            label,
+            h.over_pow2(15),
+            pct(h.over_pow2(15)),
+            h.over_pow2(16),
+            pct(h.over_pow2(16)),
+            h.over_pow2(17),
+            pct(h.over_pow2(17)),
+        );
+    }
+
     if bundles.is_empty() {
         return;
     }
@@ -309,12 +440,104 @@ fn print_report(prepared: usize, global: &HistSet, bundles: &[BundleDict]) {
         let bytes: u64 = bundles.iter().map(|b| b.at_k[i].1).sum();
         let (min, mean, max) = min_mean_max(&covs);
         println!(
-            "  K={:<5} coverage min={:.1}% mean={:.1}% max={:.1}%   bytes saved (sum)={}",
+            "  K={:<6} coverage min={:.1}% mean={:.1}% max={:.1}%   bytes saved (sum)={}",
             k,
             min * 100.0,
             mean * 100.0,
             max * 100.0,
             human_bytes(bytes),
+        );
+    }
+
+    print_compression(bundles);
+}
+
+fn print_compression(bundles: &[BundleDict]) {
+    let comps: Vec<Compression> = bundles.iter().filter_map(|b| b.compression).collect();
+    if comps.is_empty() {
+        return;
+    }
+    let a_perdoc: u64 = comps.iter().map(|c| c.a_raw).sum(); // Lane A raw, per-doc (no dict)
+    let a_z: u64 = comps.iter().map(|c| c.a_z).sum(); // Lane A compressed (zstd dedups cross-doc)
+    let b_raw: u64 = comps.iter().map(|c| c.b_raw).sum();
+    let b_z: u64 = comps.iter().map(|c| c.b_z).sum();
+    let node_sum: u64 = bundles.iter().map(|b| b.node_sum).sum();
+    // Topology est: node count × the post-ADR-0002 u16 record (15 B). Constant across the
+    // Lane A storage choices below, so it does not affect the head-to-head comparison.
+    let topo = node_sum * 15;
+
+    let ratio = |raw: u64, z: u64| if z == 0 { 0.0 } else { raw as f64 / z as f64 };
+    let pct = |part: u64, whole: u64| 100.0 * part as f64 / whole.max(1) as f64;
+
+    println!("\nCompression (per-bundle zstd level {ZSTD_LEVEL}):");
+    println!(
+        "  Lane B (text + content-attr values)   raw={} → zstd={} ({:.1}×)",
+        human_bytes(b_raw),
+        human_bytes(b_z),
+        ratio(b_raw, b_z)
+    );
+    println!(
+        "  Lane A (class/id/searched/ext names)  per-doc raw={}, zstd={} ({:.1}×)",
+        human_bytes(a_perdoc),
+        human_bytes(a_z),
+        ratio(a_perdoc, a_z)
+    );
+    println!(
+        "  Topology est (nodes × 15 B)           {}",
+        human_bytes(topo)
+    );
+
+    // Three ways to store Lane A; Lane B (zstd) and topology are the same in each, so the
+    // archive differences are entirely the Lane A choice.
+    println!("\n  Lane A stored size, three ways (Lane B zstd + topology are constant):");
+    println!(
+        "    (1) raw, per-doc (no shared dict):    {}",
+        human_bytes(a_perdoc)
+    );
+    for (i, k) in SHARED_K.iter().enumerate() {
+        let saving: u64 = bundles.iter().map(|b| b.at_k[i].1).sum();
+        let a_stored = a_perdoc.saturating_sub(saving);
+        println!(
+            "    (2) raw + shared dict @K={:<6}        {:>10}   (dict saves {} vs (1))",
+            k,
+            human_bytes(a_stored),
+            human_bytes(saving)
+        );
+    }
+    println!(
+        "    (3) zstd (no raw lane, no index):     {:>10}",
+        human_bytes(a_z)
+    );
+
+    // Verdict, comparing the design's bounded shared dict (K=4096) against compressing.
+    let k_idx = SHARED_K.iter().position(|&k| k == 4096).unwrap_or(0);
+    let saving_design: u64 = bundles.iter().map(|b| b.at_k[k_idx].1).sum();
+    let a_stored_design = a_perdoc.saturating_sub(saving_design);
+    let arch_dict = a_stored_design + b_z + topo;
+    let arch_zstd = a_z + b_z + topo;
+    println!(
+        "\n  At the design K={}: shared dict saves {} = {:.1}% of the dict-archive ({}).",
+        SHARED_K[k_idx],
+        human_bytes(saving_design),
+        pct(saving_design, arch_dict),
+        human_bytes(arch_dict),
+    );
+    if a_stored_design <= a_z {
+        println!(
+            "  Lane A raw+dict ({}) is SMALLER than zstd ({}) by {} — the dict wins on size too.",
+            human_bytes(a_stored_design),
+            human_bytes(a_z),
+            human_bytes(a_z - a_stored_design),
+        );
+    } else {
+        println!(
+            "  Lane A raw+dict ({}) is LARGER than zstd ({}) by {} ({:.1}% of archive): on size,\n  \
+             compressing Lane A would beat the shared dict — the dict earns its place on query\n  \
+             speed (raw + index-comparison + bundle-skip), not bytes.",
+            human_bytes(a_stored_design),
+            human_bytes(a_z),
+            human_bytes(a_stored_design - a_z),
+            pct(a_stored_design - a_z, arch_zstd),
         );
     }
 }
