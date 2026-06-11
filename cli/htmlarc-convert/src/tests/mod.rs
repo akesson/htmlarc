@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use htmlarc_archive::BUNDLE_CAP;
 use zim::{MimeType, Namespace};
 
-use crate::export::{group_into_runs, html_mime, is_content, key_for, nfc, parse_wordlist};
+use crate::source::parse_wordlist;
+use crate::source::zim::{group_into_runs, html_mime, is_content, key_for};
 
 /// Build a cluster of `docs` html blobs (the keys are irrelevant to grouping).
 fn cluster(idx: u32, docs: usize) -> (u32, Vec<(u32, String)>) {
@@ -71,13 +72,6 @@ fn empty_work_list_makes_no_runs() {
 }
 
 #[test]
-fn nfc_normalizes_to_precomposed() {
-    // "e" + combining acute accent -> precomposed "é".
-    assert_eq!(nfc("e\u{0301}"), "\u{00e9}");
-    assert_eq!(nfc("already nfc"), "already nfc");
-}
-
-#[test]
 fn html_mime_accepts_only_text_html() {
     assert!(html_mime(&MimeType::Type("text/html".into())));
     assert!(html_mime(&MimeType::Type(
@@ -117,29 +111,30 @@ fn wordlist_is_nfc_normalized_deduped_and_skips_blanks() {
 
 /// End-to-end against a real ZIM. Ignored by default because no `.zim` fixture is committed
 /// (the openzim test suite is unlicensed and can't be redistributed here). To run it, fetch a
-/// small ZIM first with `cli/zim2htmlarc/fetch-testdata.sh`, then:
-///   cargo nextest run -p zim2htmlarc --run-ignored all
-/// Override the ZIM path with the `ZIM2HTMLARC_TEST_ZIM` env var.
+/// small ZIM first with `cli/htmlarc-convert/fetch-testdata.sh`, then:
+///   cargo nextest run -p htmlarc-convert --run-ignored all
+/// Override the ZIM path with the `HTMLARC_CONVERT_TEST_ZIM` env var.
 #[test]
-#[ignore = "needs a local ZIM; run cli/zim2htmlarc/fetch-testdata.sh first"]
-fn export_reads_a_real_zim() {
-    let zim_path = std::env::var_os("ZIM2HTMLARC_TEST_ZIM")
+#[ignore = "needs a local ZIM; run cli/htmlarc-convert/fetch-testdata.sh first"]
+fn convert_reads_a_real_zim() {
+    let zim_path = std::env::var_os("HTMLARC_CONVERT_TEST_ZIM")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/test.zim"));
     assert!(
         zim_path.exists(),
-        "no test ZIM at {} — set ZIM2HTMLARC_TEST_ZIM or run cli/zim2htmlarc/fetch-testdata.sh",
+        "no test ZIM at {} — set HTMLARC_CONVERT_TEST_ZIM or run cli/htmlarc-convert/fetch-testdata.sh",
         zim_path.display()
     );
 
-    let out = std::env::temp_dir().join("zim2htmlarc-e2e.htmlarc");
-    crate::export::run(crate::args::Export {
-        file: zim_path,
+    let out = std::env::temp_dir().join("htmlarc-convert-e2e.htmlarc");
+    crate::convert::run(crate::args::Convert {
+        input: zim_path,
         output: out.clone(),
         list: None,
         limit: None,
+        format: None,
     })
-    .expect("export should succeed");
+    .expect("convert should succeed");
 
     let arch = htmlarc_archive::HtmlArchive::read_from(&out).expect("archive should load");
     assert!(!arch.is_empty(), "expected at least one article");

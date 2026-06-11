@@ -74,6 +74,58 @@ fn body_p_section() {
     roundtrip("<body><p><section></section></p></body>")
 }
 
+// --- per-document overflow guardrails (ADR 0002, PR 1) ---
+//
+// Each pathological document below used to either silently corrupt its stores (a u16
+// index wrapping onto an earlier entry, or a list spliced into a cycle) or panic the
+// whole import (the fixed-capacity parse stacks). They must now fail as ordinary,
+// per-document parse errors so an import can skip the doc and continue.
+
+/// Parse `html`, asserting it fails, and return the (capacity) error message. Avoids
+/// `expect_err`, which would require `HtmlDoc: Debug`.
+#[track_caller]
+fn parse_overflow(html: &str) -> String {
+    match HtmlDoc::parse(html) {
+        Ok(_) => panic!("expected a per-document overflow error, but parse succeeded"),
+        Err(e) => e.to_string(),
+    }
+}
+
+#[test]
+fn attribute_value_overflow_is_a_per_document_error() {
+    use std::fmt::Write;
+    // Every <a> carries a distinct id value, so the per-document string heap (65,535
+    // entries) overflows without ever filling a single attribute list.
+    let mut html = String::new();
+    for i in 0..66_000u32 {
+        write!(html, "<a id=\"v{i}\"></a>").unwrap();
+    }
+    assert!(parse_overflow(&html).contains("capacity"));
+}
+
+#[test]
+fn class_list_overflow_is_a_per_document_error() {
+    use std::fmt::Write;
+    // A single element with > 32,768 distinct classes overflows one list (the 15-bit
+    // next-pointer ceiling).
+    let mut html = String::from("<div class=\"");
+    for i in 0..33_000u32 {
+        write!(html, "c{i} ").unwrap();
+    }
+    html.push_str("\"></div>");
+    assert!(parse_overflow(&html).contains("capacity"));
+}
+
+#[test]
+fn nesting_depth_boundary() {
+    // 256 levels parse; the 257th trips the depth guard (previously a hard panic).
+    let ok = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
+    assert!(HtmlDoc::parse(&ok).is_ok(), "256-deep nesting must parse");
+
+    let too_deep = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
+    assert!(parse_overflow(&too_deep).contains("capacity"));
+}
+
 #[track_caller] // Will show the location of the caller in test failure messages
 fn roundtrip(s: &str) {
     let html = HtmlDoc::parse(s.trim()).unwrap().to_html(HtmlFormat::Raw);
