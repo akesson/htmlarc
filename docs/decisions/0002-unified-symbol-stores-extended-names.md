@@ -272,8 +272,69 @@ stack mid-tokenization (before any htmlarc depth guard, which sits in our tree b
 worked around with 256 MiB worker stacks. A mark against html5gum for the
 html5gum-vs-harden-own-parser decision — a hardened own tokenizer would bound this explicitly.
 
+### K-sweep, index-width coverage, and lane economics (2026-06-11)
+
+**Index-width coverage** (2.04 M general-web docs — what fraction does an N-bit field miss):
+
+| metric | docs > 2¹⁵ (32,768) | docs > 2¹⁶ (65,536) | docs > 2¹⁷ |
+|---|---|---|---|
+| list_entries | 353 (0.0173 %) | **6 (0.0003 %)** | 0 |
+| sym_union | 2 (0.0001 %) | 0 | 0 |
+| distinct_pairs | 2 (0.0001 %) | 0 | 0 |
+
+→ **u16 covers 99.9997 % of docs for list entries and 100 % observed for symbols/pairs.**
+The current u15 (head-flag bit) is exactly the difference between losing 1-in-5,800 docs and
+1-in-340,000. This **refines the earlier "u24 required" call**: the right shape is the
+NodeWidth pattern — **u16 narrow form for ≥ 99.999 % of docs, per-doc escalation to u24 for
+the outliers** (which PR 6's mutable⇒wide machinery provides anyway), not blanket u24.
+
+**Shared-dictionary K-sweep** (Lane A reference coverage, mean over 240 bundles):
+
+| K | 256 | 1,024 | 4,096 | 16,384 | 65,535 |
+|---|---|---|---|---|---|
+| general web | 12.1 % | 21.9 % | 34.7 % | 48.4 % | 62.5 % |
+| wiki (co) | 97.7 % | 97.8 % | 98.2 % | 99.6 % | 100 % |
+
+General web is **logarithmic with no knee** (~+13 pp per 4× slots) — there is no K where it
+saturates; wiki saturates already at K=256. Also: reserving K=16,384 in the u16 top range
+would leave 49,151 local slots — *below* the observed sym_union max (48,719 ≈ collision).
+**Decision: K = 4,096.** Beyond that the dict eats local headroom the tail actually needs,
+for ~4 % more archive size (below).
+
+**Lane economics with zstd** (400 k docs, per-bundle zstd-19; topology est. nodes × 15 B):
+
+- Lane B (text + content-attr values): 41.9 GiB → **4.9 GiB (8.5×)** — vs 24× on wiki text;
+  heterogeneous content compresses worse, as 0001 predicted.
+- Lane A: per-doc raw 2.1 GiB; raw + dict@4096 = 1.4 GiB; **zstd = 494.5 MiB (4.3×)**.
+- Archive ≈ Lane A 1.4 GiB + Lane B 4.9 GiB + topology 10.1 GiB = **16.3 GiB**, of which the
+  shared dict saves **721 MiB = 4.3 %**. Compressing Lane A outright would beat the dict by a
+  further 909 MiB (5.7 %) — but would destroy the index-comparison/bundle-skip property.
+- On wiki the verdict flips: raw + dict (272 KiB) **beats** zstd (1.2 MiB) — near-total dedup.
+
+→ **The shared dictionary is a query-speed structure, not a size structure, on general web**
+(~4 % size effect); its size case is wiki-shaped corpora. **Topology dominates the
+general-web archive (~62 %) post-compression** — the next size lever after PR 3's node-record
+shrink is topology packing, not strings.
+
+### List storage plan (from the index-width data)
+
+In the redesign, replace the per-doc linked lists (4 B/entry: u16 value + u15 next-pointer +
+head bit) with **contiguous runs in an append-only arena** (2 B/entry + terminator): a node's
+class/attr entries are consecutive at parse time, and live mutation already goes through the
+rebuild/wide path, so the next-pointer only pays for a property the redesign no longer needs.
+Consequences: list storage ≈ halves; the u15 ceiling disappears (capacity = arena length,
+addressed by the node-slot width — u16 covers 99.9997 % of docs, u24 escalation the rest);
+no bit-packing of unaligned widths (byte-aligned u16/u24 only — unaligned fields defeat the
+single-load hot path, cf. the NodeWidth +65 % lesson). A 99.99 % bar is the right *narrow-
+width* target, but not a correctness bar: at 10⁹ docs, 0.01 % = 100 k docs lost, so the
+escalation path (100 % coverage) stays mandatory.
+
 ## Open questions
 
 - Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs) — decide in PR 3.
 - Exact `EXT_BASE` vs. enum-promotion budget — after PR 1 probe + PR 5 corpus data.
-- Lane B framing (per-bundle frame vs per-doc blobs + trained dict) — PR 8, per 0001.
+- Lane B framing (per-bundle frame vs per-doc blobs + trained dict) — PR 8, per 0001. The
+  8.5× general-web ratio (vs 24× wiki) makes the per-bundle-trained-dictionary variant more
+  attractive for heterogeneous corpora.
+- Topology packing for general web (the ~62 % post-compression share) — candidate levers:
+  delta/implicit sibling links, varint offsets; measure after PR 3.
