@@ -52,6 +52,11 @@ impl DomBuilder {
 /// the over-deep subtree rather than panicking the fixed-capacity parse stacks. General
 /// scraped HTML reaches well past the previous limit of 64 (deep `<div>`/`<span>` soup),
 /// so this is set generously; the cost is `256 * (1 + 4)` bytes of stack per parse.
+///
+/// TODO(ADR 0002): the general-web gate found 0.23% of Common Crawl docs deeper than 256
+/// (max 2,950). Those are skipped cleanly today; the redesign should switch these
+/// `ArrayVec` stacks to a heap `Vec` with a higher sanity cap (~8,192) — an `ArrayVec` that
+/// large is too much stack per parse.
 const MAX_DEPTH: usize = 256;
 
 /// Maximum node count, matching the U24 node-index sentinel (`Nodes` are always built at
