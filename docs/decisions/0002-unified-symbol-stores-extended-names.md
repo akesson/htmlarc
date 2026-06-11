@@ -182,12 +182,14 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    node slots hold run starts directly; the linked list (and its u15 ceiling) survives
    only inside the attribute stores until PR 3 deletes them. Format bump 5 → 6.
    *Gates met:* size −0.93 %, class-select family ≈ −5 %, parse/repack/load neutral.
-3. **Unified `AttrStore`.** `(NameSym, ValueRef)` entries; tokenizer accepts unknown
-   attr names; `DataAttributeStore` family deleted; node data slot dropped (node_size
-   20/15, U16 text-overlay boundary test); public `Attribute`/`AttrName` API;
-   width-flag byte reserved in store headers. Format bump. *Gates:* parse within ~2%,
-   topology −9–12%, attr-order round-trip snapshots. This is the big-bang PR — parser,
-   stores, fmt, query, rebuilder — no smaller honest slice exists.
+3. **Unified `AttrStore`** ✅ *(shipped — see §Measured PR 3 results).* `(NameSym, ValueRef)`
+   entries; tokenizer accepts unknown attr names; `DataAttributeStore` + `ListVec` families
+   deleted; node data slot dropped (node_size 22→20 / 17→15, U16 text-overlay boundary
+   test); public `Attribute`/`AttrName` API; resolve-once id + attribute matching. Format
+   bump 6 → 7. *Gates met:* size −4.1 % (wiktionary_co, the node-record shrink), repack
+   −7.8 % / load −9.7 % (build-time reindex passes deleted), attr-order round-trip snapshots
+   (pure reorder, no content change). The width-flag byte is **not** reserved here — that is
+   PR 6's holistic mutable⇒wide work, not a speculative dead field now.
 4. **Extended tags.** `ext_tags` vocab + byte ranges + overflow side map +
    `HtmlTag::extended` normalization + `tag_name()`; tokenizer accepts unknown tags;
    formatter renders extended names; demote `hnan`/`figure_inline`. Format bump.
@@ -409,9 +411,59 @@ inside the attribute stores until PR 3 deletes them. Archive format 5 → 6.
   `.mw-parser-output`); the v6 binary cleanly rejects v5 archives. 303 dom tests + full
   workspace green, snapshots untouched.
 
+### PR 3 results — unified AttrStore (2026-06-11)
+
+Shipped (branch `feat/unified-attrstore`, 5 commits): `AttributeStore` + `DataAttributeStore`
+merge into one `AttrStore` — `(NameSym, ValueRef)` entries (values in the store's own
+`SymbolTable`, extended names sharing the document symbol table at `NameSym = sym + 256`),
+per-element attribute lists as contiguous entry-id runs in the class `RunVec` arena. The
+linked `ListVec` (and its `shift_values_from`/`reindex_value` passes) is deleted; the node
+record drops its data slot (`node_size` 22→20 / 17→15). `data-*` loses its prefix special
+case; unknown attribute names parse as extended attributes; attributes render in source
+order. `#id` and attribute selectors join classes in resolve-once integer matching. Archive
+6 → 7.
+
+- **Size (the headline):** `wiktionary_co.zim` → `.htmlarc` 74,628,384 B (v6) → 71,561,464 B
+  (v7), **−4.1 %** — the per-node data-slot removal against a topology-dominated archive.
+  Deterministic (not timing-sensitive). Extended `data-` prefixes are now stored in full but
+  are dwarfed by the slot saving.
+- **Rebuild / load (clear wins):** `repack` **−7.5 %** (260.0 → 240.4 µs), `loading`
+  **−8.8 %** (4.23 → 3.86 µs) — and these came out faster *despite* a heavily contended
+  machine (below), so the real gains are larger. `repack` no longer runs the build-time
+  list value-reindex pass; `loading` maps a smaller node blob.
+- **No regression anywhere; per-bench deltas not cleanly resolvable.** The bench host was
+  pinned at load ~7–8/14 cores all session (Chrome, WindowServer, parallel `rustc` from other
+  workspaces); `pmset` confirmed *no* thermal throttle and AC power. The effect was a stable,
+  uniform **+50 %** on the *unchanged* `iteration` benches — a pure machine-factor floor. Every
+  changed bench's branch/main ratio sits **below** that +50 % (parse ≈ +7 %, `select div`
+  +39 %, `select class`/`absent`/`multi` +20–23 %), i.e. all faster than the machine penalty →
+  none regressed, several improved, but the sub-floor deltas can't be quoted precisely under
+  that much contention. The clean figures await a quiet host; the class-select win itself was
+  measured at −5 % in PR 2.5 and is unchanged here.
+- **id / attribute benches (new):** `select id` 124 µs, `select attr exact` 127 µs,
+  `select attr insensitive` 128 µs, `select ext attr` 129 µs — at the same contended level
+  as `select class` (130 µs), confirming the resolved id/attr paths walk at class-select
+  cost (the integer id scan + name prefilter), not the old per-node string scan.
+- End-to-end: `.mw-parser-output` class probe parity (9,567 hits) on the v7 archive; a
+  `[data-mw]` attribute probe resolves; the v7 binary rejects v6 archives. 302 dom tests +
+  full workspace green; the only snapshot change is attribute reordering (verified as a pure
+  reorder — every line's attribute multiset is preserved, no content delta).
+
 ## Open questions
 
-- Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs) — decide in PR 3.
+- ~~Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs)~~ — **decided
+  PR 3: no specials.** An empty value (`disabled`, `data-x`) interns as an ordinary value
+  sym (the status quo for `class=""`); only the formatter's `val.is_empty()` check and
+  `Attribute`'s `Display` consume emptiness, both on the deref'd `&str`. No reserved range
+  needed.
+- WHATWG first-wins for duplicate attribute names (`<a id="x" id="y">`) — PR 3 keeps today's
+  behaviour (html5gum's callback emitter streams duplicates; only distinct `(name,value)`
+  pairs dedup, so both render). First-wins would need a per-element seen-names set in the
+  tokenizer `Driver`; low priority, no consumer is known to depend on either behaviour.
+- Resolve attribute *values* (not just names) to entry ids for the `Exact`+case-sensitive
+  case — PR 3 resolves the name to a `NameSym` (integer prefilter) and keeps the value
+  compare string-based. Full entry resolution would save one string compare on the (usually
+  ≤1) name-matching entry; measure whether it is worth the extra resolve state.
 - Exact `EXT_BASE` vs. enum-promotion budget — after PR 1 probe + PR 5 corpus data.
 - Lane B framing (per-bundle frame vs per-doc blobs + trained dict) — PR 8, per 0001. The
   8.5× general-web ratio (vs 24× wiki) makes the per-bundle-trained-dictionary variant more
