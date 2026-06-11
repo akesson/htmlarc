@@ -72,6 +72,10 @@ larger than 0001's ~1000; unused slots cost nothing — only the table's length 
 Boundaries are compile-time constants so a document's local refs are identical whether or
 not it is in a bundle; the shared table's *content* is per-bundle (footer).
 
+*(2026-06-11)* Shared capacity confirmed at the **4,096-slot scale** by the K-sweep, and
+the range stays **reserved but dormant**: the dictionary itself is deferred (see §7) —
+until it lands, every symbol is doc-local and shared-range refs simply never occur.
+
 *Amendment to 0001:* shared range at the top, not the bottom — the local path (98%+ of
 refs) resolves with zero bias, the layout composes with the enum low range as a scope
 gradient, and it generalizes if ref widths grow.
@@ -143,9 +147,21 @@ embarrassingly parallel. The Lane B routing rule is the sym-space pressure valve
 unbounded-cardinality values (`style`, `href`, `srcset`, SVG `d`, `data-*` JSON) never
 enter the symbol space; `id` is the one unbounded Lane A resident.
 
+*Deferred (2026-06-11):* the Lane A shared dictionary is **deferred past the initial PR
+sequence**. The gate showed it is worth only ~4.3 % of the compressed general-web archive,
+and the query path must resolve doc-local syms regardless, so the dict is an additive
+optimization, not a structural dependency. Nothing regresses versus main, which has no
+cross-doc string sharing today (the v5 "class-token sharing" win was within-doc dedup).
+The top reference range stays reserved — it costs nothing and keeps resolution a single
+compare when activated. Re-evaluate after Lane B and topology packing have landed, against
+(a) wiki-shaped corpus size (on wiktionary_co Lane A, raw+dict at 272 KiB beats zstd at
+1.2 MiB) and (b) a bundle-skip selector benchmark on the by-then integer-compare query
+engine. The Lane B zstd dictionary and routing table (PR 8) are unaffected.
+
 ## Implementation plan
 
-Each PR lands independently with tests green. Constants freeze at PR 7; before that they
+Each PR lands independently with tests green. Constants freeze at the last
+format-touching PR of the sequence (PR 8, now that PR 7 is deferred); before that they
 are internal and adjustable. Benchmarks tracked at every step: parse throughput, selector/
 iteration benches, `.htmlarc` size on the wiktionary fixtures.
 
@@ -177,10 +193,11 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    `into_optimal_width` generalized per store; **u24 refs implemented** (the gate showed
    general-web `sym_union`/`distinct_pairs` reach ~80 % of the u16 cap at 2 M docs and climb
    with scale). *Gates:* owned/archived byte-identity spike tests, edit-after-load tests.
-7. **Bundle Lane A** (`htmlarc-archive`). Footer dict; freeze + parallel per-doc reindex;
-   `DomView` two-table resolution; bundle-skip in the selector engine; constants frozen.
-   Archive format bump. *Gates:* corpus size reduction, bundle-skip query bench, import
-   time vs ~6 min serial baseline.
+7. **Bundle Lane A** (`htmlarc-archive`) — **deferred (2026-06-11, see §7)**; re-evaluate
+   after PR 8 + topology packing. When picked up: footer dict; freeze + parallel per-doc
+   reindex; `DomView` two-table resolution; bundle-skip in the selector engine. Archive
+   format bump. *Gates:* corpus size reduction, bundle-skip query bench, import time vs
+   ~6 min serial baseline.
 8. **Lane B.** Per-name routing table (searched → A; cardinality threshold → B); zstd
    lane with framing decision (0001's open question, decided by probe-sweep vs serving
    workload); decompress-and-scan path for substring selectors. *Gates:* corpus size
@@ -316,6 +333,10 @@ for ~4 % more archive size (below).
 general-web archive (~62 %) post-compression** — the next size lever after PR 3's node-record
 shrink is topology packing, not strings.
 
+**Decisions settled on this data (2026-06-11):** K = 4,096 confirmed; index widths =
+u16 narrow + per-doc u24 escalation confirmed; the shared dictionary itself **deferred**
+(see §7) — the PR sequence proceeds with all symbols doc-local.
+
 ### List storage plan (from the index-width data)
 
 In the redesign, replace the per-doc linked lists (4 B/entry: u16 value + u15 next-pointer +
@@ -338,3 +359,12 @@ escalation path (100 % coverage) stays mandatory.
   attractive for heterogeneous corpora.
 - Topology packing for general web (the ~62 % post-compression share) — candidate levers:
   delta/implicit sibling links, varint offsets; measure after PR 3.
+- Archive key index (`htmlarc-archive` doc table, outside this ADR's stores): `fst::Map`
+  measured **4.6× smaller** than the current keys + 4 B/doc permutation on wiktionary_en
+  (8.87 M keys: 199 MiB → 43 MiB) with **1.6× faster** exact lookups (332 vs 544 ns) and
+  free prefix/range/regex queries — but only 1.4× on prefix-poor cross-web key sets
+  (343 k CC URLs ≈ 1.2 pages/host). Requires byte-lexicographic order (drops the grapheme
+  `key_len` dimension, which has no other consumer, and the `unicode-segmentation` dep);
+  positional `entries()`/`list` need key-by-position, so either stream the fst at load or
+  keep keys in the doc table and replace only the permutation (smaller win). Decide at the
+  PR 8 archive-format bump.
