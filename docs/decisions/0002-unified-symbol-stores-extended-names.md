@@ -153,8 +153,8 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    (silent wrap → per-doc error). Probe tool over wiktionary + a general scraped-HTML
    sample measuring per-doc: distinct syms (classes ∪ ids ∪ searched values ∪ non-enum
    names), total list entries, heap strings; per-bundle shared-dict hit rate at 1k/4k
-   slots. *Gate output:* `LOCAL_CAP`/`SHARED` capacity/`EXT_BASE` confirmation; whether
-   PR 6 must implement u24 refs.
+   slots. *Gate output (done — see §Measured):* wiki comfortable; general web needs u24
+   refs, a larger ext-tag side-map, and a higher depth cap; 4095 ≫ 1024 shared slots.
 2. **`SymbolTable` + classes port.** New `SymbolTable` (heap + permutation + interner);
    `ClassStore` family deleted, class lists hold `Sym`s; `has_classes` goes
    resolve-once + integer-compare. Format bump. *Gates:* selector bench (expect win),
@@ -174,8 +174,9 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    tests. *Gates:* svg/math round-trip fixtures; **size growth measured and documented**
    (storing previously-dropped content is the intended product change).
 6. **Mutable ⇒ wide.** `repackage()` widens; `DOWNPACK_MARGIN` removed;
-   `into_optimal_width` generalized per store; u24 refs implemented only if PR 1 says so.
-   *Gates:* owned/archived byte-identity spike tests, edit-after-load tests.
+   `into_optimal_width` generalized per store; **u24 refs implemented** (the gate showed
+   general-web `sym_union`/`distinct_pairs` reach ~80 % of the u16 cap at 2 M docs and climb
+   with scale). *Gates:* owned/archived byte-identity spike tests, edit-after-load tests.
 7. **Bundle Lane A** (`htmlarc-archive`). Footer dict; freeze + parallel per-doc reindex;
    `DomView` two-table resolution; bundle-skip in the selector engine; constants frozen.
    Archive format bump. *Gates:* corpus size reduction, bundle-skip query bench, import
@@ -226,45 +227,50 @@ Conclusions, and how they move the open decisions:
 
 ### General web — Common Crawl
 
-`stats` over **4 full CC-MAIN-2024-10 WARC segments** (spread across the crawl) — 136,447
-HTML response docs, 14 bundles, 91 s, ~30 GB RSS (the in-memory WARC read held all four):
+`stats` over **60 full CC-MAIN-2024-10 WARC segments** (evenly spread across the crawl's
+90,000) — **2,041,140 HTML response docs**, 240 bundles, 17 min, 17.4 GB RSS (streamed one
+segment at a time):
 
 | metric | p50 | p99 | p99.9 | max | cap | over cap |
 |---|---|---|---|---|---|---|
-| nodes | 2,047 | 16,383 | 32,767 | 84,356 | 16,777,215 | 0 |
-| max_depth | 31 | 127 | 1,023 | **9,047** | 256 | **487** (0.36 %) |
-| list_entries | 2,047 | 16,383 | 32,767 | **71,682** | 32,768 | **30** (0.022 %) |
-| distinct_pairs | 511 | 4,095 | 8,191 | 32,436 | 65,535 | 0 |
-| ext_tag_names | 1 | 31 | 127 | **2,658** | 63 | **226** (0.17 %) |
-| ext_attr_names | 31 | 1,023 | 2,047 | **32,039** | — | — |
-| sym_union | 511 | 2,047 | 4,095 | **32,229** | 61,184 | 0 |
+| nodes | 2,047 | 16,383 | 32,767 | 145,797 | 16,777,215 | 0 |
+| max_depth | 31 | 127 | 1,023 | **54,017** | 256 | **7,791** (0.38 %) |
+| list_entries | 2,047 | 16,383 | 32,767 | **84,452** | 32,768 | **353** (0.017 %) |
+| distinct_pairs | 511 | 4,095 | 8,191 | 50,935 | 65,535 | 0 |
+| ext_tag_names | 1 | 31 | 127 | **2,698** | 63 | **3,216** (0.16 %) |
+| ext_attr_names | 31 | 1,023 | 2,047 | **46,854** | — | — |
+| sym_union | 511 | 2,047 | 4,095 | **48,719** | 61,184 | 0 |
 
-Shared dict, stable across the 14 bundles: **K=1024 → 22.0 % mean** (20.7–23.7 %),
-**K=4095 → 34.9 % mean** (33.9–36.2 %); 160 MiB vs 237 MiB saved. (An earlier 8,417-doc
-200 MB prefix agreed: 23.9 % / 36.4 %.)
+Shared dict, rock-stable across the 240 bundles: **K=1024 → 21.9 % mean** (19.6–23.7 %),
+**K=4095 → 34.7 % mean** (32.3–36.6 %); 2.3 GiB vs 3.4 GiB saved.
 
-This leg is the one that matters, and it **moves four things**:
+This leg is the one that matters, and it **settles / sharpens four things**:
 
-- **`LOCAL_CAP` is the real question now.** The worst `sym_union` is **32,229 — 53 % of
-  `LOCAL_CAP` (61,184)** on only 136 k docs, driven by `ext_attr_names` (max 32,039: a
-  generated/framework-attribute page). The wiki margin of ~16× has collapsed to <2×, and the
-  max climbs with sample size. → **PR 6 u24 refs are likely required for general web** (or the
-  rare per-million doc that exceeds 61,184 syms is skipped). The decision is no longer "open
-  pending data" — the data leans **toward implementing u24**; confirm against a multi-million
-  run before freezing. The driver is *extended attribute names*, not classes/ids, so Lane B
-  routing cannot relieve it (names are always Lane A).
-- **Depth 256 too low; the tail is long.** 0.36 % of docs exceed 256, max **9,047**. Even a
-  heap `Vec` sanity cap should be generous (≈ 8 k still clips the worst); kept at 256 for PR 1
-  (skipped, not crashed) per the decision above.
-- **`EXT_BASE` 63-slot vocab too small.** 0.17 % of docs exceed 63 distinct extended tags,
-  max **2,658** (auto-generated / web-component pages). The overflow side-map stays rare
-  (0.17 %) but can be large when it fires — design it for thousands of entries, not a handful.
-- **Shared dict: 4095 ≫ 1024, and absolutely low.** 34.9 % vs 22.0 % mean (+12.9 pp, vs
-  wiki's +1.9 pp) — confirms 4095 over 0001's ~1000 and **per-bundle, not corpus-wide**. But
-  even 4095 covers only ~35 % of general-web Lane A refs (vs 97 % on wiki); a larger shared
-  range and Lane B compression carry more of the general-web weight than the Lane A dict does.
+- **`LOCAL_CAP` → u24 refs are required for general web.** The worst `sym_union` grew
+  **monotonically with sample size — 7,090 (8 k docs) → 32,229 (136 k) → 48,719 (2 M) = 79.6 %
+  of `LOCAL_CAP` (61,184)**, with 0 crossings *so far*. The trend is unambiguous: it scales
+  with corpus size, so at the TB / billion-doc target some docs **will** exceed 61,184. →
+  **Implement u24 refs (PR 6)**, or accept skipping the rare doc (currently <1 in 2 M) that
+  overflows the per-doc symbol space. The driver is **extended attribute names** (max 46,854 —
+  generated/framework pages), which are always Lane A, so Lane B routing cannot relieve it.
+  `distinct_pairs` (the attribute entries table) tracks the same curve (max 50,935 = 78 % of
+  its u16 cap), reinforcing the u24 call.
+- **Depth tail is extreme.** 0.38 % of docs exceed 256, max **54,017**. Kept at 256 for PR 1
+  (skipped, not crashed); the redesign's heap `Vec` sanity cap must be very generous (≥ 64 k)
+  or explicitly accept clipping the worst.
+- **`EXT_BASE` 63-slot vocab too small.** 0.16 % of docs (≈ 1 in 600) exceed 63 distinct
+  extended tags, max **2,698**. The overflow side-map must hold **thousands** of entries, not a
+  handful — size it accordingly.
+- **Shared dict: 4095 ≫ 1024, and absolutely low.** 34.7 % vs 21.9 % mean (+12.8 pp, vs wiki's
+  +1.9 pp) — confirms 4095 over 0001's ~1000 and **per-bundle, not corpus-wide**. Even 4095
+  covers only ~35 % of general-web Lane A refs (vs 97 % on wiki); **Lane B compression, not the
+  Lane A shared dict, carries the general-web weight**.
 
-The 32,768 list ceiling is crossed on both corpora (wiki and general web).
+The 32,768 list ceiling is crossed on both corpora. **Tooling finding:** html5gum
+deep-recurses on some adversarial general-web HTML and overflowed the default 2 MiB worker
+stack mid-tokenization (before any htmlarc depth guard, which sits in our tree builder);
+worked around with 256 MiB worker stacks. A mark against html5gum for the
+html5gum-vs-harden-own-parser decision — a hardened own tokenizer would bound this explicitly.
 
 ## Open questions
 
