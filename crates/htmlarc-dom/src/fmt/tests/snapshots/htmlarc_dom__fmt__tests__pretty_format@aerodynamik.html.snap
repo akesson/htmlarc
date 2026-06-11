@@ -2,7 +2,6 @@
 source: crates/htmlarc-dom/src/fmt/tests/mod.rs
 expression: "format(&html, HtmlFormat::Pretty)"
 input_file: crates/htmlarc-dom/src/fmt/tests/html/aerodynamik.html
-snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -100,7 +99,7 @@ Stöd Wiktionary
 								<ul class="hlist">
 									<li class="">
  
-										<a class="" data-event-name="" href="/wiki/Wiktionary:Om">
+										<a class="" data-event-name href="/wiki/Wiktionary:Om">
 											<span>
 Om Wiktionary
 											</span>
@@ -108,7 +107,7 @@ Om Wiktionary
 									</li>
 									<li class="">
  
-										<a class="" data-event-name="" href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll">
+										<a class="" data-event-name href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll">
 											<span>
 Förbehåll
 											</span>
