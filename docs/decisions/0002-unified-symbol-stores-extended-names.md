@@ -247,10 +247,11 @@ bundle). Caveat: 8,417 diverse pages is one bundle's worth; real per-bundle runs
 This leg is the one that matters, and it **moves three constants**:
 
 - **Depth 256 is too low for general web.** 19 / 8,417 docs (0.23 %) exceed it; the worst is
-  2,950-deep `<div>` soup. The shipped PR-1 guard (`MAX_DEPTH = 256`) would skip those. →
-  Switch the parse stacks from a fixed `ArrayVec` to a heap `Vec` with a high sanity cap
-  (≈ 8,192), or raise the fixed cap well past 4,096. **Decision pending** (a stack `ArrayVec`
-  at that size is too large; lean toward a heap `Vec`).
+  2,950-deep `<div>` soup. The shipped PR-1 guard (`MAX_DEPTH = 256`) skips those.
+  **Decision (2026-06-11): keep 256 for now** — those docs are cleanly skipped, not crashed —
+  and revisit when the redesign reworks the parse stacks: switch the fixed `ArrayVec` to a
+  heap `Vec` with a high sanity cap (≈ 8,192), since an `ArrayVec` that large is too much
+  stack per parse. Tracked at `parser/builder.rs` `MAX_DEPTH`.
 - **`EXT_BASE` 63-slot vocab is too small for general web.** 10 / 8,417 docs (0.12 %) exceed
   63 distinct extended tag names (worst 194 — web-component / SVG-heavy pages). → Lower
   `EXT_BASE` to widen the per-doc vocab (e.g. 128 → 127 slots) and/or accept the overflow
