@@ -15,13 +15,13 @@ use crate::{
 };
 
 use super::{Selector, list::SelectorList, list_relative::RelativeSelectorList};
-use crate::stores::SymbolTableView;
+use crate::dom::DomView;
 
 impl PseudoClassSelector<'_> {
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
         match self {
-            PseudoClassSelector::Not(list) | PseudoClassSelector::Is(list) => list.resolve(symbols),
-            PseudoClassSelector::Has(relative) => relative.resolve(symbols),
+            PseudoClassSelector::Not(list) | PseudoClassSelector::Is(list) => list.resolve(view),
+            PseudoClassSelector::Has(relative) => relative.resolve(view),
             _ => {}
         }
     }

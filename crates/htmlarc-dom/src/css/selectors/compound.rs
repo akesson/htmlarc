@@ -17,15 +17,24 @@ use crate::{
 };
 
 use super::{Selector, attribute::AttributeSelector, class::ClassSelector, id::IdSelector};
-use crate::stores::SymbolTableView;
+use crate::dom::DomView;
 
 impl CompoundSelector<'_> {
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+    /// Bind every resolvable part of this compound to the document once (ADR 0002 §3): the
+    /// id and attribute names/values to entry/name refs, the classes to `Sym`s, and the
+    /// nested selectors of `:not`/`:is`/`:has`.
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+        if let Some(id) = &mut self.id {
+            id.resolve(view);
+        }
         for class in &mut self.classes {
-            class.resolve(symbols);
+            class.resolve(view);
+        }
+        for attr in &mut self.attributes {
+            attr.resolve(view);
         }
         for pseudo in &mut self.pseudo_classes {
-            pseudo.resolve(symbols);
+            pseudo.resolve(view);
         }
     }
 }
@@ -179,8 +188,8 @@ impl<'s> CompoundSelector<'s> {
                         .context(CompoundSelectorError::IdFail(index))?
                     {
                         if let Some(c_id) = compound.id {
-                            debug!("Duplicate id selector #{} at {}", c_id.0, index);
-                            if c_id.0 != id.0 {
+                            debug!("Duplicate id selector #{} at {}", c_id.name, index);
+                            if c_id.name != id.name {
                                 return Err(CompoundSelectorError::DuplicateId(index).into());
                             }
                         }
@@ -194,7 +203,7 @@ impl<'s> CompoundSelector<'s> {
                     if let Some(attribute) = AttributeSelector::from_chars(chars)
                         .context(CompoundSelectorError::AttributeFail(index))?
                     {
-                        match attribute.0.name {
+                        match attribute.pattern.name {
                             // `[class]`/`[class=v]` query the class tokens (see `eq_class`);
                             // every other name — std, `data-*`, unknown — queries the unified
                             // attribute store.
@@ -204,7 +213,7 @@ impl<'s> CompoundSelector<'s> {
                             AttributeName::Std(_) | AttributeName::Ext(_) => {
                                 compound.attributes.push(attribute)
                             }
-                            AttributeName::Text => compound.text = Some(attribute.0),
+                            AttributeName::Text => compound.text = Some(attribute.pattern),
                         }
                     } else {
                         return Err(CompoundSelectorError::ExpectedAttribute(index).into());
@@ -246,9 +255,9 @@ impl<'s> CompoundSelector<'s> {
         }
 
         if let Some(id) = &self.id
-            && !el.has_id(id.0)
+            && !el.has_id_selector(id)
         {
-            debug!("Id mismatch: {} ", id.0);
+            debug!("Id mismatch: {} ", id.name);
             return false;
         }
 
@@ -342,7 +351,7 @@ fn test_parse_compound_selector() {
         "div#main",
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
-            id: Some(IdSelector("main")),
+            id: Some(IdSelector::new("main")),
             ..Default::default()
         }),
     );
@@ -350,7 +359,7 @@ fn test_parse_compound_selector() {
         "div#footer.black",
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
-            id: Some(IdSelector("footer")),
+            id: Some(IdSelector::new("footer")),
             classes: vec![ClassSelector::new("black")],
             ..Default::default()
         }),
@@ -359,7 +368,7 @@ fn test_parse_compound_selector() {
         "div.red#header.green",
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
-            id: Some(IdSelector("header")),
+            id: Some(IdSelector::new("header")),
             classes: vec![ClassSelector::new("red"), ClassSelector::new("green")],
             ..Default::default()
         }),
@@ -368,7 +377,7 @@ fn test_parse_compound_selector() {
         "div[class]",
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
-            class_attributes: vec![AttributeSelector(AttributePattern {
+            class_attributes: vec![AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::class),
                 value: None,
             })],
@@ -380,11 +389,11 @@ fn test_parse_compound_selector() {
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
             classes: vec![ClassSelector::new("red")],
-            class_attributes: vec![AttributeSelector(AttributePattern {
+            class_attributes: vec![AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::class),
                 value: None,
             })],
-            attributes: vec![AttributeSelector(AttributePattern {
+            attributes: vec![AttributeSelector::new(AttributePattern {
                 name: AttributeName::Ext("data-test"),
                 value: None,
             })],
@@ -395,7 +404,7 @@ fn test_parse_compound_selector() {
         "img[src=\"image.png\"]:last-child",
         Some(CompoundSelector {
             element: Some(HtmlTag::img),
-            attributes: vec![AttributeSelector(AttributePattern {
+            attributes: vec![AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::src),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Exact,
@@ -411,7 +420,7 @@ fn test_parse_compound_selector() {
         "h1[id] ",
         Some(CompoundSelector {
             element: Some(HtmlTag::h1),
-            attributes: vec![AttributeSelector(AttributePattern {
+            attributes: vec![AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::id),
                 value: None,
             })],
@@ -473,7 +482,7 @@ fn test_compound_matching_ok() {
     // div#main
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
-        id: Some(IdSelector("main")),
+        id: Some(IdSelector::new("main")),
         ..Default::default()
     });
 
@@ -511,7 +520,7 @@ fn test_compound_matching_ok() {
 
     // [title^="main"]
     test_match(CompoundSelector {
-        attributes: vec![AttributeSelector(AttributePattern {
+        attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Std(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
@@ -525,7 +534,7 @@ fn test_compound_matching_ok() {
     // div[data-foo]
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
-        attributes: vec![AttributeSelector(AttributePattern {
+        attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Ext("data-foo"),
             value: None,
         })],
@@ -537,7 +546,7 @@ fn test_compound_matching_ok() {
         element: Some(HtmlTag::div),
         classes: vec![ClassSelector::new("blue")],
         attributes: vec![
-            AttributeSelector(AttributePattern {
+            AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::title),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Starts,
@@ -545,12 +554,12 @@ fn test_compound_matching_ok() {
                     case: None,
                 }),
             }),
-            AttributeSelector(AttributePattern {
+            AttributeSelector::new(AttributePattern {
                 name: AttributeName::Ext("data-foo"),
                 value: None,
             }),
         ],
-        class_attributes: vec![AttributeSelector(AttributePattern {
+        class_attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
@@ -577,7 +586,7 @@ fn test_compound_matching_err() {
     // div#footer
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
-        id: Some(IdSelector("footer")),
+        id: Some(IdSelector::new("footer")),
         ..Default::default()
     });
 
@@ -604,7 +613,7 @@ fn test_compound_matching_err() {
 
     // [title^="content"]
     test_match(CompoundSelector {
-        attributes: vec![AttributeSelector(AttributePattern {
+        attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Std(HtmlAttr::title),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Starts,
@@ -618,7 +627,7 @@ fn test_compound_matching_err() {
     // div[data-bar]
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
-        attributes: vec![AttributeSelector(AttributePattern {
+        attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Ext("data-bar"),
             value: None,
         })],
@@ -630,7 +639,7 @@ fn test_compound_matching_err() {
         element: Some(HtmlTag::section),
         classes: vec![ClassSelector::new("blue")],
         attributes: vec![
-            AttributeSelector(AttributePattern {
+            AttributeSelector::new(AttributePattern {
                 name: AttributeName::Std(HtmlAttr::title),
                 value: Some(AttributeValue {
                     operator: AttributeOperator::Starts,
@@ -638,12 +647,12 @@ fn test_compound_matching_err() {
                     case: None,
                 }),
             }),
-            AttributeSelector(AttributePattern {
+            AttributeSelector::new(AttributePattern {
                 name: AttributeName::Ext("data-foo"),
                 value: None,
             }),
         ],
-        class_attributes: vec![AttributeSelector(AttributePattern {
+        class_attributes: vec![AttributeSelector::new(AttributePattern {
             name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,

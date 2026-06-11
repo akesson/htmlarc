@@ -196,19 +196,13 @@ impl<'a> AttrStoreView<'a> {
     }
 }
 
-// `name_sym`, `value_at`, `value_ref`, and `find_entry` back the resolve-once attribute
-// matching that lands in PR 3 C3 (already exercised by the store's unit tests); the allow
-// keeps C2 warning-clean without leaving them untested.
-#[allow(dead_code)]
+// The resolve-once attribute and id matching (ADR 0002 §3): `name_sym` is the per-node
+// integer name prefilter; `value_ref`/`find_entry` resolve a selector's value/pair to refs
+// once per document.
 impl<'a> AttrStoreView<'a> {
     /// The `NameSym` of an entry.
     pub(crate) fn name_sym(&self, id: u16) -> u16 {
         self.entries.at(id as usize).0
-    }
-
-    /// The value string of an entry.
-    pub(crate) fn value_at(&self, id: u16) -> &'a str {
-        self.values.get(Sym(self.entries.at(id as usize).1))
     }
 
     /// Resolve a value string to its `ValueRef`, or `None` if the document never stored it.
@@ -219,6 +213,13 @@ impl<'a> AttrStoreView<'a> {
     /// Resolve a `(NameSym, ValueRef)` pair to its stable entry id, or `None` if absent.
     pub(crate) fn find_entry(&self, pair: (u16, u16)) -> Option<u16> {
         self.search(pair).ok()
+    }
+
+    /// The value string of an entry — only the unit tests need this; the query layer derefs
+    /// through [`attribute_at`](Self::attribute_at).
+    #[cfg(test)]
+    pub(crate) fn value_at(&self, id: u16) -> &'a str {
+        self.values.get(Sym(self.entries.at(id as usize).1))
     }
 
     #[cfg(test)]

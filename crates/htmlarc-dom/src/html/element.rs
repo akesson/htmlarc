@@ -1,6 +1,6 @@
 use crate::{
     accessors::{Attributes, AttributesMut, Classes, ClassesMut},
-    css::{self, AttributeSelector, ClassSelector, ParseError, Selector, SelectorList},
+    css::{self, AttributeSelector, ClassSelector, IdSelector, ParseError, Selector, SelectorList},
     dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -242,6 +242,12 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     pub fn has_id(&self, id: &str) -> bool {
         self.with_view(|view| view.has_id(self.index(), id))
+    }
+
+    /// The resolve-aware `#id` check used by the compound selector matcher: the resolved
+    /// entry id matches by integer compare (or string fallback when unresolved).
+    pub(crate) fn has_id_selector(&self, id: &IdSelector) -> bool {
+        self.with_view(|view| view.has_id_selector(self.index(), id))
     }
 
     pub fn has_classes<P>(&self, classes: &[P]) -> bool

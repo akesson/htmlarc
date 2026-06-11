@@ -14,13 +14,13 @@ use crate::{
 };
 
 use super::{Selector, compound::CompoundSelector, relative::RelativeSelector};
-use crate::stores::SymbolTableView;
+use crate::dom::DomView;
 
 impl ComplexSelector<'_> {
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
-        self.first.resolve(symbols);
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+        self.first.resolve(view);
         for relative in &mut self.selectors {
-            relative.resolve(symbols);
+            relative.resolve(view);
         }
     }
 }
@@ -262,7 +262,7 @@ fn test_parse_complex_selector() {
         Some(ComplexSelector {
             first: CompoundSelector {
                 element: Some(HtmlTag::a),
-                id: Some(IdSelector("selected")),
+                id: Some(IdSelector::new("selected")),
                 ..Default::default()
             },
             selectors: vec![RelativeSelector {
