@@ -37,9 +37,32 @@ impl DomBuilder {
             strings: self.strings,
         }
     }
+
+    /// The first per-document capacity overflow reported by any sub-store builder, if
+    /// any. The node/depth overflow tracked by [`DomBuilderCursor`] is folded in there.
+    pub fn overflow(&self) -> Option<&'static str> {
+        self.attrs
+            .overflow()
+            .or_else(|| self.classes.overflow())
+            .or_else(|| self.dataattrs.overflow())
+    }
 }
 
-const MAX_DEPTH: usize = 64;
+/// Maximum element nesting depth. Past this the builder poisons the document and skips
+/// the over-deep subtree rather than panicking the fixed-capacity parse stacks. General
+/// scraped HTML reaches well past the previous limit of 64 (deep `<div>`/`<span>` soup),
+/// so this is set generously; the cost is `256 * (1 + 4)` bytes of stack per parse.
+///
+/// TODO(ADR 0002): the general-web gate found 0.23% of Common Crawl docs deeper than 256
+/// (max 2,950). Those are skipped cleanly today; the redesign should switch these
+/// `ArrayVec` stacks to a heap `Vec` with a higher sanity cap (~8,192) — an `ArrayVec` that
+/// large is too much stack per parse.
+const MAX_DEPTH: usize = 256;
+
+/// Maximum node count, matching the U24 node-index sentinel (`Nodes` are always built at
+/// U24 width during parsing — see `Nodes::new`). Past this the builder poisons the
+/// document instead of tripping `Nodes::add_node`'s assert and aborting the import.
+const MAX_NODES: usize = 0x00FF_FFFF;
 
 #[derive(Default)]
 pub struct DomBuilderCursor {
@@ -48,6 +71,9 @@ pub struct DomBuilderCursor {
     pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
     pub attr_list_index: Option<ListIndex>,
     pub dataattr_list_index: Option<ListIndex>,
+    /// Set (first reason wins) when the node count or nesting depth overflows; combined
+    /// with the sub-store builders' flags by [`overflow`](Self::overflow).
+    overflow: Option<&'static str>,
 }
 
 impl DomBuilderCursor {
@@ -57,10 +83,39 @@ impl DomBuilderCursor {
     fn push_index(&mut self, index: NodeIndex) {
         self.index_stack.push(index)
     }
+
+    /// The first per-document capacity overflow reason, across the cursor's own
+    /// node/depth guard and every sub-store builder. `Some` means the document must be
+    /// discarded — its partially built state is intentionally inconsistent.
+    pub fn overflow(&self) -> Option<&'static str> {
+        self.overflow.or_else(|| self.dom.overflow())
+    }
+
+    /// Whether another node can be added without exceeding [`MAX_NODES`]; records the
+    /// overflow (once) when it cannot.
+    fn node_budget_ok(&mut self) -> bool {
+        if self.dom.nodes.len() >= MAX_NODES {
+            self.overflow
+                .get_or_insert("document exceeds 16,777,215 nodes");
+            false
+        } else {
+            true
+        }
+    }
 }
 
 impl DomStack for DomBuilderCursor {
     fn _push_tag(&mut self, tag: HtmlTag) {
+        // Over-deep or over-large documents are poisoned and the offending node skipped.
+        // Both stacks are left untouched (they stay in lock-step), so the matching close
+        // tag still pops cleanly — the document is discarded by `HtmlDoc::parse` anyway.
+        if self.tag_stack.len() >= MAX_DEPTH {
+            self.overflow.get_or_insert("element nesting exceeds 256");
+            return;
+        }
+        if !self.node_budget_ok() {
+            return;
+        }
         self.tag_stack.push(tag);
         self.attr_list_index = None;
         self.dataattr_list_index = None;
@@ -91,6 +146,9 @@ impl DomStack for DomBuilderCursor {
     }
 
     fn add_text_tag(&mut self, tag: HtmlTag, text: &str) {
+        if !self.node_budget_ok() {
+            return;
+        }
         let index = self.index();
         self.attr_list_index = None;
         self.dataattr_list_index = None;

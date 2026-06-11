@@ -1,5 +1,5 @@
 use crate::{
-    HtmlParseResult,
+    HtmlParseError, HtmlParseResult,
     parser::{DomBuilder, DomBuilderCursor, parse_into},
     prelude::*,
 };
@@ -24,7 +24,18 @@ impl HtmlDoc {
 
     pub fn parse(input: &str) -> HtmlParseResult<Self> {
         let mut builder = DomBuilderCursor::default();
-        parse_into(input, &mut builder)?;
+        let parse_result = parse_into(input, &mut builder);
+        // A per-document capacity overflow (too many strings / list entries / nodes,
+        // or nesting past the depth cap) is handled by poisoning the builder and
+        // skipping the offending mutations rather than wrapping or panicking. Those
+        // skips can in turn unbalance the tag stack and surface as a spurious
+        // structural parse error, so the overflow reason must take precedence.
+        if let Some(reason) = builder.overflow() {
+            return Err(HtmlParseError::new(format!(
+                "document exceeds htmlarc per-document capacity: {reason}"
+            )));
+        }
+        parse_result?;
         Ok(builder.dom.into())
     }
 

@@ -12,23 +12,55 @@ use super::ClassStore;
 pub struct ClassStoreBuilder {
     lists: ListVec,
     classes: StringInterner,
+    /// Set (first reason wins) once a per-document u16 ceiling is hit; the parse path
+    /// reads it via [`overflow`](Self::overflow) and discards the whole document.
+    overflow: Option<&'static str>,
 }
 
 impl ClassStoreBuilder {
+    /// The reason this builder overflowed a per-document capacity, if any.
+    pub fn overflow(&self) -> Option<&'static str> {
+        self.overflow
+    }
+
+    fn intern_or_poison(&mut self, s: &str) -> u16 {
+        match self.classes.try_intern(s) {
+            Some(i) => i,
+            None => {
+                self.overflow.get_or_insert("class strings exceed 65,535");
+                0
+            }
+        }
+    }
+
     pub fn add_class_list(&mut self, classes: &str) -> ListIndex {
         let mut names = classes.split_ascii_whitespace();
         let first = names.next().unwrap_or("");
 
-        let index = self.lists.new_list(self.classes.intern(first));
+        let first_i = self.intern_or_poison(first);
+        let index = match self.lists.try_new_list(first_i) {
+            Some(list) => list,
+            None => {
+                self.overflow
+                    .get_or_insert("class list count exceeds 65,534");
+                return ListIndex::from(0);
+            }
+        };
         for class in names {
-            let i = self.classes.intern(class);
-            self.lists.list_mut_at(index).append(i);
+            let i = self.intern_or_poison(class);
+            if !self.lists.list_mut_at(index).try_append(i) {
+                self.overflow
+                    .get_or_insert("class list entries exceed 32,768");
+                break;
+            }
         }
         index
     }
 
     pub fn build(self) -> ClassStore {
-        let ClassStoreBuilder { mut lists, classes } = self;
+        let ClassStoreBuilder {
+            mut lists, classes, ..
+        } = self;
 
         // Sort the interned indices into name order (the runtime store binary-searches the
         // class table). The heap stays in insertion order; the table points back into it by

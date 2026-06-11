@@ -31,11 +31,28 @@ impl StringHeap {
         }
     }
 
-    pub fn insert(&mut self, s: &str) -> u16 {
+    /// Inserts `s` and returns its index, or `None` if the heap is full.
+    ///
+    /// A heap index is stored as a list `value` (an entry-table id), where `0xFFFF`
+    /// is the "unset" sentinel — so the highest usable index is `0xFFFE`, i.e. at
+    /// most 65,535 distinct strings per document. Returning `None` (rather than the
+    /// old silent `as u16` wrap, which aliased later strings onto earlier ones) lets
+    /// the parse path turn the overflow into a per-document error.
+    pub fn try_insert(&mut self, s: &str) -> Option<u16> {
+        if self.positions.len() >= u16::MAX as usize {
+            return None;
+        }
         let end_pos = (self.strings.len() + s.len()) as u32;
         self.positions.push(end_pos);
         self.strings.extend_from_slice(s.as_bytes());
-        self.positions.len() as u16 - 1
+        Some(self.positions.len() as u16 - 1)
+    }
+
+    /// Panicking [`try_insert`](Self::try_insert), for callers that have already
+    /// bounded their input (e.g. the rebuild path, which only ever shrinks).
+    pub fn insert(&mut self, s: &str) -> u16 {
+        self.try_insert(s)
+            .expect("StringHeap overflow: more than 65,535 distinct strings in one document")
     }
 
     pub fn len(&self) -> u16 {
@@ -169,4 +186,19 @@ fn string_heap() {
         .collect::<Vec<_>>()
         .join(", ");
     assert_eq!(", hi, ho", list);
+}
+
+#[test]
+fn try_insert_caps_at_u16() {
+    let mut heap = StringHeap::default();
+    // Indices 0..=0xFFFE are usable (0xFFFF is the list-value "unset" sentinel), so a
+    // document may hold at most 65,535 distinct strings.
+    for i in 0..u16::MAX as u32 {
+        assert_eq!(heap.try_insert(&i.to_string()), Some(i as u16));
+    }
+    assert_eq!(heap.len(), u16::MAX);
+    // The 65,536th string is refused (the old `len as u16` wrapped to index 0).
+    assert_eq!(heap.try_insert("overflow"), None);
+    // …and refusing leaves the heap untouched — no partial write.
+    assert_eq!(heap.len(), u16::MAX);
 }
