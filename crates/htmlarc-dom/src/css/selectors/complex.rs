@@ -14,6 +14,16 @@ use crate::{
 };
 
 use super::{Selector, compound::CompoundSelector, relative::RelativeSelector};
+use crate::stores::SymbolTableView;
+
+impl ComplexSelector<'_> {
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        self.first.resolve(symbols);
+        for relative in &mut self.selectors {
+            relative.resolve(symbols);
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ComplexSelectorError {
@@ -258,7 +268,7 @@ fn test_parse_complex_selector() {
             selectors: vec![RelativeSelector {
                 combinator: Combinator::Child,
                 selector: CompoundSelector {
-                    classes: vec![ClassSelector("icon")],
+                    classes: vec![ClassSelector::new("icon")],
                     ..Default::default()
                 },
             }],
@@ -268,7 +278,7 @@ fn test_parse_complex_selector() {
         ".box h2 + p",
         Some(ComplexSelector {
             first: CompoundSelector {
-                classes: vec![ClassSelector("box")],
+                classes: vec![ClassSelector::new("box")],
                 ..Default::default()
             },
             selectors: vec![

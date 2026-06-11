@@ -2,7 +2,7 @@ use std::cell::RefMut;
 
 use crate::{
     prelude::*,
-    stores::{Class, ListIndex, class_list},
+    stores::{Class, ListIndex, ListRemovalResult, Sym},
 };
 
 pub struct ClassesMut<'a> {
@@ -16,18 +16,33 @@ impl ClassesMut<'_> {
         let Some(index) = self.index else {
             return 0;
         };
-        class_list::remove(&mut self.lock.classes, index, f)
+        let dom = &mut *self.lock;
+        // Resolve the doomed class tokens to their list values (Syms) first; the strings
+        // stay in the symbol table until repackage compacts them.
+        let doomed: Vec<u16> = dom
+            .class_lists
+            .list_at(index)
+            .filter(|&v| f(dom.symbols.get(Sym(v))))
+            .collect();
+        let mut count = 0;
+        for v in doomed {
+            if dom.class_lists.list_mut_at(index).remove(v) != ListRemovalResult::NotFound {
+                count += 1;
+            }
+        }
+        count
     }
 
     pub fn append(&mut self, class: &Class<'_>) {
+        let dom = &mut *self.lock;
+        let sym = dom.symbols.get_or_insert(class.0);
         if let Some(index) = self.index {
-            self.lock.classes.list_mut_at(index).insert(class)
+            dom.class_lists.list_mut_at(index).append(sym.as_u16());
         } else {
             // The node had no class list yet: create one *and* point the node at it,
             // otherwise the new list is orphaned and the class is silently lost.
-            let index = self.lock.classes.add_list(class);
-            self.lock
-                .nodes
+            let index = dom.class_lists.new_list(sym.as_u16());
+            dom.nodes
                 .set_class_list_index(self.node, Some(index.as_u16()));
             self.index = Some(index)
         }
@@ -52,8 +67,7 @@ impl<'dom, Dom: DomRef> Iterator for Classes<'dom, Dom> {
     fn next(&mut self) -> Option<Self::Item> {
         self.dom
             .dom_view()
-            .classes
-            .next_in_list(&mut self.index)
+            .next_class_in_list(&mut self.index)
             .map(|c| c.0)
     }
 }

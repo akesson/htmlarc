@@ -2,7 +2,7 @@ use crate::{
     accessors::{
         Attributes, AttributesMut, Classes, ClassesMut, DataAttributes, DataAttributesMut,
     },
-    css::{self, AttributeSelector, ParseError, Selector, SelectorList},
+    css::{self, AttributeSelector, ClassSelector, ParseError, Selector, SelectorList},
     dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -252,6 +252,12 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         P: for<'a> PartialEq<Class<'a>>,
     {
         self.with_view(move |view| view.has_classes(self.index(), classes))
+    }
+
+    /// The resolve-aware class check used by the compound selector matcher: each selector
+    /// matches via its resolved [`Sym`] (or string fallback when unresolved).
+    pub(crate) fn has_class_selectors(&self, sels: &[ClassSelector]) -> bool {
+        self.with_view(move |view| view.has_class_selectors(self.index(), sels))
     }
 
     pub fn is_root(&self) -> bool {

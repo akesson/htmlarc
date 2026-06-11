@@ -17,6 +17,18 @@ use crate::{
 };
 
 use super::{Selector, attribute::AttributeSelector, class::ClassSelector, id::IdSelector};
+use crate::stores::SymbolTableView;
+
+impl CompoundSelector<'_> {
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        for class in &mut self.classes {
+            class.resolve(symbols);
+        }
+        for pseudo in &mut self.pseudo_classes {
+            pseudo.resolve(symbols);
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum CompoundSelectorError {
@@ -276,7 +288,7 @@ impl<'s> CompoundSelector<'s> {
             return false;
         }
 
-        if !self.classes.is_empty() && !el.has_classes(&self.classes) {
+        if !self.classes.is_empty() && !el.has_class_selectors(&self.classes) {
             debug!("Classes mismatch");
             return false;
         }
@@ -345,7 +357,7 @@ fn test_parse_compound_selector() {
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
             id: Some(IdSelector("footer")),
-            classes: vec![ClassSelector("black")],
+            classes: vec![ClassSelector::new("black")],
             ..Default::default()
         }),
     );
@@ -354,7 +366,7 @@ fn test_parse_compound_selector() {
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
             id: Some(IdSelector("header")),
-            classes: vec![ClassSelector("red"), ClassSelector("green")],
+            classes: vec![ClassSelector::new("red"), ClassSelector::new("green")],
             ..Default::default()
         }),
     );
@@ -373,7 +385,7 @@ fn test_parse_compound_selector() {
         "div.red[class][data-test]",
         Some(CompoundSelector {
             element: Some(HtmlTag::div),
-            classes: vec![ClassSelector("red")],
+            classes: vec![ClassSelector::new("red")],
             class_attributes: vec![AttributeSelector(AttributePattern {
                 name: AttributeName::Html(HtmlAttr::class),
                 value: None,
@@ -475,7 +487,7 @@ fn test_compound_matching_ok() {
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
         id: None,
-        classes: vec![ClassSelector("red")],
+        classes: vec![ClassSelector::new("red")],
         ..Default::default()
     });
 
@@ -529,7 +541,7 @@ fn test_compound_matching_ok() {
     // div.blue[title^="main"][data-foo][class="red"]
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
-        classes: vec![ClassSelector("blue")],
+        classes: vec![ClassSelector::new("blue")],
         attributes: vec![AttributeSelector(AttributePattern {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {
@@ -587,9 +599,9 @@ fn test_compound_matching_err() {
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
         classes: vec![
-            ClassSelector("red"),
-            ClassSelector("blue"),
-            ClassSelector("green"),
+            ClassSelector::new("red"),
+            ClassSelector::new("blue"),
+            ClassSelector::new("green"),
         ],
         ..Default::default()
     });
@@ -620,7 +632,7 @@ fn test_compound_matching_err() {
     // section.blue[title^="main"][data-foo][class="red"]
     test_match(CompoundSelector {
         element: Some(HtmlTag::section),
-        classes: vec![ClassSelector("blue")],
+        classes: vec![ClassSelector::new("blue")],
         attributes: vec![AttributeSelector(AttributePattern {
             name: AttributeName::Html(HtmlAttr::title),
             value: Some(AttributeValue {

@@ -11,6 +11,7 @@ mod relative;
 mod tag;
 
 pub use attribute::{AttributeSelector, AttributeSelectorError};
+pub(crate) use class::ResolvedSym;
 pub use class::{ClassSelector, ClassSelectorError};
 pub use complex::{ComplexSelector, ComplexSelectorError};
 pub use complex_relative::{ComplexRelativeSelector, ComplexRelativeSelectorError};
