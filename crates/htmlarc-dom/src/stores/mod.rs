@@ -5,6 +5,7 @@ mod interner;
 mod listvec;
 mod stringheap;
 mod stringstack;
+mod symbols;
 
 pub use attributes::{Attribute, AttributeStore};
 pub(crate) use attributes::{
