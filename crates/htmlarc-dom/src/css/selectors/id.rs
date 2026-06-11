@@ -2,12 +2,33 @@ use std::fmt::Display;
 
 use thiserror::Error;
 
-use crate::css::{
-    Context, IndexedError, ParseError, ParseResult,
-    chars::CssChars,
-    logging::debug,
-    patterns::{CssChar, CssPattern, TextPattern},
+use crate::{
+    css::{
+        Context, IndexedError, ParseError, ParseResult,
+        chars::CssChars,
+        logging::debug,
+        patterns::{CssChar, CssPattern, TextPattern},
+    },
+    dom::DomView,
+    html::HtmlAttr,
 };
+
+/// Per-document resolution of an id or attribute-name selector to an integer ref — an
+/// attribute *entry id* for `#id`, a *`NameSym`* for `[attr]` — set by the resolve pass that
+/// [`MatchIter`](crate::iters::MatchIter) runs once when it binds a selector list to a
+/// document (ADR 0002 §3). It turns per-node matching into integer compares.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ResolvedRef {
+    /// No resolve pass has run — match by string comparison (the direct-matching paths
+    /// `Element::matches`/`Selector::matches` that bypass `MatchIter`).
+    #[default]
+    Unresolved,
+    /// The ref is present in the document — match by integer compare.
+    Found(u16),
+    /// Absent from the document, so this selector can never match here (correct through
+    /// `:not`, which negates the inner result).
+    Absent,
+}
 
 #[derive(Debug, Error)]
 pub enum IdSelectorError {
@@ -39,11 +60,37 @@ impl IndexedError for IdSelectorError {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct IdSelector<'s>(pub &'s str);
+pub struct IdSelector<'s> {
+    pub name: &'s str,
+    pub(crate) resolved: ResolvedRef,
+}
+
+impl<'s> IdSelector<'s> {
+    pub fn new(name: &'s str) -> Self {
+        Self {
+            name,
+            resolved: ResolvedRef::Unresolved,
+        }
+    }
+
+    /// Bind this selector to a document by resolving its id against the attribute store.
+    /// `#id` matches the `id` attribute by exact, case-sensitive value, so resolve the value
+    /// string to a `ValueRef` and then to the `(id, value)` entry; a value that the document
+    /// never stored (or never paired with `id`) makes the selector `Absent` (ADR 0002 §3).
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+        self.resolved = match view.attrs.value_ref(self.name) {
+            Some(vref) => match view.attrs.find_entry((HtmlAttr::id as u16, vref)) {
+                Some(entry) => ResolvedRef::Found(entry),
+                None => ResolvedRef::Absent,
+            },
+            None => ResolvedRef::Absent,
+        };
+    }
+}
 
 impl Display for IdSelector<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{}", self.0)
+        write!(f, "#{}", self.name)
     }
 }
 
@@ -90,7 +137,7 @@ impl<'s> IdSelector<'s> {
             .context(IdSelectorError::ParseFail(start_index))?
         {
             debug!("Parsed id selector at: {}", chars.last_index());
-            Ok(Some(IdSelector(id)))
+            Ok(Some(IdSelector::new(id)))
         } else {
             Err(IdSelectorError::MissingId(start_index).into())
         }
@@ -103,14 +150,14 @@ fn test_parse_id_selector() {
 
     test_ok("", None::<IdSelector>);
     test_ok(".", None::<IdSelector>);
-    test_ok("#-hyphen", Some(IdSelector("-hyphen")));
-    test_ok("#_underscore", Some(IdSelector("_underscore")));
-    test_ok("#withdigit1", Some(IdSelector("withdigit1")));
+    test_ok("#-hyphen", Some(IdSelector::new("-hyphen")));
+    test_ok("#_underscore", Some(IdSelector::new("_underscore")));
+    test_ok("#withdigit1", Some(IdSelector::new("withdigit1")));
     test_ok(
         "#hyphen-_underscore",
-        Some(IdSelector("hyphen-_underscore")),
+        Some(IdSelector::new("hyphen-_underscore")),
     );
-    test_ok("#stop[", Some(IdSelector("stop")));
+    test_ok("#stop[", Some(IdSelector::new("stop")));
 
     fn test_err(string: &str, expected: ParseError) {
         crate::css::helpers::test_err::<IdSelector>(string, expected);

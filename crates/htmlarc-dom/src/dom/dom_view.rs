@@ -1,4 +1,4 @@
-use crate::css::{AttributeSelector, ClassSelector, ResolvedSym};
+use crate::css::{AttributeSelector, ClassSelector, IdSelector, ResolvedRef, ResolvedSym};
 use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
@@ -93,15 +93,42 @@ impl<'a> DomView<'a> {
         }
     }
 
+    /// The compound selector's attribute check (ADR 0002 §3). Each selector takes its
+    /// resolved path: `Found(name_sym)` is an integer prefilter over the node's entry names
+    /// (only matching-name entries pay the value compare); `Absent` never matches (correct
+    /// through `:not`); `Unresolved` falls back to a full string compare for the direct
+    /// entry points that skip the resolve pass. A node with no attribute list never matches.
     pub(crate) fn has_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
         let Some(start) = self.nodes.attr_list_index(node) else {
             return false;
         };
-        attrs.iter().all(|a| {
-            self.attrs
+        attrs.iter().all(|sel| match sel.resolved {
+            ResolvedRef::Found(name_sym) => self.attrs.run_at(start).any(|id| {
+                self.attrs.name_sym(id) == name_sym
+                    && sel.pattern == self.attrs.attribute_at(id, self.symbols)
+            }),
+            ResolvedRef::Absent => false,
+            ResolvedRef::Unresolved => self
+                .attrs
                 .run_at(start)
-                .any(|id| *a == self.attrs.attribute_at(id, self.symbols))
+                .any(|id| sel.pattern == self.attrs.attribute_at(id, self.symbols)),
         })
+    }
+
+    /// The compound selector's `#id` check (ADR 0002 §3). `Found(entry)` is an integer scan
+    /// of the node's attribute run for the resolved `(id, value)` entry id; `Absent` never
+    /// matches; `Unresolved` falls back to the string [`has_id`](Self::has_id).
+    pub(crate) fn has_id_selector(&self, node: NodeIndex, id: &IdSelector) -> bool {
+        match id.resolved {
+            ResolvedRef::Found(entry) => {
+                let Some(start) = self.nodes.attr_list_index(node) else {
+                    return false;
+                };
+                self.attrs.run_at(start).any(|eid| eid == entry)
+            }
+            ResolvedRef::Absent => false,
+            ResolvedRef::Unresolved => self.has_id(node, id.name),
+        }
     }
 
     pub(crate) fn has_classes<P>(&self, node: NodeIndex, classes: &[P]) -> bool

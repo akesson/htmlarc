@@ -15,12 +15,12 @@ use crate::{
 };
 
 use super::relative::RelativeSelector;
-use crate::stores::SymbolTableView;
+use crate::dom::DomView;
 
 impl ComplexRelativeSelector<'_> {
-    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
         for selector in &mut self.selectors {
-            selector.resolve(symbols);
+            selector.resolve(view);
         }
     }
 }
