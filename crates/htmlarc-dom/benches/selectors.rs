@@ -110,6 +110,33 @@ pub fn selectors(c: &mut Criterion) {
     c.bench_function("select ext attr in fr.serrer.html", |b| {
         b.iter(|| html.root().select(ext_attr.clone()).for_each(|_e| {}))
     });
+
+    // Extended (custom) tag selectors (ADR 0002 §4, PR 4). The wiktionary fixture holds no
+    // custom elements, so `my-widget` resolves to `Absent` once and the whole walk is a cheap
+    // integer non-match — the tag twin of the absent-class prune above.
+    let ext_tag_absent = parse_css("my-widget").unwrap();
+    c.bench_function("select absent ext tag in fr.serrer.html", |b| {
+        b.iter(|| html.root().select(ext_tag_absent.clone()).for_each(|_e| {}))
+    });
+
+    // A document of custom elements: `card-item` resolves once to its vocab byte, so matching
+    // is a single per-node tag-byte compare. ~2,000 custom elements interleaved with `<div>`s
+    // keeps the element count in the same ballpark as the wiktionary fixture.
+    let custom_doc: String = (0..2_000)
+        .map(|i| format!("<card-item id=\"i{i}\">x</card-item><div>y</div>"))
+        .collect();
+    let custom_html = HtmlDoc::parse(&format!("<body>{custom_doc}</body>"))
+        .unwrap()
+        .dom();
+    let ext_tag_vocab = parse_css("card-item").unwrap();
+    c.bench_function("select ext tag (vocab byte) in custom-elements doc", |b| {
+        b.iter(|| {
+            custom_html
+                .root()
+                .select(ext_tag_vocab.clone())
+                .for_each(|_e| {})
+        })
+    });
 }
 
 criterion_group!(benches, selectors,);
