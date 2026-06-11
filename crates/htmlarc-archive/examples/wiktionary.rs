@@ -168,7 +168,7 @@ fn clean_head_and_classes(dom: &DomRefCell, word: &str) -> Result<()> {
     head.prepend_child(HtmlTag::meta)
         .attributes_mut()
         .append(Attribute {
-            tag: HtmlAttr::charset,
+            name: AttrName::Std(HtmlAttr::charset),
             val: &charset,
         });
     head.append_child(HtmlTag::title).append_text_child(word);

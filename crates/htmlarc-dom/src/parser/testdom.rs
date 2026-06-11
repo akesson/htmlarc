@@ -1,13 +1,14 @@
 use crate::debug;
-use crate::html::{HtmlAttr, HtmlTag};
+use crate::html::HtmlTag;
+use crate::stores::AttrName;
 use std::fmt::Display;
 
 use super::dom::DomStack;
 
 pub struct TestElement {
     tag: HtmlTag,
-    attrs: Vec<(HtmlAttr, String)>,
-    data_attrs: Vec<(String, String)>,
+    /// `(rendered name, value)` in source order — standard, `data-*`, and unknown alike.
+    attrs: Vec<(String, String)>,
     text: Option<String>,
     indentation: usize,
 }
@@ -17,7 +18,6 @@ impl TestElement {
         TestElement {
             tag,
             attrs: Vec::new(),
-            data_attrs: Vec::new(),
             text: None,
             indentation,
         }
@@ -27,7 +27,7 @@ impl Display for TestElement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}{}{}{}{}",
+            "{}{}{}{}",
             "  ".repeat(self.indentation),
             self.tag,
             self.attrs
@@ -37,11 +37,6 @@ impl Display for TestElement {
                 } else {
                     format!(" {attr}='{val}'")
                 })
-                .collect::<Vec<_>>()
-                .join(""),
-            self.data_attrs
-                .iter()
-                .map(|(attr, val)| format!(" data-{}='{}'", attr, val))
                 .collect::<Vec<_>>()
                 .join(""),
             self.text
@@ -59,16 +54,9 @@ pub struct TestDom {
 }
 
 impl TestDom {
-    fn push_attr(&mut self, attr: HtmlAttr, value: &str) {
+    fn push_attr(&mut self, name: String, value: &str) {
         let current = self.dom.last_mut().unwrap();
-        current.attrs.push((attr, value.to_string()))
-    }
-
-    fn push_data_attr(&mut self, attr: &str, value: &str) {
-        let current = self.dom.last_mut().unwrap();
-        current
-            .data_attrs
-            .push((attr.to_string(), value.to_string()))
+        current.attrs.push((name, value.to_string()))
     }
 }
 
@@ -111,19 +99,13 @@ impl DomStack for TestDom {
         self.dom.push(TestElement {
             tag,
             attrs: Vec::new(),
-            data_attrs: Vec::new(),
             text: Some(value.to_owned()),
             indentation: self.stack.len(),
         })
     }
 
-    fn add_attribute_and_value(&mut self, attribute: HtmlAttr, value: &str) {
-        debug!("add_attribute_and_value '{attribute}'='{value}'");
-        self.push_attr(attribute, value);
-    }
-
-    fn add_data_attribute(&mut self, tag: &str, val: &str) {
-        debug!("add_data_attribute '{tag}'='{val}'");
-        self.push_data_attr(tag, val);
+    fn add_attribute(&mut self, name: AttrName<'_>, value: &str) {
+        debug!("add_attribute '{name}'='{value}'");
+        self.push_attr(name.to_string(), value);
     }
 }

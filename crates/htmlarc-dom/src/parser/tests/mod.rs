@@ -52,6 +52,34 @@ fn doc_with_data_attributes() {
     roundtrip("<div data-foo=\"bar\"></div>");
 }
 
+// --- unified attribute store (ADR 0002 §3, PR 3) ---
+
+#[test]
+fn unknown_attribute_name_round_trips() {
+    // Unknown names are no longer a parse error — they are kept as extended attributes.
+    roundtrip("<div wonky=\"yes\"></div>");
+    roundtrip("<div data-x-data-y=\"1\"></div>");
+    // Bare (valueless) standard + unknown attributes on a void element.
+    roundtrip("<input disabled custom />");
+}
+
+#[test]
+fn attribute_source_order_is_preserved() {
+    // Standard, data-*, and unknown attributes now share one run rendered in source order
+    // (the old store rendered class, then data-*, then standard).
+    roundtrip(r#"<div data-a="1" href="/h" data-b="2" lang="en"></div>"#);
+    roundtrip(r#"<a href="/x" data-mw="i" title="t"></a>"#);
+}
+
+#[test]
+fn duplicate_attribute_names_both_kept() {
+    // html5gum streams duplicates; only distinct (name, value) pairs dedup. Matches today's
+    // behaviour (the WHATWG first-wins rule is an open question, not bundled here).
+    roundtrip(r#"<a id="a" id="b"></a>"#);
+    // Identical (name, value) pairs collapse to one.
+    roundtrip_to(r#"<a id="a" id="a"></a>"#, r#"<a id="a"></a>"#);
+}
+
 #[test]
 fn class_list() {
     roundtrip(r##"<html class="mf"><body class="mediawiki"><div class=""></div></body></html>"##);

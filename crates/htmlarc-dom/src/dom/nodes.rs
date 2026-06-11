@@ -7,7 +7,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dom::NodeIndex;
 use crate::html::HtmlTag;
-use crate::stores::{ListIndex, RunIndex};
+use crate::stores::RunIndex;
 
 /// Per-document node-index width.
 ///
@@ -59,10 +59,12 @@ impl NodeWidth {
     }
 
     /// Total bytes per node record. Driven by the (larger) element layout:
-    /// `tag(1) + 5 link slots + 3 store slots (2 bytes each)` = `7 + 5*slot`.
-    /// (`U16` → 17, `U24` → 22.) Text/comment nodes fit within this stride.
+    /// `tag(1) + 5 link slots + 2 store slots (class + attr, 2 bytes each)` = `5 + 5*slot`.
+    /// (`U16` → 15, `U24` → 20.) Text/comment nodes fit within this stride: their `u32`
+    /// start/end overlay needs `1 + 3*slot + 8` bytes, exactly 15 at `U16` (the binding
+    /// constraint — see `text_start`/`text_end`).
     const fn node_size(self) -> usize {
-        7 + 5 * self.slot()
+        5 + 5 * self.slot()
     }
 
     const fn parent(self) -> usize {
@@ -85,9 +87,6 @@ impl NodeWidth {
     }
     const fn attr(self) -> usize {
         1 + 5 * self.slot() + 2
-    }
-    const fn data(self) -> usize {
-        1 + 5 * self.slot() + 4
     }
     // Text/comment nodes overlay a u32 start/end onto the first-child slot region.
     const fn text_start(self) -> usize {
@@ -259,19 +258,11 @@ impl<'a> NodesView<'a> {
         }
     }
 
-    pub fn attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
+    pub fn attr_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         if self.is_string_node(index) {
             None
         } else {
-            read_u16_slot(self.bytes, self.base(index) + self.width.attr()).map(ListIndex::from)
-        }
-    }
-
-    pub fn data_attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
-        if self.is_string_node(index) {
-            None
-        } else {
-            read_u16_slot(self.bytes, self.base(index) + self.width.data()).map(ListIndex::from)
+            read_u16_slot(self.bytes, self.base(index) + self.width.attr()).map(RunIndex::from)
         }
     }
 
@@ -386,12 +377,8 @@ impl Nodes {
         self.view().class_list_index(index)
     }
 
-    pub fn attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
+    pub fn attr_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         self.view().attr_list_index(index)
-    }
-
-    pub fn data_attr_list_index(&self, index: NodeIndex) -> Option<ListIndex> {
-        self.view().data_attr_list_index(index)
     }
 
     pub fn add_as_next_sibling(&mut self, index: NodeIndex, tag: HtmlTag) -> NodeIndex {
@@ -773,12 +760,6 @@ impl Nodes {
         self.set_u16_at(index, offset, value);
     }
 
-    pub(crate) fn set_data_attr_list_index(&mut self, index: NodeIndex, value: Option<u16>) {
-        debug_assert!(!self.is_string_node(index));
-        let offset = self.width().data();
-        self.set_u16_at(index, offset, value);
-    }
-
     pub(crate) fn set_text_range(&mut self, index: NodeIndex, range: Range<u32>) {
         debug_assert!(self.is_string_node(index));
         let width = self.width();
@@ -819,7 +800,6 @@ impl Nodes {
             self.set_last_child_index(index, None);
             self.set_class_list_index(index, None);
             self.set_attr_list_index(index, None);
-            self.set_data_attr_list_index(index, None);
         }
         index
     }
@@ -888,11 +868,6 @@ fn repack(src: NodesView, dst: NodeWidth) -> Vec<u8> {
                 &mut out,
                 base + dst.attr(),
                 src.attr_list_index(idx).map(|l| l.as_u16()),
-            );
-            write_u16_slot(
-                &mut out,
-                base + dst.data(),
-                src.data_attr_list_index(idx).map(|l| l.as_u16()),
             );
         }
     }

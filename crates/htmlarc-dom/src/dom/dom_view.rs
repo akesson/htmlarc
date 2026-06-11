@@ -3,8 +3,8 @@ use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
-    AttributeStoreView, Class, DataAttributeStoreView, RunIndex, RunValues, RunVecView,
-    StringStackView, Sym, SymbolTableView,
+    AttrName, AttrStoreView, Attribute, Class, RunIndex, RunValues, RunVecView, StringStackView,
+    Sym, SymbolTableView,
 };
 
 /// A borrowed, read-only view over a DOM document.
@@ -20,8 +20,7 @@ use crate::stores::{
 #[derive(Clone, Copy)]
 pub struct DomView<'a> {
     pub(crate) nodes: NodesView<'a>,
-    pub(crate) attrs: AttributeStoreView<'a>,
-    pub(crate) dataattrs: DataAttributeStoreView<'a>,
+    pub(crate) attrs: AttrStoreView<'a>,
     pub(crate) symbols: SymbolTableView<'a>,
     pub(crate) class_lists: RunVecView<'a>,
     pub(crate) strings: StringStackView<'a>,
@@ -30,8 +29,7 @@ pub struct DomView<'a> {
 impl<'a> DomView<'a> {
     pub(crate) fn new(
         nodes: NodesView<'a>,
-        attrs: AttributeStoreView<'a>,
-        dataattrs: DataAttributeStoreView<'a>,
+        attrs: AttrStoreView<'a>,
         symbols: SymbolTableView<'a>,
         class_lists: RunVecView<'a>,
         strings: StringStackView<'a>,
@@ -39,11 +37,18 @@ impl<'a> DomView<'a> {
         Self {
             nodes,
             attrs,
-            dataattrs,
             symbols,
             class_lists,
             strings,
         }
+    }
+
+    /// Advance an externally-held attribute-run cursor (an arena offset, held by the
+    /// [`crate::accessors::Attributes`] iterator), dereferencing the next entry into an
+    /// [`Attribute`] (its extended name resolved through the symbol table).
+    pub(crate) fn next_attr_in_run(&self, offset: &mut Option<u16>) -> Option<Attribute<'a>> {
+        let id = self.attrs.next_entry_in_run(offset)?;
+        Some(self.attrs.attribute_at(id, self.symbols))
     }
 
     /// Iterate a node's class list, dereferencing each [`Sym`] through the symbol table
@@ -60,6 +65,16 @@ impl<'a> DomView<'a> {
     pub(crate) fn next_class_in_list(&self, offset: &mut Option<u16>) -> Option<Class<'a>> {
         let val = self.class_lists.next_in_run(offset)?;
         Some(Class(self.symbols.get(Sym(val))))
+    }
+
+    /// Iterate a node's attribute run as borrowed [`Attribute`]s, in source order. Used by
+    /// the formatter (one run holds std, `data-*`, and unknown attributes alike).
+    pub(crate) fn attr_list_at(&self, start: RunIndex) -> AttrListIter<'a> {
+        AttrListIter {
+            attrs: self.attrs,
+            symbols: self.symbols,
+            ids: self.attrs.run_at(start),
+        }
     }
 
     /// The text/comment payload of a string node.
@@ -79,13 +94,14 @@ impl<'a> DomView<'a> {
     }
 
     pub(crate) fn has_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
-        if let Some(list_index) = self.nodes.attr_list_index(node) {
-            attrs
-                .iter()
-                .all(|a| self.attrs.list_at(list_index).any(|v| *a == v))
-        } else {
-            false
-        }
+        let Some(start) = self.nodes.attr_list_index(node) else {
+            return false;
+        };
+        attrs.iter().all(|a| {
+            self.attrs
+                .run_at(start)
+                .any(|id| *a == self.attrs.attribute_at(id, self.symbols))
+        })
     }
 
     pub(crate) fn has_classes<P>(&self, node: NodeIndex, classes: &[P]) -> bool
@@ -123,24 +139,14 @@ impl<'a> DomView<'a> {
         self.class_lists.run_at(start).map(Sym)
     }
 
-    pub(crate) fn has_data_attributes(&self, node: NodeIndex, attrs: &[AttributeSelector]) -> bool {
-        if let Some(list_index) = self.nodes.data_attr_list_index(node) {
-            attrs
-                .iter()
-                .all(|a| self.dataattrs.list_at(list_index).any(|v| *a == v))
-        } else {
-            false
-        }
-    }
-
     pub(crate) fn has_id(&self, index: NodeIndex, id: &str) -> bool {
-        if let Some(list_index) = self.nodes.attr_list_index(index) {
-            self.attrs
-                .list_at(list_index)
-                .any(|v| v.tag == HtmlAttr::id && v.val == id)
-        } else {
-            false
-        }
+        let Some(start) = self.nodes.attr_list_index(index) else {
+            return false;
+        };
+        self.attrs.run_at(start).any(|entry| {
+            let a = self.attrs.attribute_at(entry, self.symbols);
+            a.name == AttrName::Std(HtmlAttr::id) && a.val == id
+        })
     }
 
     /// Whether the subtree rooted at `index` can be rendered inline (no inserted
@@ -194,5 +200,22 @@ impl<'a> Iterator for ClassListIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let val = self.syms.next()?;
         Some(Class(self.symbols.get(Sym(val))))
+    }
+}
+
+/// Iterates an attribute list's run, dereferencing each entry id into a borrowed
+/// [`Attribute`] (its value from the attr store, its extended name via the symbol table).
+pub(crate) struct AttrListIter<'a> {
+    attrs: AttrStoreView<'a>,
+    symbols: SymbolTableView<'a>,
+    ids: RunValues<'a>,
+}
+
+impl<'a> Iterator for AttrListIter<'a> {
+    type Item = Attribute<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.ids.next()?;
+        Some(self.attrs.attribute_at(id, self.symbols))
     }
 }

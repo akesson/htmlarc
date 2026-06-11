@@ -125,47 +125,37 @@ impl<'dom> ElementFormat<'dom> {
                         attrs.push(ElementAttribute::Text(el_text));
                     }
                 }
-                AttributeName::Html(html_attr) => {
-                    if html_attr == HtmlAttr::class {
-                        if let Some((operator, pattern)) = selector.value {
-                            for class in element.classes() {
-                                if operator.matches(pattern, class) {
-                                    let class = Class::from(class);
-                                    attrs.push(ElementAttribute::Class(class));
-                                }
-                            }
-                        } else {
-                            for class in element.classes() {
+                AttributeName::Std(HtmlAttr::class) => {
+                    if let Some((operator, pattern)) = selector.value {
+                        for class in element.classes() {
+                            if operator.matches(pattern, class) {
                                 let class = Class::from(class);
                                 attrs.push(ElementAttribute::Class(class));
                             }
                         }
-                    } else if let Some((operator, pattern)) = selector.value {
-                        for attr in element.attributes() {
-                            if attr.tag == html_attr && operator.matches(pattern, attr.val) {
-                                attrs.push(ElementAttribute::Attribute(attr));
-                            }
-                        }
                     } else {
-                        for attr in element.attributes() {
-                            if attr.tag == html_attr {
-                                attrs.push(ElementAttribute::Attribute(attr));
-                            }
+                        for class in element.classes() {
+                            let class = Class::from(class);
+                            attrs.push(ElementAttribute::Class(class));
                         }
                     }
                 }
-                AttributeName::Data(data) => {
-                    if let Some((operator, pattern)) = selector.value {
-                        for attr in element.data_attributes() {
-                            if attr.tag == data && operator.matches(pattern, attr.val) {
-                                attrs.push(ElementAttribute::DataAttribute(attr));
-                            }
-                        }
-                    } else {
-                        for attr in element.data_attributes() {
-                            if attr.tag == data {
-                                attrs.push(ElementAttribute::DataAttribute(attr));
-                            }
+                // Standard (non-class), `data-*`, and unknown names all match against the
+                // unified attribute store by name (ADR 0002 §3).
+                AttributeName::Std(_) | AttributeName::Ext(_) => {
+                    let target = match selector.name {
+                        AttributeName::Std(a) => AttrName::Std(a),
+                        AttributeName::Ext(s) => AttrName::Ext(s),
+                        AttributeName::Text => unreachable!(),
+                    };
+                    for attr in element.attributes() {
+                        let name_matches = attr.name == target;
+                        let value_matches = match selector.value {
+                            Some((operator, pattern)) => operator.matches(pattern, attr.val),
+                            None => true,
+                        };
+                        if name_matches && value_matches {
+                            attrs.push(ElementAttribute::Attribute(attr));
                         }
                     }
                 }

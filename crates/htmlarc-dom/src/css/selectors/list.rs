@@ -320,7 +320,7 @@ fn test_selector_list_matching_err() {
                 first: CompoundSelector {
                     element: Some(HtmlTag::div),
                     attributes: vec![AttributeSelector(AttributePattern {
-                        name: AttributeName::Html(HtmlAttr::title),
+                        name: AttributeName::Std(HtmlAttr::title),
                         value: None,
                     })],
                     ..Default::default()

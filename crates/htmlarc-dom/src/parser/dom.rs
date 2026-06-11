@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use crate::dom::NodeIndex;
-use crate::html::{HtmlAttr, HtmlTag};
+use crate::html::HtmlTag;
+use crate::stores::AttrName;
 
 use crate::{HtmlParseError, HtmlParseResult};
 
@@ -27,9 +28,10 @@ pub trait DomStack {
     /// Only for adding comments and text
     fn add_text_tag(&mut self, tag: HtmlTag, value: &str);
 
-    fn add_attribute_and_value(&mut self, attribute: HtmlAttr, value: &str);
-
-    fn add_data_attribute(&mut self, attribute: &str, value: &str);
+    /// Add one attribute. Standard, `data-*`, and unknown names all flow through here as an
+    /// [`AttrName`] (ADR 0002 §3) — the builder routes `class` to its run and interns
+    /// extended names into the document symbol table.
+    fn add_attribute(&mut self, name: AttrName<'_>, value: &str);
 
     fn pop_tag(&mut self, tag: HtmlTag) -> HtmlParseResult<()> {
         let popped = self
