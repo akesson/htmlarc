@@ -183,6 +183,12 @@ impl Semaphore {
     }
 }
 
+/// Per-worker stack size. html5gum tokenization can recurse deeply on adversarial HTML
+/// (a Common Crawl page overflowed the 2 MiB default); 256 MiB cleared every observed case
+/// with headroom. Reserved address space is committed lazily, so an unused large stack is
+/// effectively free.
+const WORKER_STACK: usize = 256 * 1024 * 1024;
+
 /// Worker count: `available_parallelism`, overridable via `HTMLARC_CONVERT_THREADS` (handy
 /// for benchmarking and for asserting output is independent of the thread count).
 pub(crate) fn thread_count() -> usize {
@@ -221,23 +227,31 @@ where
     std::thread::scope(|scope| {
         for _ in 0..threads {
             let tx = tx.clone();
-            scope.spawn(move || {
-                loop {
-                    // Acquire a permit *before* grabbing work so at most `in_flight_cap` runs
-                    // are resident at once.
-                    permits.acquire();
-                    let rank = next_rank.fetch_add(1, Ordering::SeqCst);
-                    if rank >= run_count {
-                        permits.release();
-                        break;
+            // Workers tokenize with html5gum, which recurses on some adversarial real-world
+            // HTML (observed: a Common Crawl page overflowed the default 2 MiB thread stack
+            // mid-tokenization, before any of our own depth guards apply). Give them a large
+            // stack — it is reserved address space, committed lazily, so the cost is ~zero
+            // unless actually used.
+            std::thread::Builder::new()
+                .stack_size(WORKER_STACK)
+                .spawn_scoped(scope, move || {
+                    loop {
+                        // Acquire a permit *before* grabbing work so at most `in_flight_cap` runs
+                        // are resident at once.
+                        permits.acquire();
+                        let rank = next_rank.fetch_add(1, Ordering::SeqCst);
+                        if rank >= run_count {
+                            permits.release();
+                            break;
+                        }
+                        let result = process(rank);
+                        if tx.send((rank, result)).is_err() {
+                            permits.release();
+                            break;
+                        }
                     }
-                    let result = process(rank);
-                    if tx.send((rank, result)).is_err() {
-                        permits.release();
-                        break;
-                    }
-                }
-            });
+                })
+                .expect("failed to spawn worker thread");
         }
         drop(tx);
 
