@@ -22,7 +22,12 @@ where
     I: Iterator<Item = HtmlElement<'dom, Dom>> + DomIterator<'dom, Dom>,
     Self: 'dom,
 {
-    pub fn new(iter: I, selectors: SelectorList<'dom>) -> Self {
+    pub fn new(iter: I, mut selectors: SelectorList<'dom>) -> Self {
+        // Bind the owned selector list to this document once: every class selector (incl.
+        // those nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching
+        // is integer compares (ADR 0002 §3). filter.rs clones the list per document, so this
+        // only ever mutates a per-document copy.
+        iter.dom().with_view(|view| selectors.resolve(view.symbols));
         Self { iter, selectors }
     }
 
@@ -123,4 +128,67 @@ fn find(html: &str, css: &str) -> String {
         .map(|el| format!("{} {}", el.tag(), el.index))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+// --- resolve-once class matching (ADR 0002 §3) ---
+//
+// `select_css` resolves every class selector against the document's symbol table before
+// walking, so a present class matches by Sym, an absent one never matches, and `:not`
+// negates that correctly. The cases below exercise each path through `MatchIter::new`.
+
+#[test]
+fn resolve_present_class_matches() {
+    let html = r#"<body><div class="a b"></div><span class="c"></span></body>"#;
+    assert_eq!(find(html, ".a"), "div 2");
+    assert_eq!(find(html, ".b"), "div 2");
+    // multi-class compound: both tokens must be present on the node
+    assert_eq!(find(html, ".a.b"), "div 2");
+    assert_eq!(find(html, ".c"), "span 3");
+}
+
+#[test]
+fn resolve_absent_class_matches_nothing() {
+    let html = r#"<body><div class="a"></div><span class="b"></span></body>"#;
+    // ".absent" is not in the document's symbol table → resolves to Absent → no match.
+    assert_eq!(find(html, ".absent"), "");
+    // one absent token fails the whole compound even when the other is present.
+    assert_eq!(find(html, ".a.absent"), "");
+}
+
+#[test]
+fn resolve_not_absent_matches_all_divs() {
+    let html = r#"<body><div class="x"></div><div></div><div class="y"></div></body>"#;
+    // :not(.absent) — the Absent inner never matches, so the negation matches every div.
+    assert_eq!(find(html, "div:not(.absent)"), "div 2, div 3, div 4");
+    // :not(.x) — resolves .x to a Sym, excluding only the div that carries it.
+    assert_eq!(find(html, "div:not(.x)"), "div 3, div 4");
+}
+
+#[test]
+fn resolve_recurses_through_is_and_has() {
+    let html = r#"<body><p class="a"></p><p class="b"></p></body>"#;
+    // :is(...) resolves both inner class selectors; only .a is present here.
+    assert_eq!(find(html, "p:is(.a, .absent)"), "p 2");
+
+    let nested = r#"<body><div><span class="child"></span></div><div><span class="other"></span></div></body>"#;
+    // :has(...) resolves through the relative selector list.
+    assert_eq!(find(nested, "div:has(.child)"), "div 2");
+    assert_eq!(find(nested, "div:has(.absent)"), "");
+}
+
+#[test]
+fn direct_matches_uses_string_fallback() {
+    // Element::matches_css does NOT run the resolve pass, so its class selectors stay
+    // Unresolved and match by string comparison — the public direct-match path still works.
+    let html = r#"<body><div class="hello world"></div></body>"#;
+    let doc = HtmlDoc::parse(html).unwrap();
+    let dom = doc.dom();
+    let div = dom
+        .root()
+        .forwards()
+        .find(|e| e.tag() == HtmlTag::div)
+        .unwrap();
+    assert!(div.matches_css(".hello").unwrap());
+    assert!(div.matches_css(".hello.world").unwrap());
+    assert!(!div.matches_css(".absent").unwrap());
 }

@@ -31,7 +31,47 @@ pub fn selectors(c: &mut Criterion) {
             let selector = SelectorList {
                 selectors: vec![ComplexSelector {
                     first: CompoundSelector {
-                        classes: vec![ClassSelector("vector-menu-content")],
+                        classes: vec![ClassSelector::new("vector-menu-content")],
+                        ..Default::default()
+                    },
+                    selectors: Vec::new(),
+                }],
+            };
+
+            html.root().select(selector).for_each(|_e| {})
+        })
+    });
+
+    // A class absent from the document: the resolve pass binds it to `Absent` once, so the
+    // compound can never match and the whole walk is a per-node integer check against a
+    // selector that is known not to match. The pre-resolve string path could not prune this.
+    c.bench_function("select absent class in fr.serrer.html", |b| {
+        b.iter(|| {
+            let selector = SelectorList {
+                selectors: vec![ComplexSelector {
+                    first: CompoundSelector {
+                        classes: vec![ClassSelector::new("this-class-does-not-exist")],
+                        ..Default::default()
+                    },
+                    selectors: Vec::new(),
+                }],
+            };
+
+            html.root().select(selector).for_each(|_e| {})
+        })
+    });
+
+    // A multi-class compound: every candidate node is checked against two resolved Syms,
+    // exercising the per-node integer-compare loop more than once per element.
+    c.bench_function("select multi-class in fr.serrer.html", |b| {
+        b.iter(|| {
+            let selector = SelectorList {
+                selectors: vec![ComplexSelector {
+                    first: CompoundSelector {
+                        classes: vec![
+                            ClassSelector::new("vector-menu-content"),
+                            ClassSelector::new("vector-menu"),
+                        ],
                         ..Default::default()
                     },
                     selectors: Vec::new(),

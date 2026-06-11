@@ -14,6 +14,13 @@ use crate::{
 };
 
 use super::{Selector, compound::CompoundSelector};
+use crate::stores::SymbolTableView;
+
+impl RelativeSelector<'_> {
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        self.selector.resolve(symbols);
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum RelativeSelectorError {

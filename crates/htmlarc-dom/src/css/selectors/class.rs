@@ -9,7 +9,7 @@ use crate::{
         logging::debug,
         patterns::{CssChar, CssPattern, TextPattern},
     },
-    stores::Class,
+    stores::{Class, Sym, SymbolTableView},
 };
 
 #[derive(Debug, Error)]
@@ -41,18 +41,56 @@ impl IndexedError for ClassSelectorError {
     }
 }
 
+/// Per-document resolution state of a class selector, set by the resolve pass that
+/// [`MatchIter`](crate::iters::MatchIter) runs once when it binds a selector list to a
+/// document. Resolving the class string to a stable [`Sym`] turns per-node matching into
+/// integer compares (ADR 0002 §3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ResolvedSym {
+    /// No resolve pass has run — match by string comparison. This is the state for direct
+    /// matching paths that bypass `MatchIter` (`Element::matches`, `Selector::matches`).
+    #[default]
+    Unresolved,
+    /// The class is present in the document's symbol table — match by `Sym` compare.
+    Found(Sym),
+    /// The class is absent from the document, so this selector can never match here. This
+    /// is semantically correct through `:not`, which negates the inner result.
+    Absent,
+}
+
 #[derive(Debug, Clone, Copy)]
-pub struct ClassSelector<'s>(pub &'s str);
+pub struct ClassSelector<'s> {
+    pub name: &'s str,
+    pub(crate) resolved: ResolvedSym,
+}
+
+impl<'s> ClassSelector<'s> {
+    pub fn new(name: &'s str) -> Self {
+        Self {
+            name,
+            resolved: ResolvedSym::Unresolved,
+        }
+    }
+
+    /// Bind this selector to a document by resolving its class name against the symbol
+    /// table (called by the [`MatchIter`](crate::iters::MatchIter) resolve pass).
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        self.resolved = match symbols.find(self.name) {
+            Some(sym) => ResolvedSym::Found(sym),
+            None => ResolvedSym::Absent,
+        };
+    }
+}
 
 impl Display for ClassSelector<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, ".{}", self.0)
+        write!(f, ".{}", self.name)
     }
 }
 
 impl PartialEq<Class<'_>> for ClassSelector<'_> {
     fn eq(&self, other: &Class<'_>) -> bool {
-        self.0 == other.0
+        self.name == other.0
     }
 }
 
@@ -99,7 +137,7 @@ impl<'s> ClassSelector<'s> {
             .context(ClassSelectorError::ParseFail(start_index))?
         {
             debug!("Parsed class selector at {}", start_index);
-            Ok(Some(ClassSelector(id)))
+            Ok(Some(ClassSelector::new(id)))
         } else {
             Err(ClassSelectorError::MissingClass(start_index).into())
         }
@@ -112,14 +150,14 @@ fn test_parse_class_selector() {
 
     test_ok("", None::<ClassSelector>);
     test_ok("#", None::<ClassSelector>);
-    test_ok(".-hyphen", Some(ClassSelector("-hyphen")));
-    test_ok("._underscore", Some(ClassSelector("_underscore")));
-    test_ok(".withdigit1", Some(ClassSelector("withdigit1")));
+    test_ok(".-hyphen", Some(ClassSelector::new("-hyphen")));
+    test_ok("._underscore", Some(ClassSelector::new("_underscore")));
+    test_ok(".withdigit1", Some(ClassSelector::new("withdigit1")));
     test_ok(
         ".hyphen-_underscore",
-        Some(ClassSelector("hyphen-_underscore")),
+        Some(ClassSelector::new("hyphen-_underscore")),
     );
-    test_ok(".stop[", Some(ClassSelector("stop")));
+    test_ok(".stop[", Some(ClassSelector::new("stop")));
 
     fn test_err(string: &str, expected: ParseError) {
         crate::css::helpers::test_err::<ClassSelector>(string, expected);

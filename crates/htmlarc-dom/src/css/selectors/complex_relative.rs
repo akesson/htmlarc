@@ -15,6 +15,15 @@ use crate::{
 };
 
 use super::relative::RelativeSelector;
+use crate::stores::SymbolTableView;
+
+impl ComplexRelativeSelector<'_> {
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        for selector in &mut self.selectors {
+            selector.resolve(symbols);
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ComplexRelativeSelectorError {
