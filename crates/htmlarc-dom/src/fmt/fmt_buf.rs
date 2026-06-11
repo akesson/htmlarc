@@ -62,11 +62,13 @@ impl FmtBuf {
             let DataAttribute { tag, val } = entry;
             self.push_str("data-");
             self.push_str(tag);
-            // if !val.is_empty() {
-            self.push_str("=\"");
-            self.push_str(&entities::encode_attr(val));
-            self.push('"');
-            // }
+            // Render an empty value as a bare attribute (`data-x`), matching `add_attrs`;
+            // PR 3 unifies the two paths, so the rendering rule must agree first.
+            if !val.is_empty() {
+                self.push_str("=\"");
+                self.push_str(&entities::encode_attr(val));
+                self.push('"');
+            }
         }
     }
 }

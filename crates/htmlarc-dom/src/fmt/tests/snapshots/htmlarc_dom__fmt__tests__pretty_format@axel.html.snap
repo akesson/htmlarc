@@ -2,7 +2,6 @@
 source: crates/htmlarc-dom/src/fmt/tests/mod.rs
 expression: "format(&html, HtmlFormat::Pretty)"
 input_file: crates/htmlarc-dom/src/fmt/tests/html/axel.html
-snapshot_kind: text
 ---
 <!DOCTYPE html>
 <html class="client-nojs" dir="ltr" lang="sv">
@@ -101,7 +100,7 @@ Stöd Wiktionary
 								<ul class="hlist">
 									<li class="">
  
-										<a class="" data-event-name="" href="/wiki/Wiktionary:Om">
+										<a class="" data-event-name href="/wiki/Wiktionary:Om">
 											<span>
 Om Wiktionary
 											</span>
@@ -109,7 +108,7 @@ Om Wiktionary
 									</li>
 									<li class="">
  
-										<a class="" data-event-name="" href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll">
+										<a class="" data-event-name href="/wiki/Wiktionary:Allm%C3%A4nt_f%C3%B6rbeh%C3%A5ll">
 											<span>
 Förbehåll
 											</span>
@@ -474,7 +473,7 @@ axlarnas
 												<noscript>
 <img class="thumbimage" data-file-width="452" data-file-height="500" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" decoding="async" width="170" height="188" />
 												</noscript>
-												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="188" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" data-width="170" style="width: 170px;height: 188px;">
+												<span class="lazy-image-placeholder" data-alt data-class="thumbimage" data-height="188" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Gray326.png/170px-Gray326.png" data-width="170" style="width: 170px;height: 188px;">
  
 												</span>
 											</a>
@@ -493,7 +492,7 @@ axlarnas
 												<noscript>
 <img class="thumbimage" data-file-width="800" data-file-height="600" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" decoding="async" width="170" height="128" />
 												</noscript>
-												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="128" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" data-width="170" style="width: 170px;height: 128px;">
+												<span class="lazy-image-placeholder" data-alt data-class="thumbimage" data-height="128" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/7/76/Rollingstock_axle.jpg/170px-Rollingstock_axle.jpg" data-width="170" style="width: 170px;height: 128px;">
  
 												</span>
 											</a>
@@ -512,7 +511,7 @@ axlarnas
 												<noscript>
 <img class="thumbimage" data-file-width="451" data-file-height="208" alt src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" decoding="async" width="170" height="78" />
 												</noscript>
-												<span class="lazy-image-placeholder" data-alt="" data-class="thumbimage" data-height="78" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" data-width="170" style="width: 170px;height: 78px;">
+												<span class="lazy-image-placeholder" data-alt data-class="thumbimage" data-height="78" data-src="//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Cardan-joint_intermediate-shaft_topview_animated.gif/170px-Cardan-joint_intermediate-shaft_topview_animated.gif" data-width="170" style="width: 170px;height: 78px;">
  
 												</span>
 											</a>
