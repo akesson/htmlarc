@@ -1,9 +1,10 @@
-use crate::css::AttributeSelector;
+use crate::css::{AttributeSelector, ClassSelector, ResolvedSym};
 use crate::dom::NodeIndex;
 use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
-    AttributeStoreView, Class, ClassStoreView, DataAttributeStoreView, StringStackView,
+    AttributeStoreView, Class, DataAttributeStoreView, ListIndex, ListVecView, StringStackView,
+    Sym, SymbolTableView,
 };
 
 /// A borrowed, read-only view over a DOM document.
@@ -21,7 +22,8 @@ pub struct DomView<'a> {
     pub(crate) nodes: NodesView<'a>,
     pub(crate) attrs: AttributeStoreView<'a>,
     pub(crate) dataattrs: DataAttributeStoreView<'a>,
-    pub(crate) classes: ClassStoreView<'a>,
+    pub(crate) symbols: SymbolTableView<'a>,
+    pub(crate) class_lists: ListVecView<'a>,
     pub(crate) strings: StringStackView<'a>,
 }
 
@@ -30,16 +32,37 @@ impl<'a> DomView<'a> {
         nodes: NodesView<'a>,
         attrs: AttributeStoreView<'a>,
         dataattrs: DataAttributeStoreView<'a>,
-        classes: ClassStoreView<'a>,
+        symbols: SymbolTableView<'a>,
+        class_lists: ListVecView<'a>,
         strings: StringStackView<'a>,
     ) -> Self {
         Self {
             nodes,
             attrs,
             dataattrs,
-            classes,
+            symbols,
+            class_lists,
             strings,
         }
+    }
+
+    /// Iterate a node's class list, dereferencing each [`Sym`] through the symbol table
+    /// into a borrowed [`Class`]. Used by the formatter and the `classes()` accessor.
+    pub(crate) fn class_list_at(&self, index: ListIndex) -> ClassListIter<'a> {
+        ClassListIter {
+            symbols: self.symbols,
+            lists: self.class_lists,
+            index: self.class_lists.head_index_at(index),
+        }
+    }
+
+    /// Advance an externally-held class-list cursor (the [`crate::accessors::Classes`]
+    /// iterator), yielding the next [`Class`].
+    pub(crate) fn next_class_in_list(&self, index: &mut Option<ListIndex>) -> Option<Class<'a>> {
+        let i = (*index)?;
+        let (next, val) = self.class_lists.next(i);
+        *index = next;
+        Some(Class(self.symbols.get(Sym(val))))
     }
 
     /// The text/comment payload of a string node.
@@ -75,9 +98,33 @@ impl<'a> DomView<'a> {
         if let Some(list_index) = self.nodes.class_list_index(node) {
             classes
                 .iter()
-                .all(|c| self.classes.list_at(list_index).any(|v| *c == v))
+                .all(|c| self.class_list_at(list_index).any(|v| *c == v))
         } else {
             false
+        }
+    }
+
+    /// The compound selector's class check (ADR 0002 §3). Each selector takes its resolved
+    /// path: `Found(sym)` is an integer compare over the node's class syms; `Absent` never
+    /// matches (correct through `:not`, which negates the inner result); `Unresolved` falls
+    /// back to a string compare for the direct-matching entry points that skip the resolve
+    /// pass. A node with no class list never matches.
+    pub(crate) fn has_class_selectors(&self, node: NodeIndex, sels: &[ClassSelector]) -> bool {
+        let Some(list) = self.nodes.class_list_index(node) else {
+            return false;
+        };
+        sels.iter().all(|sel| match sel.resolved {
+            ResolvedSym::Found(sym) => self.class_syms_at(list).any(|v| v == sym),
+            ResolvedSym::Absent => false,
+            ResolvedSym::Unresolved => self.class_list_at(list).any(|c| *sel == c),
+        })
+    }
+
+    /// Walk the raw [`Sym`]s of a class list — the integer fast path for matching.
+    fn class_syms_at(&self, index: ListIndex) -> ClassSymIter<'a> {
+        ClassSymIter {
+            lists: self.class_lists,
+            index: self.class_lists.head_index_at(index),
         }
     }
 
@@ -136,5 +183,41 @@ impl<'a> DomView<'a> {
                 true
             }
         }
+    }
+}
+
+/// Iterates a class list, dereferencing each stored [`Sym`] into a borrowed [`Class`].
+/// Replaces the old `ClassListView`; the symbol indirection is the only change.
+pub(crate) struct ClassListIter<'a> {
+    symbols: SymbolTableView<'a>,
+    lists: ListVecView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl<'a> Iterator for ClassListIter<'a> {
+    type Item = Class<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.lists.next(index);
+        self.index = next;
+        Some(Class(self.symbols.get(Sym(val))))
+    }
+}
+
+/// Iterates the raw [`Sym`]s of a class list — the integer fast path used by matching.
+struct ClassSymIter<'a> {
+    lists: ListVecView<'a>,
+    index: Option<ListIndex>,
+}
+
+impl Iterator for ClassSymIter<'_> {
+    type Item = Sym;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let (next, val) = self.lists.next(index);
+        self.index = next;
+        Some(Sym(val))
     }
 }

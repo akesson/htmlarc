@@ -12,7 +12,7 @@ use crate::{
         patterns::{CssPattern, text_pattern::TextPattern},
     },
     html::HtmlAttr,
-    stores::{Attribute, Class, ClassList, DataAttribute},
+    stores::{Attribute, Class, DataAttribute},
 };
 
 use super::{attribute_value::AttributeValue, text_pattern::CssChar};

@@ -4,7 +4,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{AttributeStore, ClassStore, DataAttributeStore, StringStack};
+use crate::stores::{AttributeStore, DataAttributeStore, ListVec, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -15,7 +15,10 @@ pub struct DomInner {
     pub(crate) nodes: Nodes,
     pub(crate) attrs: AttributeStore,
     pub(crate) dataattrs: DataAttributeStore,
-    pub(crate) classes: ClassStore,
+    /// Deduplicated identity strings (class tokens today). Class lists in `class_lists`
+    /// store bare [`Sym`](crate::stores::Sym)s that index into this table.
+    pub(crate) symbols: SymbolTable,
+    pub(crate) class_lists: ListVec,
     pub(crate) strings: StringStack,
 }
 
@@ -35,7 +38,8 @@ impl DomInner {
             self.nodes.view(),
             self.attrs.view(),
             self.dataattrs.view(),
-            self.classes.view(),
+            self.symbols.view(),
+            self.class_lists.view(),
             self.strings.view(),
         )
     }
@@ -53,10 +57,17 @@ impl DomInner {
     /// Test helper: attach a class list to a node. Used only by node tests.
     #[cfg(test)]
     pub(crate) fn add_classes(&mut self, index: NodeIndex, classes: &str) {
-        if let Some(list_index) = self.classes.add_class_list(classes) {
-            self.nodes
-                .set_class_list_index(index, Some(list_index.as_u16()));
+        let mut names = classes.split_ascii_whitespace();
+        let first = self.symbols.get_or_insert(names.next().unwrap_or(""));
+        let list_index = self.class_lists.new_list(first.as_u16());
+        for name in names {
+            let sym = self.symbols.get_or_insert(name);
+            self.class_lists
+                .list_mut_at(list_index)
+                .append(sym.as_u16());
         }
+        self.nodes
+            .set_class_list_index(index, Some(list_index.as_u16()));
     }
 
     pub(crate) fn replace_text(&mut self, index: NodeIndex, string: &str) {
@@ -335,7 +346,8 @@ impl ArchivedDomInner {
             self.nodes.view(),
             self.attrs.view(),
             self.dataattrs.view(),
-            self.classes.view(),
+            self.symbols.view(),
+            self.class_lists.view(),
             self.strings.view(),
         )
     }

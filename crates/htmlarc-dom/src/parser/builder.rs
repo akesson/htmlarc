@@ -4,8 +4,8 @@ use crate::{
     dom::{DomInner, NodeIndex, Nodes},
     html::{HtmlAttr, HtmlTag},
     stores::{
-        AttributeStoreBuilder, ClassStoreBuilder, DataAttribute, DataAttributeStoreBuilder,
-        ListIndex, StringStack,
+        AttributeStoreBuilder, DataAttribute, DataAttributeStoreBuilder, ListIndex, ListVec,
+        StringStack, SymbolTableBuilder,
     },
 };
 
@@ -16,7 +16,11 @@ pub struct DomBuilder {
     pub(crate) nodes: Nodes,
     pub(crate) attrs: AttributeStoreBuilder,
     pub(crate) dataattrs: DataAttributeStoreBuilder,
-    pub(crate) classes: ClassStoreBuilder,
+    pub(crate) symbols: SymbolTableBuilder,
+    pub(crate) class_lists: ListVec,
+    /// The class-list ceilings (list count / per-list entries). Symbol-heap overflow is
+    /// tracked by `symbols` itself; both are folded into [`overflow`](Self::overflow).
+    class_overflow: Option<&'static str>,
     pub(crate) strings: StringStack,
 }
 
@@ -28,12 +32,39 @@ impl DomBuilder {
         index
     }
 
+    /// Intern a whitespace-separated `class` attribute into the symbol table and append a
+    /// list of its tokens (as bare `Sym`s) to `class_lists`, returning the list's head.
+    /// On a per-document capacity overflow the builder is poisoned and the document later
+    /// discarded; the returned index is then meaningless but never observed.
+    pub(crate) fn add_class_list(&mut self, classes: &str) -> ListIndex {
+        let mut names = classes.split_ascii_whitespace();
+        let first = self.symbols.intern_or_poison(names.next().unwrap_or(""));
+        let index = match self.class_lists.try_new_list(first.as_u16()) {
+            Some(list) => list,
+            None => {
+                self.class_overflow
+                    .get_or_insert("class list count exceeds 65,534");
+                return ListIndex::from(0);
+            }
+        };
+        for class in names {
+            let sym = self.symbols.intern_or_poison(class);
+            if !self.class_lists.list_mut_at(index).try_append(sym.as_u16()) {
+                self.class_overflow
+                    .get_or_insert("class list entries exceed 32,768");
+                break;
+            }
+        }
+        index
+    }
+
     pub fn build(self) -> DomInner {
         DomInner {
             nodes: self.nodes,
             attrs: self.attrs.build(),
             dataattrs: self.dataattrs.build(),
-            classes: self.classes.build(),
+            symbols: self.symbols.build(),
+            class_lists: self.class_lists,
             strings: self.strings,
         }
     }
@@ -43,7 +74,8 @@ impl DomBuilder {
     pub fn overflow(&self) -> Option<&'static str> {
         self.attrs
             .overflow()
-            .or_else(|| self.classes.overflow())
+            .or(self.symbols.overflow())
+            .or(self.class_overflow)
             .or_else(|| self.dataattrs.overflow())
     }
 }
@@ -160,7 +192,7 @@ impl DomStack for DomBuilderCursor {
         let index = self.index();
         if tag == HtmlAttr::class {
             log_list(index, Some(""), || format!("add class={val}"));
-            let list_index = self.dom.classes.add_class_list(val);
+            let list_index = self.dom.add_class_list(val);
             self.dom
                 .nodes
                 .set_class_list_index(index, Some(list_index.as_u16()));
@@ -190,4 +222,25 @@ impl DomStack for DomBuilderCursor {
                 .set_data_attr_list_index(index, Some(list_index.as_u16()));
         }
     }
+}
+
+#[cfg(test)]
+fn dbg_class_list(dom: &DomInner, index: ListIndex) -> String {
+    dom.view()
+        .class_list_at(index)
+        .map(|c| c.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+// Token order within a class list is preserved (the symbol table dedups names but the
+// list keeps each token's first-seen position). Ported from the former ClassStoreBuilder.
+#[test]
+fn class_list_preserves_token_order() {
+    let mut b = DomBuilder::default();
+    let l1 = b.add_class_list("one a two");
+    let l2 = b.add_class_list("a one b");
+    let dom = b.build();
+    assert_eq!(dbg_class_list(&dom, l1), "one, a, two");
+    assert_eq!(dbg_class_list(&dom, l2), "a, one, b");
 }

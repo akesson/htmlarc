@@ -171,10 +171,11 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    names), total list entries, heap strings; per-bundle shared-dict hit rate at 1k/4k
    slots. *Gate output (done — see §Measured):* wiki comfortable; general web needs u24
    refs, a larger ext-tag side-map, and a higher depth cap; 4095 ≫ 1024 shared slots.
-2. **`SymbolTable` + classes port.** New `SymbolTable` (heap + permutation + interner);
-   `ClassStore` family deleted, class lists hold `Sym`s; `has_classes` goes
-   resolve-once + integer-compare. Format bump. *Gates:* selector bench (expect win),
-   parse/size neutral.
+2. **`SymbolTable` + classes port** ✅ *(shipped — see §Measured PR 2 results).* New
+   `SymbolTable` (heap + permutation + interner); `ClassStore` family deleted, class lists
+   hold `Sym`s; class matching goes resolve-once + integer-compare. Format bump 4 → 5.
+   *Gates met:* `select class` −6 %, parse −2.6 %, size neutral (−0.01 %). Contiguous-runs
+   list storage split out to a follow-up (PR 2.5); `has_id`/attr value matching still string.
 3. **Unified `AttrStore`.** `(NameSym, ValueRef)` entries; tokenizer accepts unknown
    attr names; `DataAttributeStore` family deleted; node data slot dropped (node_size
    20/15, U16 text-overlay boundary test); public `Attribute`/`AttrName` API;
@@ -349,6 +350,30 @@ no bit-packing of unaligned widths (byte-aligned u16/u24 only — unaligned fiel
 single-load hot path, cf. the NodeWidth +65 % lesson). A 99.99 % bar is the right *narrow-
 width* target, but not a correctness bar: at 10⁹ docs, 0.01 % = 100 k docs lost, so the
 escalation path (100 % coverage) stays mandatory.
+
+### PR 2 results — SymbolTable + classes port (2026-06-11)
+
+Shipped (PR #2 branch `feat/symbol-table`, 3 commits): per-document `SymbolTable`
+(`StringHeap` + content-sorted permutation, stable `Sym` ids) replaces `ClassStore`; class
+lists become a bare `ListVec` of `Sym`s; the rebuild path drives `ListRebuilder` + a
+`SymbolTable::rebuilt` compaction; selector class matching resolves once per document
+(string → `Sym`) and compares integers per node. Archive format 4 → 5.
+
+- **Size (neutral):** `wiktionary_co.zim` → `.htmlarc` 75,341,336 B (v4) → 75,331,392 B (v5),
+  **−0.01 %**. The old sorted `Vec<u16>` class table is replaced 1:1 by the symbol-table
+  permutation, so topology/heap bytes are unchanged.
+- **Selector matching (the win):** `select class` (`.vector-menu-content` over fr.serrer.html,
+  5,589 elements) **−6 %** (−5.3…−6.9 % across runs, p<0.01) — per-node string compare → `Sym`
+  compare. `select divs` (class-free) **neutral** (−0.2…−0.8 %, within noise): the resolve
+  pass costs nothing when there are no class selectors.
+- **No per-node penalty when resolve can't help:** new benches `select absent class` (~110 µs)
+  and `select multi-class` (~109 µs) sit level with `select class` — the engine still walks
+  every element, so an `Absent` selector only saves the per-node compare, not the walk. The
+  document-level prune an absent class enables is **bundle-skip, which is deferred with the
+  Lane A dictionary (§7)**; until then `Absent` is correctness (esp. through `:not`), not speed.
+- **Everything else neutral-to-better:** parse **−2.6 %** (`build()` drops the list
+  value-reindex pass that the old `ClassStoreBuilder` ran); iteration −1…−2.5 % / repack +1.6 %
+  / load −1.3 %, all within criterion's noise threshold. 297 dom tests + full workspace green.
 
 ## Open questions
 

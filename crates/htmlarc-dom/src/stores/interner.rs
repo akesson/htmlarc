@@ -39,12 +39,29 @@ impl StringInterner {
         Some(i)
     }
 
-    pub(crate) fn get(&self, index: u16) -> &str {
-        &self.heap[index]
+    /// Like [`try_intern`](Self::try_intern), but refuses *new* strings once the heap
+    /// holds `cap` entries — an already-interned string still resolves. Lets a symbol
+    /// space cap below the heap's own `u16` ceiling (ADR 0002's `LOCAL_CAP`).
+    pub(crate) fn try_intern_capped(&mut self, s: &str, cap: u16) -> Option<u16> {
+        let Self {
+            heap,
+            table,
+            hasher,
+        } = self;
+        let hash = hasher.hash_one(s);
+        if let Some(&i) = table.find(hash, |&i| &heap[i] == s) {
+            return Some(i);
+        }
+        if heap.len() >= cap {
+            return None;
+        }
+        let i = heap.try_insert(s)?;
+        table.insert_unique(hash, i, |&j| hasher.hash_one(&heap[j]));
+        Some(i)
     }
 
-    pub(crate) fn len(&self) -> u16 {
-        self.heap.len()
+    pub(crate) fn get(&self, index: u16) -> &str {
+        &self.heap[index]
     }
 
     /// Consumes the interner, yielding the heap (insertion order).

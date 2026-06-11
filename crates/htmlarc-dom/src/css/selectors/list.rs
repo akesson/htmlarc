@@ -13,6 +13,17 @@ use crate::{
 };
 
 use super::{Selector, complex::ComplexSelector};
+use crate::stores::SymbolTableView;
+
+impl SelectorList<'_> {
+    /// Bind every class selector in the tree to a document's symbols (the resolve pass run
+    /// once by [`MatchIter`](crate::iters::MatchIter)). See [`super::ClassSelector::resolve`].
+    pub(crate) fn resolve(&mut self, symbols: SymbolTableView<'_>) {
+        for selector in &mut self.selectors {
+            selector.resolve(symbols);
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum SelectorListError {
@@ -174,7 +185,7 @@ fn test_parse_selector_list() {
                 ComplexSelector {
                     first: CompoundSelector {
                         element: Some(HtmlTag::span),
-                        classes: vec![ClassSelector("blue")],
+                        classes: vec![ClassSelector::new("blue")],
                         ..Default::default()
                     },
                     selectors: Vec::new(),
@@ -287,7 +298,7 @@ fn test_selector_list_matching_err() {
             ComplexSelector {
                 first: CompoundSelector {
                     element: Some(HtmlTag::section),
-                    classes: vec![ClassSelector("blue")],
+                    classes: vec![ClassSelector::new("blue")],
                     ..Default::default()
                 },
                 selectors: Vec::new(),
@@ -319,7 +330,7 @@ fn test_selector_list_matching_err() {
             ComplexSelector {
                 first: CompoundSelector {
                     element: Some(HtmlTag::p),
-                    classes: vec![ClassSelector("red")],
+                    classes: vec![ClassSelector::new("red")],
                     ..Default::default()
                 },
                 selectors: Vec::new(),
@@ -327,7 +338,7 @@ fn test_selector_list_matching_err() {
             ComplexSelector {
                 first: CompoundSelector {
                     element: Some(HtmlTag::aside),
-                    classes: vec![ClassSelector("blue")],
+                    classes: vec![ClassSelector::new("blue")],
                     ..Default::default()
                 },
                 selectors: Vec::new(),
