@@ -223,6 +223,10 @@ impl DomStack for DomBuilderCursor {
         self.tag_stack.last().copied()
     }
 
+    fn _stack_contains(&self, tag: &CursorTag) -> bool {
+        self.tag_stack.contains(tag)
+    }
+
     fn _pop_tag(&mut self) -> Option<CursorTag> {
         let i = self.index_stack.pop();
         let tag = self.tag_stack.pop();
