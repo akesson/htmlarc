@@ -94,7 +94,6 @@ fn tag_closing() {
     roundtrip("<img />");
     roundtrip("<input />");
     roundtrip("<!DOCTYPE html>");
-    roundtrip_to("<svg><some elem></svg>", "");
 }
 
 #[test]
@@ -197,6 +196,99 @@ fn extended_marker_never_leaks_into_output() {
         !raw.contains("extended") && !pretty.contains("extended"),
         "the `extended` marker must never appear:\n raw: {raw}\n pretty: {pretty}"
     );
+}
+
+// --- foreign content (ADR 0002 §5, PR 5) ---
+
+#[test]
+fn svg_subtree_round_trips_with_case_restored() {
+    // svg/math subtrees are now stored as ordinary (extended) elements; the WHATWG SVG name
+    // tables restore the canonical case at the formatter, so a camelCase document is its own
+    // fixed point.
+    roundtrip(
+        r#"<svg viewBox="0 0 10 10"><clipPath id="c"><path d="M0 0"></path></clipPath></svg>"#,
+    );
+    // The lowercased spellings html5gum hands us still render canonical.
+    roundtrip_to(
+        r#"<svg viewbox="0 0 10 10"><clippath id="c"><path d="M0 0"></path></clippath></svg>"#,
+        r#"<svg viewBox="0 0 10 10"><clipPath id="c"><path d="M0 0"></path></clipPath></svg>"#,
+    );
+    // A standard attribute on an svg element (e.g. `id`, `class`) is unaffected by the table.
+    roundtrip(
+        r#"<svg class="icon" id="i"><feGaussianBlur stdDeviation="2"></feGaussianBlur></svg>"#,
+    );
+}
+
+#[test]
+fn mathml_subtree_round_trips() {
+    roundtrip("<math><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow></math>");
+    // MathML's lone case-adjusted attribute.
+    roundtrip_to(
+        r#"<math><mi definitionurl="u">x</mi></math>"#,
+        r#"<math><mi definitionURL="u">x</mi></math>"#,
+    );
+}
+
+#[test]
+fn self_closing_foreign_child_renders_childless() {
+    // A self-closing `<path/>` is popped immediately and renders `<path></path>` (no void or
+    // self-closing semantics for extended elements — ADR 0002 §5).
+    roundtrip_to(
+        r#"<svg><path d="M0 0"/></svg>"#,
+        r#"<svg><path d="M0 0"></path></svg>"#,
+    );
+    // A self-closing foreign root is empty, not the parent of what follows.
+    roundtrip_to("<svg/><div></div>", "<svg></svg><div></div>");
+}
+
+#[test]
+fn foreign_object_holds_html_children() {
+    roundtrip(
+        r#"<svg viewBox="0 0 1 1"><foreignObject><div class="x">hi</div></foreignObject></svg>"#,
+    );
+}
+
+#[test]
+fn cdata_in_foreign_content_is_text() {
+    // Inside foreign content `<![CDATA[…]]>` is character data; its markup-significant bytes
+    // are re-encoded on output. Outside foreign content it stays a bogus comment (unchanged).
+    roundtrip_to(
+        "<svg><desc><![CDATA[a < b & c]]></desc></svg>",
+        "<svg><desc>a &lt; b &amp; c</desc></svg>",
+    );
+    roundtrip_to("<div><![CDATA[x]]></div>", "<div><!--[CDATA[x]]--></div>");
+}
+
+#[test]
+fn raw_text_is_suppressed_inside_foreign_content() {
+    // `<title>`/`<style>`/`<script>` are RCDATA/RAWTEXT only in the HTML namespace. Inside
+    // svg they are ordinary elements: a `<title>` parses child markup, and a `<style>` body
+    // is treated as text (decoded on ingest, entity-encoded on output).
+    roundtrip("<svg><title><b>x</b></title></svg>");
+    roundtrip_to(
+        "<svg><style>x&y</style></svg>",
+        "<svg><style>x&amp;y</style></svg>",
+    );
+    // The same elements at the top level keep their HTML-namespace raw-text behaviour.
+    roundtrip_to(
+        "<title><b>x</b></title>",
+        "<title>&lt;b&gt;x&lt;/b&gt;</title>",
+    );
+    roundtrip("<style>x&y</style>");
+}
+
+#[test]
+fn foreign_content_pretty_formats() {
+    // The pretty formatter resolves the same case tables and never leaks the `extended`
+    // marker for svg children.
+    let doc = r#"<svg viewBox="0 0 1 1"><clipPath><path d="M0 0"></path></clipPath></svg>"#;
+    let pretty = HtmlDoc::parse(doc).unwrap().to_html(HtmlFormat::Pretty);
+    assert!(pretty.contains("viewBox=\"0 0 1 1\""), "pretty: {pretty}");
+    assert!(
+        pretty.contains("<clipPath>") && pretty.contains("</clipPath>"),
+        "pretty: {pretty}"
+    );
+    assert!(!pretty.contains("extended"), "pretty: {pretty}");
 }
 
 // --- per-document overflow guardrails (ADR 0002, PR 1) ---

@@ -1,0 +1,6 @@
+---
+source: crates/htmlarc-dom/src/html/tests/mod.rs
+expression: print_elements(selected)
+input_file: crates/htmlarc-dom/src/html/tests/html/foreign-svg-math.html
+---
+

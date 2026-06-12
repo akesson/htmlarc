@@ -941,3 +941,40 @@ fn extended_tags_survive_u16_archived_round_trip() {
         .collect();
     assert_eq!(leaf, ["x-leaf"]);
 }
+
+#[test]
+fn repackage_keeps_svg_subtree_when_classes_compact() {
+    // svg/math subtrees are stored as extended elements (ADR 0002 §5); their names share the
+    // symbol table with class tokens, so an emptied class (forcing compaction) must not
+    // disturb them — and the case is still restored after repackage.
+    let html_str = "<html class='root'><body>\
+        <p class='drop keep'>x</p>\
+        <svg viewBox='0 0 1 1'><clipPath><path d='M0 0'></path></clipPath></svg></body></html>";
+    let dom = HtmlDoc::parse(html_str).unwrap().dom_ref_cell();
+
+    dom.root()
+        .select_css("p")
+        .unwrap()
+        .first()
+        .unwrap()
+        .classes_mut()
+        .remove(|_| true);
+
+    let html = HtmlDoc::from(dom.repackage()).to_html(HtmlFormat::Raw);
+    assert!(
+        html.contains("<clipPath>") && html.contains("</clipPath>"),
+        "svg child name and case must survive symbol compaction: {html}"
+    );
+    assert!(
+        html.contains("viewBox=\"0 0 1 1\""),
+        "svg attribute name and case must survive: {html}"
+    );
+    assert!(
+        html.contains("<path d=\"M0 0\">"),
+        "nested svg element must survive: {html}"
+    );
+    assert!(
+        !html.contains("drop"),
+        "the emptied <p> class is gone: {html}"
+    );
+}
