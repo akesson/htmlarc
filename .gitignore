@@ -2,5 +2,8 @@
 **/*.rs.bk
 .DS_Store
 *.htmlarc
-# Local-only test ZIMs fetched by cli/zim2htmlarc/fetch-testdata.sh (not redistributable).
+# Local-only test ZIMs fetched by cli/htmlarc-convert/fetch-testdata.sh (not redistributable).
 *.zim
+# Local-only WARC crawl segments for the corpus probe (not redistributable).
+*.warc
+*.warc.gz
