@@ -1,0 +1,69 @@
+---
+source: crates/htmlarc-dom/src/html/tests/mod.rs
+expression: "doc.to_html(HtmlFormat::Pretty)"
+input_file: crates/htmlarc-dom/src/html/tests/html/foreign-svg-math.html
+---
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>
+Foreign content
+		</title>
+	</head>
+	<body>
+		<figure>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60" width="120" height="60">
+				<defs>
+					<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="120" y2="0">
+						<stop offset="0%" stop-color="#0af"></stop>
+						<stop offset="100%" stop-color="#06c"></stop>
+					</linearGradient>
+					<clipPath id="clip" clipPathUnits="userSpaceOnUse">
+						<circle cx="60" cy="30" r="28"></circle>
+					</clipPath>
+					<filter id="blur">
+						<feGaussianBlur in="SourceGraphic" stdDeviation="2"></feGaussianBlur>
+					</filter>
+				</defs>
+				<g clip-path="url(#clip)" filter="url(#blur)">
+					<rect x="0" y="0" width="120" height="60" fill="url(#g)"></rect>
+					<path d="M10 50 Q60 0 110 50" stroke="#fff" fill="none"></path>
+				</g>
+				<foreignObject x="8" y="8" width="104" height="20">
+					<div class="caption">
+inline <em>HTML</em> in SVG
+					</div>
+				</foreignObject>
+				<desc>
+a &lt; b &amp;&amp; c &gt; d
+				</desc>
+			</svg>
+			<figcaption>
+				<math display="block">
+					<mrow>
+						<msup>
+							<mi>
+x
+							</mi>
+							<mn>
+2
+							</mn>
+						</msup>
+						<mo>
++
+						</mo>
+						<mi>
+y
+						</mi>
+						<mo>
+=
+						</mo>
+						<mn>
+1
+						</mn>
+					</mrow>
+				</math>
+			</figcaption>
+		</figure>
+	</body>
+</html>

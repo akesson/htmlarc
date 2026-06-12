@@ -1,5 +1,6 @@
 use crate::entities;
-use crate::stores::{Attribute, Class};
+use crate::html::foreign;
+use crate::stores::{AttrName, Attribute, Class};
 
 #[derive(Default)]
 pub struct FmtBuf(String);
@@ -47,7 +48,12 @@ impl FmtBuf {
         for entry in list {
             self.push(' ');
             let Attribute { name, val } = entry;
-            self.push_str(&name.to_string());
+            // Standard names render as-is; an extended name may be a known SVG/MathML
+            // attribute whose canonical case is restored here (ADR 0002 §5).
+            match name {
+                AttrName::Std(attr) => self.push_str(<&'static str>::from(attr)),
+                AttrName::Ext(ext) => self.push_str(foreign::adjust_attr_name(ext)),
+            }
             // An empty value renders as a bare attribute (`disabled`, `data-x`).
             if !val.is_empty() {
                 self.push_str("=\"");

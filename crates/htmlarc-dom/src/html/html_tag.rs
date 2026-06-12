@@ -202,8 +202,8 @@ impl HtmlTag {
     /// if the start tag should end with a closing />
     pub fn auto_close(&self) -> bool {
         use HtmlTag::{br, hr, img, input};
-        // there should be a check for foreign elements as well, but it is
-        // not necessary since they are discarded
+        // Foreign (svg/math) and extended elements are NOT auto-closed: per ADR 0002 §5 a
+        // childless one renders as `<name></name>`, which is valid in HTML and SVG-in-HTML.
         matches!(self, hr | br | img | input)
     }
 

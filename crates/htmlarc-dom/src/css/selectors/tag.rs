@@ -91,7 +91,15 @@ impl<'s> ExtTagSelector<'s> {
     /// resolves to `Absent` when nothing overflowed, else to `OverflowSym` — still correct, as
     /// its symbol is never in the overflow map, so no node matches.
     pub(crate) fn resolve(&mut self, view: DomView<'_>) {
-        self.resolved = match view.symbols.find(self.name) {
+        // Stored tag names are lowercase (html5gum lowercases everything); a CSS type
+        // selector is ASCII-case-insensitive, so a camelCase SVG spelling like `clipPath`
+        // must resolve to the lowercased symbol (ADR 0002 §5).
+        let found = if self.name.bytes().any(|b| b.is_ascii_uppercase()) {
+            view.symbols.find(&self.name.to_ascii_lowercase())
+        } else {
+            view.symbols.find(self.name)
+        };
+        self.resolved = match found {
             None => ResolvedTag::Absent,
             Some(sym) => match view.ext_tags.vocab_byte(sym) {
                 Some(byte) => ResolvedTag::Byte(byte),

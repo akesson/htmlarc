@@ -125,8 +125,10 @@ impl<'a> DomView<'a> {
             }
             ResolvedTag::Absent => false,
             ResolvedTag::Unresolved => {
+                // The node's stored name is lowercase; a type selector is ASCII-case-
+                // insensitive (ADR 0002 §5), so a `clipPath` selector matches `clippath`.
                 let byte = self.nodes.tag_byte(node);
-                byte >= EXT_BASE && self.tag_name(node) == sel.name
+                byte >= EXT_BASE && self.tag_name(node).eq_ignore_ascii_case(sel.name)
             }
         }
     }
