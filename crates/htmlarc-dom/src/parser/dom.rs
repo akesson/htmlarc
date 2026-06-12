@@ -58,6 +58,11 @@ pub(crate) trait DomStack {
     /// Only for internal use
     fn _last_tag(&self) -> Option<Self::Tag>;
 
+    /// Whether `tag` is open anywhere on the stack — the non-destructive lookup the tolerant
+    /// end-tag recovery in [`pop_tag`](Self::pop_tag) needs (popping to probe would corrupt
+    /// the builder's node tree).
+    fn _stack_contains(&self, tag: &Self::Tag) -> bool;
+
     fn _push_tag(&mut self, tag: Self::Tag);
 
     fn stack_info(&self) -> String;
@@ -96,6 +101,20 @@ pub(crate) trait DomStack {
             && Self::kind_of(&popped).auto_close_when_parent(Self::kind_of(&tag))
         {
             return Ok(());
+        }
+        // Tolerant recovery (ADR 0002 §5): a malformed subtree — most often unclosed SVG
+        // children such as `<svg>…<path></svg>` — leaves elements open that a real
+        // foreign-content tree builder would implicitly close. If this end tag matches an
+        // element still open deeper in the stack, pop the intervening unclosed elements (now
+        // closed by their ancestor) rather than failing the whole document. A stray end tag
+        // with no matching open element is still an error. This only runs on the path that
+        // used to error, so every document that already parsed is unaffected.
+        if self._stack_contains(&tag) {
+            while let Some(open) = self._pop_tag() {
+                if open == tag {
+                    return Ok(());
+                }
+            }
         }
         Err(HtmlParseError::new(format!(
             "Expected tag '{name}', but found stack '{} > {}'",

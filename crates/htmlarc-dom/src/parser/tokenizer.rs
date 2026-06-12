@@ -9,7 +9,9 @@
 //! - unrecognised *tags* parse as extended (custom) elements via a per-document vocab (ADR
 //!   0002 §4); an unrecognised *attribute* name is likewise kept as an extended name (ADR
 //!   0002 §3), so `data-*`, arbitrary attributes, and custom elements all parse;
-//! - `<svg>` / `<math>` subtrees are skipped wholesale;
+//! - `<svg>` / `<math>` subtrees are stored as ordinary (extended) elements (ADR 0002 §5);
+//!   while inside one, the raw-text state switch is suppressed and `<![CDATA[…]]>` is kept as
+//!   character data (see [`RawTextEmitter`]);
 //! - void / self-closing elements are popped immediately;
 //! - a `<!DOCTYPE …>` is stored as a fixed `DOCTYPE` node with a single `html` attribute.
 //!
@@ -53,14 +55,26 @@ fn raw_next_state(tag_name: &[u8]) -> Option<State> {
 }
 
 /// Wraps an [`Emitter`] to drive the tokenizer/tree-builder state feedback via
-/// [`raw_next_state`] instead of html5gum's broader built-in heuristic. Everything except the
-/// post-tag state decision is forwarded to the inner emitter.
+/// [`raw_next_state`] instead of html5gum's broader built-in heuristic, and to approximate
+/// the WHATWG "foreign content" rules an extraction archive needs (ADR 0002 §5). Everything
+/// except the post-tag state decision and the foreign-content flag is forwarded to the inner
+/// emitter.
 struct RawTextEmitter<E> {
     inner: E,
     /// Name of the tag currently being built (lowercased by the tokenizer).
     tag_name: Vec<u8>,
     /// Whether that tag is a start tag (only start tags trigger a raw-text switch).
     is_start: bool,
+    /// Set when the current tag is self-closing (`<svg/>`), so a self-closing foreign root is
+    /// not counted as opening a foreign subtree.
+    self_closing: bool,
+    /// Open-element depth of `svg`/`math` subtrees. While `> 0` we are in foreign content:
+    /// the raw-text state switch is suppressed (so `<style>`/`<title>`/`<script>` children
+    /// parse as ordinary markup) and `<![CDATA[…]]>` is tokenized as character data rather
+    /// than a bogus comment. Name-based, not a full namespace stack — a deliberate
+    /// approximation for a fault-tolerant extractor (an unclosed `<svg>` keeps the flag set
+    /// until EOF).
+    foreign_depth: u32,
 }
 
 impl<E: Emitter> RawTextEmitter<E> {
@@ -69,6 +83,8 @@ impl<E: Emitter> RawTextEmitter<E> {
             inner,
             tag_name: Vec::new(),
             is_start: false,
+            self_closing: false,
+            foreign_depth: 0,
         }
     }
 }
@@ -83,12 +99,14 @@ impl<E: Emitter> ForwardingEmitter for RawTextEmitter<E> {
     fn init_start_tag(&mut self) {
         self.tag_name.clear();
         self.is_start = true;
+        self.self_closing = false;
         self.inner.init_start_tag();
     }
 
     fn init_end_tag(&mut self) {
         self.tag_name.clear();
         self.is_start = false;
+        self.self_closing = false;
         self.inner.init_end_tag();
     }
 
@@ -97,14 +115,40 @@ impl<E: Emitter> ForwardingEmitter for RawTextEmitter<E> {
         self.inner.push_tag_name(s);
     }
 
+    fn set_self_closing(&mut self) {
+        self.self_closing = true;
+        self.inner.set_self_closing();
+    }
+
     fn emit_current_tag(&mut self) -> Option<State> {
-        // Forward to emit the tag's events, then override the state decision.
+        // Forward to emit the tag's events, then maintain the foreign-content depth and
+        // override the state decision.
         let _ = self.inner.emit_current_tag();
+        let is_foreign = matches!(self.tag_name.as_slice(), b"svg" | b"math");
         if self.is_start {
-            raw_next_state(&self.tag_name)
+            if is_foreign && !self.self_closing {
+                self.foreign_depth += 1;
+            }
+            // Inside foreign content nothing switches to RAWTEXT/RCDATA — children parse as
+            // ordinary markup (ADR 0002 §5).
+            if self.foreign_depth == 0 {
+                raw_next_state(&self.tag_name)
+            } else {
+                None
+            }
         } else {
+            if is_foreign {
+                self.foreign_depth = self.foreign_depth.saturating_sub(1);
+            }
             None
         }
+    }
+
+    fn adjusted_current_node_present_but_not_in_html_namespace(&mut self) -> bool {
+        // Drives html5gum's markup-declaration path: `true` makes `<![CDATA[…]]>` a CDATA
+        // section (character data) instead of a bogus comment, matching browser behaviour
+        // inside svg/math.
+        self.foreign_depth > 0
     }
 }
 
@@ -117,8 +161,6 @@ pub(crate) fn parse_into<D: DomStack>(input: &str, dom: &mut D) -> HtmlParseResu
         start: None,
         attr: None,
         current: None,
-        skip: None,
-        skip_awaiting_close: false,
     };
 
     {
@@ -148,13 +190,12 @@ pub(crate) fn parse_into<D: DomStack>(input: &str, dom: &mut D) -> HtmlParseResu
 
 /// A start tag seen via `OpenStartTag` but not yet materialised — see [`Driver::start`].
 enum StartTag {
-    /// A recognised HTML element.
+    /// A recognised HTML element (including `svg`/`math`, now stored like any other — ADR
+    /// 0002 §5).
     Std(HtmlTag),
     /// An extended (custom/unknown) element — the verbatim name, kept owned because the
     /// html5gum event slice is transient and the tag commits lazily (ADR 0002 §4).
     Ext(String),
-    /// `svg`/`math`, whose subtree is dropped wholesale.
-    Foreign(HtmlTag),
 }
 
 /// An attribute name that has been seen and is awaiting its (optional) value.
@@ -175,11 +216,6 @@ struct Driver<'d, D: DomStack> {
     attr: Option<PendingName>,
     /// The element currently open (materialised), for the void/self-closing pop decision.
     current: Option<HtmlTag>,
-    /// The foreign element (`svg`/`math`) whose subtree is currently being dropped.
-    skip: Option<HtmlTag>,
-    /// True between a foreign element being materialised and its own `CloseStartTag`, to
-    /// tell that close apart from a nested child's while skipping.
-    skip_awaiting_close: bool,
 }
 
 impl<D: DomStack> Driver<'_, D> {
@@ -201,8 +237,7 @@ impl<D: DomStack> Driver<'_, D> {
         }
     }
 
-    /// Materialise the deferred start tag: push a normal element, or enter skip mode for a
-    /// foreign one. A no-op once already materialised.
+    /// Materialise the deferred start tag: push the element. A no-op once already materialised.
     fn commit_start(&mut self) {
         match self.start.take() {
             Some(StartTag::Std(tag)) => {
@@ -213,23 +248,15 @@ impl<D: DomStack> Driver<'_, D> {
                 self.dom.push_tag(TagName::Ext(&name));
                 self.current = Some(HtmlTag::extended);
             }
-            Some(StartTag::Foreign(tag)) => {
-                self.skip = Some(tag);
-                self.skip_awaiting_close = true;
-            }
             None => {}
         }
     }
 
     fn open_start_tag(&mut self, name: &[u8]) {
-        if self.skip.is_some() {
-            return; // a tag nested inside a skipped foreign subtree
-        }
         let name = String::from_utf8_lossy(name);
         // Unknown names are no longer a hard error: they parse as extended (custom) tags
-        // (ADR 0002 §4). `svg`/`math` still enter foreign-skip mode (untouched until PR 5).
+        // (ADR 0002 §4). `svg`/`math` are ordinary recognised elements now (ADR 0002 §5).
         self.start = Some(match TagName::parse(&name) {
-            TagName::Std(tag @ (HtmlTag::svg | HtmlTag::math)) => StartTag::Foreign(tag),
             TagName::Std(tag) => StartTag::Std(tag),
             TagName::Ext(_) => StartTag::Ext(name.to_string()),
         });
@@ -240,9 +267,6 @@ impl<D: DomStack> Driver<'_, D> {
         self.commit_start();
         // A new name means the previous attribute (if any) had no value.
         self.flush_attr("");
-        if self.skip.is_some() {
-            return;
-        }
         let name = String::from_utf8_lossy(name);
         // Mimic the old parser, whose attribute loop only began a name on an ASCII
         // alphanumeric: stray punctuation (e.g. the doubled quote in `accesskey="f"">`)
@@ -264,9 +288,6 @@ impl<D: DomStack> Driver<'_, D> {
     }
 
     fn attribute_value(&mut self, value: &[u8]) {
-        if self.skip.is_some() {
-            return;
-        }
         let value = String::from_utf8_lossy(value);
         self.flush_attr(&value);
     }
@@ -281,36 +302,19 @@ impl<D: DomStack> Driver<'_, D> {
 
     fn close_start_tag(&mut self, self_closing: bool) {
         self.commit_start();
-        if self.skip.is_some() {
-            if self.skip_awaiting_close {
-                // The foreign element's own close.
-                self.skip_awaiting_close = false;
-                if self_closing {
-                    self.skip = None; // `<svg/>`: empty, nothing to drop
-                }
-            }
-            return; // otherwise a nested child's close while skipping
-        }
         self.flush_attr(""); // a trailing valueless attribute
         if let Some(tag) = self.current.take()
             && (self_closing || tag.is_void_element())
         {
             // This element was pushed an instant ago, so an identity check would be vacuous
             // (and impossible for an extended tag, whose kind alone is `extended`); pop it
-            // directly.
+            // directly. A self-closing foreign element (`<path/>`) thus becomes childless.
             self.dom._pop_tag();
         }
     }
 
     fn end_tag(&mut self, name: &[u8]) {
         let name = String::from_utf8_lossy(name);
-        if let Some(skip_tag) = self.skip {
-            if name.as_ref() == skip_tag.as_str() {
-                self.skip = None;
-                self.skip_awaiting_close = false;
-            }
-            return;
-        }
         // Unknown end-tag names parse as extended tags rather than erroring (ADR 0002 §4); a
         // genuine mismatch is still caught by `pop_tag`'s identity check.
         self.pop(TagName::parse(&name));
@@ -319,7 +323,7 @@ impl<D: DomStack> Driver<'_, D> {
     fn text(&mut self, value: &[u8]) {
         // Note: a deferred start tag is intentionally *not* committed here — text that
         // arrives while one is pending precedes it and belongs to the current parent.
-        if self.skip.is_some() || value.is_empty() {
+        if value.is_empty() {
             return;
         }
         let value = String::from_utf8_lossy(value);
@@ -327,17 +331,11 @@ impl<D: DomStack> Driver<'_, D> {
     }
 
     fn comment(&mut self, value: &[u8]) {
-        if self.skip.is_some() {
-            return;
-        }
         let value = String::from_utf8_lossy(value);
         self.dom.add_text_tag(HtmlTag::sys_comment, &value);
     }
 
     fn doctype(&mut self) {
-        if self.skip.is_some() {
-            return;
-        }
         self.dom.push_tag(TagName::Std(HtmlTag::DOCTYPE));
         self.dom.add_attribute(AttrName::Std(HtmlAttr::html), "");
         // Just pushed, so pop it directly (see `close_start_tag`).

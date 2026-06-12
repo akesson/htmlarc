@@ -196,10 +196,16 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    `DomStack` reshaped to carry full tag identity; extended tag selectors resolve-once. Format
    bump 7 → 8. *Gates met:* size +0.44 % (the empty-`ext_tags` per-doc overhead), parse neutral
    (own comparison p = 0.49), custom-element round-trip + repackage-survival fixtures.
-5. **Foreign content.** Delete skip machinery; svg/math subtrees stored; WHATWG case
-   adjustment tables at the formatter; childless-extended render rule; CDATA-in-foreign
-   tests. *Gates:* svg/math round-trip fixtures; **size growth measured and documented**
-   (storing previously-dropped content is the intended product change).
+5. **Foreign content.** ✅ *(shipped — see §Measured PR 5 results).* Skip machinery deleted;
+   svg/math subtrees stored as ordinary (extended) elements; WHATWG case adjustment tables at
+   the formatter (`html/foreign.rs`); foreign-content depth in the tokenizer suppresses the
+   raw-text switch and keeps `<![CDATA[…]]>` as character data; childless-extended render rule;
+   extended tag selectors ASCII-case-insensitive. **Plus tolerant end-tag recovery** (an
+   unplanned but load-bearing addition — see results): the strict tree builder now pops to a
+   matching open ancestor instead of failing a document on an unclosed foreign child. No archive
+   format bump (v8 layout unchanged). *Gates met:* svg/math/CDATA round-trip + recovery fixtures;
+   size **byte-identical on wiktionary_co** (no foreign content) and **+26 % / +20 % coverage on a
+   Common Crawl sample**; parse neutral.
 6. **Mutable ⇒ wide.** `repackage()` widens; `DOWNPACK_MARGIN` removed;
    `into_optimal_width` generalized per store; **u24 refs implemented** (the gate showed
    general-web `sym_union`/`distinct_pairs` reach ~80 % of the u16 cap at 2 M docs and climb
@@ -506,6 +512,78 @@ selector-side mirror), matching nothing unless the document holds that element. 
 `CompoundSelector.element: Option<HtmlTag>` was kept and a separate `ext_element` field added,
 rather than widening `element` to an enum — the latter would have churned 102 standard-tag
 construction sites across the test suite for no behavioural gain.
+
+### PR 5 results — foreign content (2026-06-12)
+
+Shipped (branch `feat/foreign-content`, 3 commits): the tokenizer's `<svg>`/`<math>` skip
+machinery (`Driver.skip`/`skip_awaiting_close`/`StartTag::Foreign` + eight `skip.is_some()`
+early-returns) is deleted — foreign subtrees now parse as ordinary elements through the PR 3/4
+extended attr/tag machinery. `RawTextEmitter` gains a name-based foreign-content depth:
+inside svg/math the raw-text state switch is suppressed (so `<style>`/`<title>`/`<script>`
+children parse as markup) and `<![CDATA[…]]>` is tokenized as character data via the
+`adjusted_current_node_present_but_not_in_html_namespace` emitter hook rather than a bogus
+comment. A new `html/foreign.rs` holds the WHATWG "adjust SVG tag names" (37), "adjust SVG
+attributes" (58), and MathML `definitionURL` tables — sorted, binary-searched, applied
+context-free at the four formatter tag-name emit sites and the extended-attr-name emit site;
+stored names stay lowercase so the symbol table and selectors are case-stable. Extended tag
+selectors became ASCII-case-insensitive. Formatters mirror the parser: script/style inside
+foreign content are entity-encoded, not emitted verbatim. **No archive format bump — v8 layout
+is unchanged**; this is a parser/formatter behaviour change.
+
+- **Size — wiktionary_co.zim: byte-identical**, 71,877,824 B (v8) → 71,877,824 B, **0.00 %**.
+  The corpus contains no svg/math and no recoverable mismatches, so there is nothing to store
+  or repair; the deterministic equality confirms zero regression on the wiki path.
+- **The skip machinery was masking a tree-builder gap.** Once svg/math are parsed, the common
+  real-world icon pattern `<svg>…<path></svg>` (a `<path>` left open — no `/`, no `</path>`)
+  reached the strict `pop_tag`, which failed the **whole document** on the mismatch. On a
+  Common Crawl sample (`cc_000`, 34,465 HTML docs) this lost **228 net docs** vs main (329 newly
+  failing, 101 newly passing); **98 % of the new failures (323/329) erred inside an svg subtree**
+  (`… > svg > path`, `… > svg > symbol > path`). Storing previously-dropped content must not
+  *reduce* extraction coverage (extraction is the product), so PR 5 grew a third commit:
+- **Tolerant end-tag recovery** (`DomStack::pop_tag` + a non-destructive `_stack_contains`):
+  when an end tag matches an element open *deeper* in the stack, the intervening unclosed
+  elements are popped (implicitly closed) — what a real foreign-content/HTML tree builder does —
+  instead of erroring. A stray end tag with no open match still errors, so genuine corruption is
+  not masked. It runs **only on the path that previously errored**, so every document that
+  already parsed is byte-identical (zero snapshot churn, wiktionary_co unchanged). The fix is
+  **general**, not svg-specific: on `cc_000` it raised conversions **21,455 → 25,790 (+4,335,
+  +20.2 %)**, failures **13,010 → 8,675 (−33 %)** — recovering thousands of pre-existing
+  misnested-HTML failures alongside the foreign-content ones.
+- **Size on `cc_000` (general web):** 2,798,471,832 B → 3,527,265,712 B, **+26.0 %** — but the
+  branch stores **20 % more documents**, so the total is dominated by coverage, not per-doc
+  bloat. Per *converted* document: 130,434 → 136,769 B, **+4.9 %** (the stored foreign subtrees
+  plus the messier newly-recovered docs). Storing previously-dropped content is the intended
+  product change.
+- **Parse neutral.** `parse fr.serrer.html` branch 1.289 ms vs main 1.319 ms (−2.3 %, within
+  host drift) — the parse-path additions are a per-tag `svg`/`math` byte-slice compare and a
+  foreign-depth check; recovery and the case tables sit on the error and format paths, neither
+  of which the parse bench exercises. No formatter bench exists, so the case-table lookups are
+  ungated (a binary-search miss per extended attr/tag name); they are off every measured path.
+- **Tests:** svg/math/CDATA/self-close round-trips, the title-RCDATA-vs-foreign asymmetry,
+  case restore + ASCII-case-insensitive selectors, unclosed-child recovery (incl. a general
+  `<div><span></div>` case) and the still-errors-on-stray-end-tag guard, an svg-subtree
+  repackage-survival test, and a realistic svg+math fixture across the round-trip/pretty/
+  repackage/remove-formatting/select globs. 339 dom tests + full workspace green.
+
+**Decisions recorded:** (1) **No WHATWG foreign-content breakout / integration-point rules**
+(`<svg><div>` nests the div inside svg) — an accepted deviation for a fault-tolerant extractor;
+the tolerant end-tag recovery, not breakout, is what keeps coverage from regressing. (2)
+Foreign-content depth is **name-based, not a namespace stack** — an unclosed `<svg>` leaves the
+flag set until EOF, and CDATA inside a `<foreignObject>` HTML subtree is still treated as CDATA;
+accepted as a rare, bounded approximation. (3) CDATA section markers are **dropped** (the
+content is kept as text) — semantic extraction, not byte-verbatim archival. (4) Case adjustment
+is **context-free by name** (a stray `<clippath>` outside svg also renders `clipPath`), matching
+the spec's own name→name tables and keeping storage/selectors case-stable. (5) Recovery is
+**general end-tag repair**, not gated to foreign content — chosen over a foreign-only variant
+because it needs no builder-side foreign-context tracking and the broad coverage gain (+20 % on
+general web) is a pure win, with stray end tags still erroring.
+
+**Build note (not part of the format work):** the workspace `cli/*` member glob was failing
+because `cli/zim2htmlarc` was an orphaned data-only directory (the crate was renamed to
+`htmlarc-convert`; the dir held only local, gitignored ZIM/WARC fixtures and no manifest). Its
+`testdata/` was relocated to `cli/htmlarc-convert/testdata/` (the path the convert e2e test
+already expects) and the empty `cli/zim2htmlarc` removed, so the glob loads with no workspace
+change.
 
 ## Open questions
 

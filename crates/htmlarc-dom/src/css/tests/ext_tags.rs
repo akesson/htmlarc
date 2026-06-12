@@ -72,3 +72,27 @@ fn matches_css_exercises_the_unresolved_string_path() {
     assert!(!widget.matches_css("other-widget").unwrap());
     assert!(!widget.matches_css("div").unwrap());
 }
+
+// --- foreign content selectors (ADR 0002 §5, PR 5) ---
+
+#[test]
+fn svg_and_its_children_are_selectable() {
+    // `svg` is a standard enum tag; its children (`path`) are extended elements. Both are
+    // now stored and queryable (they used to be dropped). `tag_id_class` reports the stored
+    // lowercase name.
+    let html = r#"<div><svg><path d="M0 0"></path><path d="M1 1"></path></svg></div>"#;
+    assert_eq!(select(html, "svg"), ["svg"]);
+    assert_eq!(select(html, "path"), ["path", "path"]);
+}
+
+#[test]
+fn camelcase_svg_selector_is_case_insensitive() {
+    // A type selector is ASCII-case-insensitive, and stored names are lowercase, so the
+    // canonical `clipPath` (and a shouty `CLIPPATH`) resolve to the lowercased symbol.
+    let html = r#"<svg><clipPath id="c"><path></path></clipPath><clipPath></clipPath></svg>"#;
+    assert_eq!(select(html, "clipPath"), ["clippath#c", "clippath"]);
+    assert_eq!(select(html, "CLIPPATH"), ["clippath#c", "clippath"]);
+    assert_eq!(select(html, "clippath"), ["clippath#c", "clippath"]);
+    // An absent camelCase name still resolves cleanly to nothing.
+    assert_eq!(select(html, "feGaussianBlur"), Vec::<String>::new());
+}

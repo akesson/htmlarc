@@ -121,6 +121,10 @@ impl DomStack for TestDom {
         self.stack.last().cloned()
     }
 
+    fn _stack_contains(&self, tag: &TestTag) -> bool {
+        self.stack.contains(tag)
+    }
+
     fn stack_info(&self) -> String {
         self.stack
             .iter()
