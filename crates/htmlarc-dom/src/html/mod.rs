@@ -1,5 +1,6 @@
 mod doc;
 mod element;
+pub(crate) mod foreign;
 mod html_attr;
 mod html_tag;
 #[cfg(test)]

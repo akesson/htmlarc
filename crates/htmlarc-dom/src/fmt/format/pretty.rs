@@ -4,7 +4,7 @@ use crate::{
         fmt_buf::FmtBuf,
         iter::{ElementInfo, Inliner, TagStage},
     },
-    html::HtmlTag,
+    html::{HtmlTag, foreign},
 };
 
 use super::common::CommonFormatting;
@@ -40,8 +40,12 @@ pub struct PrettyFormat<'dom> {
     inline: Inline,
     prev_index: NodeIndex,
     /// Nesting depth of open `script`/`style` (RAWTEXT) elements; while `> 0`, text
-    /// content is emitted verbatim rather than entity-encoded.
+    /// content is emitted verbatim rather than entity-encoded. Suppressed inside foreign
+    /// content, where script/style are ordinary elements (ADR 0002 §5).
     rawtext_depth: u32,
+    /// Nesting depth of open foreign (svg/math) elements; while `> 0` the raw-text rule is
+    /// disabled, mirroring the tokenizer's foreign suppression.
+    foreign_depth: u32,
 }
 impl<'dom> CommonFormatting<'dom> for PrettyFormat<'dom> {
     fn dom_and_buf(&mut self) -> (DomView<'dom>, &mut FmtBuf) {
@@ -57,6 +61,7 @@ impl<'dom> PrettyFormat<'dom> {
             inline: Inline::None,
             prev_index: NodeIndex::ROOT,
             rawtext_depth: 0,
+            foreign_depth: 0,
         }
     }
 
@@ -78,15 +83,22 @@ impl<'dom> PrettyFormat<'dom> {
                         }
                     }
                     _ => {
-                        if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                        if tag.is_foreign_element() {
+                            self.foreign_depth += 1;
+                        } else if self.foreign_depth == 0
+                            && matches!(tag, HtmlTag::script | HtmlTag::style)
+                        {
                             self.rawtext_depth += 1;
                         }
                         self.add_start_tag(info, tag);
                     }
                 },
                 TagStage::Close => {
-                    if matches!(tag, HtmlTag::script | HtmlTag::style) {
+                    if self.foreign_depth == 0 && matches!(tag, HtmlTag::script | HtmlTag::style) {
                         self.rawtext_depth = self.rawtext_depth.saturating_sub(1);
+                    }
+                    if tag.is_foreign_element() {
+                        self.foreign_depth = self.foreign_depth.saturating_sub(1);
                     }
                     self.add_close_tag(info, tag);
                 }
@@ -117,7 +129,9 @@ impl<'dom> PrettyFormat<'dom> {
         self.buf.push('<');
         // Extended (custom/unknown) tags resolve to their real name; `tag` is the normalized
         // `HtmlTag` (`extended` for those), kept for the `auto_close` check below.
-        self.buf.push_str(self.dom.tag_name(index));
+        // `adjust_tag_name` restores the canonical case of known SVG names (ADR 0002 §5).
+        self.buf
+            .push_str(foreign::adjust_tag_name(self.dom.tag_name(index)));
         self.push_attributes(index);
         if tag.auto_close() {
             self.buf.push(' ');
@@ -136,7 +150,8 @@ impl<'dom> PrettyFormat<'dom> {
             self.buf.newline_and_indent(info.depth);
         }
         self.buf.push_str("</");
-        self.buf.push_str(self.dom.tag_name(info.index()));
+        self.buf
+            .push_str(foreign::adjust_tag_name(self.dom.tag_name(info.index())));
         self.buf.push('>');
     }
 }
