@@ -249,6 +249,35 @@ fn foreign_object_holds_html_children() {
 }
 
 #[test]
+fn unclosed_foreign_children_recover_to_matching_ancestor() {
+    // The common real-world SVG-icon pattern: a `<path>` left open (no `/`, no `</path>`).
+    // A real foreign-content tree builder implicitly closes it at the ancestor's end tag;
+    // tolerant recovery (ADR 0002 §5) pops the unclosed child instead of failing the whole
+    // document, which it used to do (and which the skip machinery masked by dropping svg).
+    roundtrip_to(
+        r#"<svg><path d="M0 0"></svg>"#,
+        r#"<svg><path d="M0 0"></path></svg>"#,
+    );
+    // Several unclosed children, and an unclosed child nested in an unclosed `<symbol>`.
+    roundtrip_to(
+        r#"<svg><symbol><path><circle></symbol><path></svg>"#,
+        r#"<svg><symbol><path><circle></circle></path></symbol><path></path></svg>"#,
+    );
+    // Recovery is not svg-specific — it is general end-tag error recovery: `</div>` closes a
+    // still-open `<span>`.
+    roundtrip_to("<div><span></div>", "<div><span></span></div>");
+}
+
+#[test]
+fn stray_end_tag_with_no_open_match_still_errors() {
+    // Recovery only fires when the end tag matches an element open deeper in the stack; a
+    // genuinely stray end tag is still a parse error (the document is discarded). This keeps
+    // the recovery path from masking real structural corruption.
+    assert!(parse_error("<svg><path></g></svg>").contains("Expected tag 'g'"));
+    assert!(parse_error("<div></section>").contains("Expected tag 'section'"));
+}
+
+#[test]
 fn cdata_in_foreign_content_is_text() {
     // Inside foreign content `<![CDATA[…]]>` is character data; its markup-significant bytes
     // are re-encoded on output. Outside foreign content it stays a bogus comment (unchanged).
