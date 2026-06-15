@@ -9,6 +9,7 @@ mod rebuilder;
 pub mod tests;
 
 pub use node_index::NodeIndex;
+pub use nodes::TopologyReport;
 pub(crate) use nodes::{Nodes, NodesView};
 
 pub use dom_inner::{ArchivedDomInner, DomInner};

@@ -1,4 +1,5 @@
 pub(crate) use super::nodes::Nodes;
+use super::nodes::TopologyReport;
 use super::{DomRead, DomRef, DomView, NodeIndex};
 use crate::debug;
 use crate::fmt::HtmlFormat;
@@ -338,6 +339,15 @@ impl DomInner {
         let nodes = std::mem::take(&mut self.nodes).into_optimal_width();
         self.nodes = nodes;
         self
+    }
+
+    /// ADR 0002 topology-packing probe: tally the redundancy in the node-link slots so the
+    /// delta/implicit-link packing ceiling can be measured on real corpora before committing
+    /// to an encoding. Read-only; call on the serialized form (after [`into_optimal_width`])
+    /// to measure the on-disk topology, or after [`rebuild`](Self::rebuild) for the
+    /// document-order baseline.
+    pub fn topology_report(&self) -> TopologyReport {
+        self.nodes.view().topology_report()
     }
 }
 
