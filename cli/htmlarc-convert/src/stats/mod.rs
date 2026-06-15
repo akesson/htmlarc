@@ -251,10 +251,47 @@ impl CompressAcc {
     }
 }
 
+/// ADR 0002 PR 6 — does the node record carry one width or two? Node-*link* slots (parent/
+/// sibling/child) must escalate to u24 once a document's node count exceeds 65,535; the
+/// class/attr slots (RunVec arena offsets) escalate independently once `list_entries` exceeds
+/// 65,535. This tallies the *joint* crossing and the resulting topology bytes under the two
+/// candidate layouts:
+///   * single-width: one width per record; u24 ⇒ links AND refs are 3 B  → 15 / 22 B per node
+///   * mixed-width:  link- and ref-width chosen independently             → 15 / 17 / 20 / 22 B
+///
+/// The two differ only on documents where exactly one axis overflows u16. Thresholding the ref
+/// axis on `list_entries` (ignoring the per-run arena terminators, which push the real arena
+/// over u16 slightly *earlier*) is deliberately generous to mixed-width.
+#[derive(Clone, Copy, Default)]
+struct WidthImpact {
+    /// Document counts by cell `link24 | (ref24 << 1)`: [both-fit, link-only, ref-only, both].
+    docs: [u64; 4],
+    /// Summed node *count* per cell (× bytes-per-node under a policy = that cell's topology).
+    nodes: [u64; 4],
+}
+
+impl WidthImpact {
+    fn record(&mut self, nodes: u32, list_entries: u32) {
+        let link24 = nodes > 65_535;
+        let ref24 = list_entries > 65_535;
+        let cell = link24 as usize | ((ref24 as usize) << 1);
+        self.docs[cell] += 1;
+        self.nodes[cell] += nodes as u64;
+    }
+
+    fn merge(&mut self, o: &WidthImpact) {
+        for i in 0..4 {
+            self.docs[i] += o.docs[i];
+            self.nodes[i] += o.nodes[i];
+        }
+    }
+}
+
 /// One bundle's results: shared-dictionary coverage, node total, and (optionally) compression.
 struct BundleDict {
     at_k: [(f64, u64); SHARED_K.len()],
     node_sum: u64,
+    width: WidthImpact,
     compression: Option<Compression>,
 }
 
@@ -264,6 +301,7 @@ struct StatsSink {
     hists: HistSet,
     freq: HashMap<String, (u32, u32)>, // symbol -> (doc frequency, byte length)
     node_sum: u64,
+    width: WidthImpact,
     compress: Option<CompressAcc>,
 }
 
@@ -273,6 +311,7 @@ impl StatsSink {
             hists: HistSet::new(),
             freq: HashMap::new(),
             node_sum: 0,
+            width: WidthImpact::default(),
             compress: compress.then(CompressAcc::new),
         }
     }
@@ -302,6 +341,7 @@ impl StatsSink {
             BundleDict {
                 at_k,
                 node_sum: self.node_sum,
+                width: self.width,
                 compression,
             },
         )
@@ -313,6 +353,7 @@ impl DocSink for StatsSink {
         let stats = count_doc(html, self.compress.is_some());
         self.hists.record(&stats, key);
         self.node_sum += stats.nodes as u64;
+        self.width.record(stats.nodes, stats.list_entries);
         for token in &stats.lane_a {
             if let Some(e) = self.freq.get_mut(token) {
                 e.0 += 1;
@@ -428,6 +469,49 @@ fn print_report(prepared: usize, global: &HistSet, bundles: &[BundleDict]) {
             pct(h.over_pow2(16)),
             h.over_pow2(17),
             pct(h.over_pow2(17)),
+        );
+    }
+
+    // ADR 0002 PR 6: node-record width policy — mixed (independent link/ref width) vs single.
+    let mut w = WidthImpact::default();
+    for b in bundles {
+        w.merge(&b.width);
+    }
+    let docs_total: u64 = w.docs.iter().sum();
+    if docs_total > 0 {
+        let nb = &w.nodes; // node COUNT per cell: [both-fit, link-only, ref-only, both]
+        let single = nb[0] * 15 + (nb[1] + nb[2] + nb[3]) * 22;
+        let mixed = nb[0] * 15 + nb[1] * 20 + nb[2] * 17 + nb[3] * 22;
+        let saving = single - mixed; // = nb[1]*2 + nb[2]*5
+        let pct = |n: u64| 100.0 * n as f64 / docs_total as f64;
+        println!("\nNode-record width policy (ADR 0002 PR 6) — joint u16 crossing (>65,535):");
+        println!(
+            "  docs: both-fit-u16={} link-u24-only={} ref-u24-only={} both-u24={}",
+            w.docs[0], w.docs[1], w.docs[2], w.docs[3]
+        );
+        println!(
+            "  link-u24 needed (nodes>65535):       {} ({:.5}%)",
+            w.docs[1] + w.docs[3],
+            pct(w.docs[1] + w.docs[3])
+        );
+        println!(
+            "  ref-u24  needed (list_entries>65535): {} ({:.5}%)   [today these docs are skipped]",
+            w.docs[2] + w.docs[3],
+            pct(w.docs[2] + w.docs[3])
+        );
+        println!(
+            "  topology bytes  single-width={}  mixed-width={}",
+            human_bytes(single),
+            human_bytes(mixed)
+        );
+        println!(
+            "  → mixed-width saves {} = {:.4}% of single-width topology",
+            human_bytes(saving),
+            100.0 * saving as f64 / single.max(1) as f64
+        );
+        println!(
+            "    (saving = {} link-only nodes ×2 B + {} ref-only nodes ×5 B)",
+            nb[1], nb[2]
         );
     }
 
