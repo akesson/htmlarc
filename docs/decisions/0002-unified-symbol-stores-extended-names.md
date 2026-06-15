@@ -135,6 +135,15 @@ along with `DOWNPACK_MARGIN` (save U16 iff it fits). v1 ships u16 refs only, wit
 **checked** inserts (per-document errors, replacing today's silent wraps) and a width
 flag reserved in the store headers; u24 refs are implemented only if the probe demands.
 
+*Deferred (2026-06-15):* the per-document width probe (see §Measured — PR 6 deferral) showed
+only the RunVec arena crosses u16 (6 docs / 2 M); `SymbolTable`/`AttrStore` sit at 74–78 % with
+**0** crossings, and node>u16 docs (40) are already served by `NodeWidth::U24`. With PR 1's
+checked inserts turning overflow into a clean per-doc skip, and **no downstream PR depending on
+u24 refs**, PR 6 is deferred past the initial sequence — the width flag + per-store down-pack +
+u24 path land at a later format bump, when a real document first crosses, exercised against real
+overflow rather than a 0-doc code path. The reserved store width-flag stays unspent; the node
+record stays at today's 15 B / 20 B.
+
 ### 7. Bundle artifacts (per 0001)
 
 The bundle footer holds three siblings, unified only in scope and lifecycle: the Lane A
@@ -206,10 +215,14 @@ iteration benches, `.htmlarc` size on the wiktionary fixtures.
    format bump (v8 layout unchanged). *Gates met:* svg/math/CDATA round-trip + recovery fixtures;
    size **byte-identical on wiktionary_co** (no foreign content) and **+26 % / +20 % coverage on a
    Common Crawl sample**; parse neutral.
-6. **Mutable ⇒ wide.** `repackage()` widens; `DOWNPACK_MARGIN` removed;
-   `into_optimal_width` generalized per store; **u24 refs implemented** (the gate showed
-   general-web `sym_union`/`distinct_pairs` reach ~80 % of the u16 cap at 2 M docs and climb
-   with scale). *Gates:* owned/archived byte-identity spike tests, edit-after-load tests.
+6. **Mutable ⇒ wide** — **deferred (2026-06-15, see §6 and §Measured — PR 6 deferral).** The
+   per-document width probe showed only the RunVec arena crosses u16 (6 docs / 2 M);
+   `sym_union`/`distinct_pairs` sit at 74–78 % with **0** crossings, and node>u16 docs (40) are
+   already served by `NodeWidth::U24`. PR 1's checked inserts make the 6 a clean skip, and no
+   later PR depends on u24 refs, so the width flag + per-store down-pack + u24 refs land at a
+   future format bump when a real doc crosses. *Original scope (when picked up):* `repackage()`
+   widens; `DOWNPACK_MARGIN` removed; `into_optimal_width` generalized per store; u24 refs.
+   *Gates:* owned/archived byte-identity spike tests, edit-after-load tests.
 7. **Bundle Lane A** (`htmlarc-archive`) — **deferred (2026-06-11, see §7)**; re-evaluate
    after PR 8 + topology packing. When picked up: footer dict; freeze + parallel per-doc
    reindex; `DomView` two-table resolution; bundle-skip in the selector engine. Archive
@@ -585,6 +598,108 @@ because `cli/zim2htmlarc` was an orphaned data-only directory (the crate was ren
 already expects) and the empty `cli/zim2htmlarc` removed, so the glob loads with no workspace
 change.
 
+### PR 6 deferral — ref widths measured per-document (2026-06-15)
+
+A `WidthImpact` probe (joint cross-tab + a topology-byte model of both candidate node layouts)
+added to `htmlarc-convert stats` was run over the same 60-segment Common Crawl corpus as the
+PR 1 gate (2,041,140 docs, 240 bundles). It settles the node-record width policy and **defers
+PR 6**.
+
+**The reference widths are per-*document*, not per-bundle or per-corpus.** `sym_union`,
+`distinct_pairs`, and `list_entries` are single-document cardinalities (a fresh counter per
+doc); each document carries its own `SymbolTable` / `AttrStore` / `RunVec`, u16-indexed. A
+document needs u24 iff *it alone* exceeds the u16 ceiling — bundle size never enters. The
+earlier "grows with corpus size" wording was the extreme-value effect of sampling a fixed
+per-doc distribution: drawing more docs eventually *includes* a worse tail document, rather
+than any document growing. (The deferred Lane A shared dict, §7, is the only bundle-scoped
+symbol structure, and it *relieves* per-doc local pressure — bundle-common symbols leave the
+local range — so bundling pushes away from per-doc u24, never toward it.)
+
+**What actually crosses u16 at 2 M docs** (all that PR 6's u24 work would serve):
+
+| ref | per-doc max | docs > u16 | status |
+|---|---|---|---|
+| node links (`nodes`) | 145,797 | 40 | already handled — `NodeWidth::U24` |
+| RunVec arena offset (`list_entries`) | 84,452 | **6** | the only new u24 need |
+| `SymbolTable` (`sym_union`) | 48,719 (74 %) | **0** | no crossing |
+| `AttrStore` entries (`distinct_pairs`) | 50,935 (78 %) | **0** | no crossing |
+
+**Node-record width — single vs mixed.** Joint crossing of the two node-record axes (link
+slots vs the class/attr arena-offset slots):
+
+| | `list_entries` ≤ u16 | `list_entries` > u16 |
+|---|---|---|
+| `nodes` ≤ u16 | 2,041,094 | 6 |
+| `nodes` > u16 | 40 | **0** |
+
+The two overflows are **disjoint** — zero documents cross both (node-heavy vs attribute-heavy
+are different pathologies). Mixed-width (independent link/ref width → 15/17/20/22 B) over
+single-width (one width → 15/22 B) saves **7.0 MiB on 50.4 GiB topology = 0.0136 %** — not worth
+a 2×2 layout matrix, 2-D offset accessors, and extra hot-path arms (cf. the NodeWidth +65 %
+single-load lesson). **Single-width settled** — but moot under the deferral: with no u24 ref
+slot the node record stays today's 15 B / 20 B.
+
+**Decision — defer PR 6** (the u24-refs work and its dependent mutable⇒wide cleanup), for the
+same shape of reasons as §7's PR 7 deferral:
+
+- It serves **6 documents** (arena) + **0** (symbols/pairs) on 2 M docs. PR 1's checked inserts
+  already make those 6 a **clean per-doc skip, not corruption**, so deferral is a coverage
+  choice on 0.0003 % of (pathological utility-CSS) docs, not a correctness risk.
+- **Not a dependency:** Lane B, topology packing, and the shared dict need nothing from u24
+  refs. The width flag + per-store down-pack land at a later format bump (cheap pre-1.0,
+  clean-slate), exercised against a real overflowing doc rather than a 0-doc path.
+- Deferring u24 **dissolves most of PR 6**: the node single/mixed question is moot (record
+  unchanged), `into_optimal_width` has no second store-width to generalize, and `DOWNPACK_MARGIN`
+  removal alone is not worth doing. The one separable remnant — a u16 doc loaded then edited
+  >6,500 nodes past the margin — is a latent, rare *node-only* overflow, a ~10-line
+  widen-on-repackage fix if it ever bites, not a PR.
+
+**Re-evaluate when** a real document first crosses the `sym_union` / `distinct_pairs` / arena
+u16 ceiling (the per-doc max is climbing — `sym_union` 7,090 → 32,229 → 48,719 across
+8 k → 136 k → 2 M docs), or alongside topology packing — whichever comes first. Per the lane
+economics, **topology (~62 % of the post-compression archive) is the next real size lever**, not
+ref widths.
+
+### Topology packing measured — parked behind a hot-path-safe encoding; parser recovery outranks it (2026-06-15)
+
+The `stats --topology` probe (parses each document through the production path
+`parse → into_optimal_width`, then walks the node blob; logic verified by a hand-computed unit
+test) ran over the same 60-segment Common Crawl corpus. It measures the redundancy in the five
+node-*link* slots — the size lever the lane economics named.
+
+**Findings (1,548,715 parsed docs, 2.51 B nodes):**
+
+- **Links are 52 % of the topology blob** (18.2 of 35.1 GiB), not the ⅔ that "10 of 15 B/node"
+  implies: text/comment nodes are 56 % of all nodes and spend 8 bytes on the `u32` text range
+  instead of two link slots, diluting the link share.
+- **The blob is already clean document order.** `dead = 0`, and the serialized blob is
+  *byte-identical* to a `rebuild()`-ed one — the builder appends in document order and the
+  convert path leaves no dead slots. A reorder/compaction pass buys **nothing** (−0.0 %); the
+  only lever is packing the links.
+- **Document-order locality is extreme.** Each link's delta from the node's own index, as a
+  zigzag-varint width over present links: parent 84.5 % 1 B / 99.4 % ≤ 2 B; prev/next ≈ 97 %
+  1 B; first 100 % 1 B; last 94.9 % 1 B. `first_child == self+1` for **79.9 % of elements**.
+- **Ceiling: −26.2 % of the topology blob** (35.1 → 26.0 GiB) — varint deltas + implicit
+  first-child + a 1 B/node presence mask; the link bytes alone go 18.2 → 6.7 GiB (−63 %).
+
+**Why parked, not picked up:**
+
+1. The −26 % is a **varint** ceiling, and variable-width fields defeat the single-load traversal
+   hot path (the NodeWidth +65 % lesson). The hot-path-safe subset — implicit first-child (a
+   fixed 13 B element record + a side table for the 20 % non-implicit), with dead slots already
+   at 0 — captures only part of it. The full win needs a fixed-1 B-delta-with-escape design
+   (prev/next/first/last are 95–100 % one byte; parent is the holdout at ~15 % needing 2 B) that
+   is not yet designed or benched. The *size* is proven; the *speed-safe encoding* is the open
+   work — the same measured-but-parked state as PR 6 / PR 7.
+2. **A bigger lever outranks it.** The same probe found **24.1 % of the corpus's text/html
+   documents (492,425 of 2,041,140) fail `HtmlDoc::parse` and are dropped from the archive
+   entirely** — see [0003](0003-parser-error-recovery.md). Reclaiming a quarter of the corpus
+   beats shrinking the kept three-quarters by 26 %, so the next format work waits behind parser
+   recovery.
+
+**Re-evaluate** alongside Lane B (PR 8 — same format bump), once a hot-path-safe link encoding
+exists and parser recovery has settled how many documents the format must hold.
+
 ## Open questions
 
 - ~~Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs)~~ — **decided
@@ -604,8 +719,11 @@ change.
 - Lane B framing (per-bundle frame vs per-doc blobs + trained dict) — PR 8, per 0001. The
   8.5× general-web ratio (vs 24× wiki) makes the per-bundle-trained-dictionary variant more
   attractive for heterogeneous corpora.
-- Topology packing for general web (the ~62 % post-compression share) — candidate levers:
-  delta/implicit sibling links, varint offsets; measure after PR 3.
+- Topology packing for general web (the ~62 % post-compression share) — **measured 2026-06-15**
+  (`stats --topology`): −26.2 % topology-blob ceiling via varint + implicit-first-child links,
+  but that ceiling is variable-width (hot-path cost), and a reorder/compaction pass is a no-op
+  (`dead = 0`). **Parked** behind a fixed-1 B-delta-with-escape design and behind parser
+  recovery ([0003](0003-parser-error-recovery.md)); see the topology subsection above.
 - `RunVec` terminator → side bitvec (possible future optimization, analyzed 2026-06-11 and
   parked). Replacing the 2 B/run `0xFFFF` terminator with a 1-bit-per-slot boundary bitvec
   would save ~0.39 % of the archive on wiktionary_co (terminators are 361,110 B = 25.3 % of

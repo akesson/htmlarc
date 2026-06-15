@@ -49,6 +49,9 @@ xflags::xflags! {
             optional --format fmt: String
             /// Also measure per-bundle zstd compression of Lane A vs Lane B (slow).
             optional --compress
+            /// Also measure the node-topology packing ceiling — parses each document with
+            /// the real parser and reports link-delta redundancy (slow; ADR 0002).
+            optional --topology
         }
     }
 }
