@@ -320,6 +320,57 @@ fn foreign_content_pretty_formats() {
     assert!(!pretty.contains("extended"), "pretty: {pretty}");
 }
 
+// --- parser error recovery (ADR 0003) ---
+
+#[test]
+fn self_closing_slash_on_html_element_is_ignored() {
+    // `<div/>` is XML self-closing syntax on a non-void HTML element. HTML5 ignores the slash
+    // and keeps the element open, so the later `</div>` matches. htmlarc used to honor the
+    // slash, self-close the `<div>`, and then orphan the `</div>` — discarding the *whole*
+    // document. This was the dominant (~97.9 %) structural-failure bucket behind the 24 %
+    // document-loss rate (ADR 0003).
+    roundtrip_to(r#"<div id="x"/></div>"#, r#"<div id="x"></div>"#);
+    // The element stays open and absorbs the following content up to its real end tag.
+    roundtrip_to("<div/>text</div>", "<div>text</div>");
+    roundtrip_to("<p/>hi</p>", "<p>hi</p>");
+    // No matching end tag: it auto-closes at EOF, still childless — same as the bare tag.
+    roundtrip_to("<section/>", "<section></section>");
+}
+
+#[test]
+fn self_closing_foreign_siblings_stay_siblings() {
+    // The fix above must stay foreign-aware. An SVG icon sprite is a run of self-closing
+    // siblings; each `<path/>` must pop as a sibling, not nest inside the previous one. svg
+    // children are stored as `extended` (ADR 0002 §5), indistinguishable from a non-foreign
+    // custom element by tag alone, so the self-closing flag is honored only while inside a
+    // foreign subtree (tracked by depth). A naive tag-only gate would silently nest these.
+    roundtrip_to(
+        r#"<svg><path d="M0"/><path d="M1"/></svg>"#,
+        r#"<svg><path d="M0"></path><path d="M1"></path></svg>"#,
+    );
+    // Nested foreign groups: depth must rise and fall so deeper self-closing children still
+    // pop, and content after the subtree returns to HTML rules.
+    roundtrip_to(
+        r#"<svg><g><path/><path/></g><rect/></svg><div/>x"#,
+        r#"<svg><g><path></path><path></path></g><rect></rect></svg><div>x</div>"#,
+    );
+}
+
+#[test]
+fn stray_void_end_tags_are_ignored() {
+    // Void elements have no end tag; an explicit `</source>` is a parse error HTML5 ignores,
+    // not a document-killer. `<audio>`/`<video>`/`<picture>` pages commonly write
+    // `<source>…</source>` pairs. `source` is void (WHATWG), so each pops at its own start tag
+    // and the stray close is dropped, leaving childless siblings (ADR 0003).
+    roundtrip_to(
+        r#"<audio><source src="a.ogg"></source><source src="a.mp3"></source></audio>"#,
+        r#"<audio><source src="a.ogg"><source src="a.mp3"></audio>"#,
+    );
+    // The close can appear with no matching open element at all — still ignored, the
+    // surrounding document is preserved rather than discarded.
+    roundtrip_to("<p>text</source></p>", "<p>text</p>");
+}
+
 // --- per-document overflow guardrails (ADR 0002, PR 1) ---
 //
 // Each pathological document below used to either silently corrupt its stores (a u16
