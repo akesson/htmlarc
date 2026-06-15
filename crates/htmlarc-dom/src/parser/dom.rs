@@ -88,6 +88,17 @@ pub(crate) trait DomStack {
     }
 
     fn pop_tag(&mut self, name: TagName<'_>) -> HtmlParseResult<()> {
+        // A void element has no end tag. A stray `</source>`, `</br>`, … is a parse error that
+        // HTML5 ignores — the element was already closed at its own start tag — so drop it
+        // without touching the stack. Popping here would discard the void element's real parent
+        // (the stack top), and erroring would drop the whole document. This recovers the common
+        // pages that write explicit `<source>…</source>` (or `</br>`) pairs (ADR 0003). Only a
+        // recognised standard name can be void; an extended name never is.
+        if let TagName::Std(tag) = name
+            && tag.is_void_element()
+        {
+            return Ok(());
+        }
         let tag = self.make_tag(name);
         let popped = self
             ._pop_tag()

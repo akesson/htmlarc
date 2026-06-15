@@ -227,7 +227,7 @@ impl HtmlTag {
                 | HtmlTag::link
                 | HtmlTag::meta
                 | HtmlTag::param
-                // | HtmlTag::source
+                | HtmlTag::source
                 | HtmlTag::track
                 | HtmlTag::wbr
         )
