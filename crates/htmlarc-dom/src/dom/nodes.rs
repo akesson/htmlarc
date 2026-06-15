@@ -302,6 +302,146 @@ impl<'a> NodesView<'a> {
         list.reverse();
         list
     }
+
+    /// ADR 0002 topology-packing probe (post-PR-5: "topology is the next size lever").
+    ///
+    /// Walks the node blob and tallies how compressible the five node-*link* slots are — 10
+    /// of the 15 on-disk bytes per node at u16, and the largest remaining size lever. For
+    /// each present link it measures the zigzag-varint width of its delta from the node's own
+    /// index (document-order locality makes most deltas tiny) and flags the structural
+    /// invariants a packed layout could exploit (`first_child == self+1`, etc.). Read-only;
+    /// surfaced through [`DomInner::topology_report`].
+    pub(crate) fn topology_report(&self) -> TopologyReport {
+        let mut r = TopologyReport::default();
+        let n = self.len();
+        let slot = self.width.slot() as u64;
+        r.nodes = n as u64;
+        r.record_bytes = (n * self.width.node_size()) as u64;
+        for i in 0..n {
+            let idx = NodeIndex::new(i as u32);
+            let parent = self.parent_index(idx);
+            let prev = self.prev_sibling_index(idx);
+            let next = self.next_sibling_index(idx);
+
+            // Dead slot: a non-root node the tree no longer references — normalization unlinks
+            // by clearing the parent pointer (see `Nodes::remove`). A rebuild drops these.
+            if i != 0 && parent.is_none() {
+                r.dead += 1;
+            }
+            if i > 0 && parent == Some(NodeIndex::new(i as u32 - 1)) {
+                r.parent_is_self_minus1 += 1;
+            }
+            if next == Some(NodeIndex::new(i as u32 + 1)) {
+                r.next_is_self_plus1 += 1;
+            }
+
+            let cost = link_delta_cost(parent, i, &mut r.delta_hist[0])
+                + link_delta_cost(prev, i, &mut r.delta_hist[1])
+                + link_delta_cost(next, i, &mut r.delta_hist[2]);
+            r.link_bytes_varint += cost;
+            r.link_bytes_varint_implicit += cost;
+
+            if self.is_string_node(idx) {
+                // String nodes carry only parent/prev/next links; the first/last region holds
+                // the u32 text range (real data, not a delta-codable link).
+                r.strings += 1;
+            } else {
+                r.elements += 1;
+                let first = self.first_child_index(idx);
+                let last = self.last_child_index(idx);
+                let cf = link_delta_cost(first, i, &mut r.delta_hist[3]);
+                let cl = link_delta_cost(last, i, &mut r.delta_hist[4]);
+                r.link_bytes_varint += cf + cl;
+                let implicit = first == Some(NodeIndex::new(i as u32 + 1));
+                if implicit {
+                    r.first_is_self_plus1 += 1;
+                }
+                // An implicit first_child (== self+1) costs 0 bytes — a single presence bit.
+                r.link_bytes_varint_implicit += if implicit { 0 } else { cf } + cl;
+            }
+        }
+        r.link_bytes_fixed = (r.elements * 5 + r.strings * 3) * slot;
+        r
+    }
+}
+
+/// Per-document topology measurement produced by [`NodesView::topology_report`] and
+/// aggregated by the `stats --topology` probe. Every field is additive across documents
+/// ([`merge`](TopologyReport::merge)); byte fields are already in bytes, so a mix of u16/u24
+/// per-document node widths merges correctly.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct TopologyReport {
+    /// Node slots in the blob (= on-disk record count; includes dead slots).
+    pub nodes: u64,
+    /// Element (non-string) nodes — these carry all five links.
+    pub elements: u64,
+    /// String (text/comment) nodes — these carry only parent/prev/next links.
+    pub strings: u64,
+    /// Dead slots: non-root nodes with no parent (unlinked by normalization). A rebuild drops them.
+    pub dead: u64,
+    /// Actual topology bytes on disk (`nodes * node_size`).
+    pub record_bytes: u64,
+    /// Bytes the link slots occupy today: `(elements*5 + strings*3) * slot`.
+    pub link_bytes_fixed: u64,
+    /// Bytes the links would take as zigzag-varint deltas from self (the packing ceiling).
+    pub link_bytes_varint: u64,
+    /// …also making `first_child` implicit when it equals `self+1` (a presence bit, 0 bytes).
+    pub link_bytes_varint_implicit: u64,
+    /// Per-link delta-width histogram, `[link][bytes]`: link 0=parent 1=prev 2=next 3=first
+    /// 4=last; bytes index 0 = link absent (None), 1..=5 = zigzag-varint byte width.
+    pub delta_hist: [[u64; 6]; 5],
+    /// `first_child == self+1` count (implicit-child opportunity; denominator = `elements`).
+    pub first_is_self_plus1: u64,
+    /// `next_sibling == self+1` count (a leaf immediately followed by its sibling).
+    pub next_is_self_plus1: u64,
+    /// `parent == self-1` count (first child immediately after its parent).
+    pub parent_is_self_minus1: u64,
+}
+
+impl TopologyReport {
+    pub fn merge(&mut self, o: &TopologyReport) {
+        self.nodes += o.nodes;
+        self.elements += o.elements;
+        self.strings += o.strings;
+        self.dead += o.dead;
+        self.record_bytes += o.record_bytes;
+        self.link_bytes_fixed += o.link_bytes_fixed;
+        self.link_bytes_varint += o.link_bytes_varint;
+        self.link_bytes_varint_implicit += o.link_bytes_varint_implicit;
+        self.first_is_self_plus1 += o.first_is_self_plus1;
+        self.next_is_self_plus1 += o.next_is_self_plus1;
+        self.parent_is_self_minus1 += o.parent_is_self_minus1;
+        for (a, b) in self
+            .delta_hist
+            .iter_mut()
+            .flatten()
+            .zip(o.delta_hist.iter().flatten())
+        {
+            *a += *b;
+        }
+    }
+}
+
+/// Zigzag-varint byte width of `target`'s delta from node `self_i`, bumping the matching
+/// histogram bucket (bucket 0 = absent). Returns 0 for `None`.
+fn link_delta_cost(target: Option<NodeIndex>, self_i: usize, row: &mut [u64; 6]) -> u64 {
+    match target {
+        None => {
+            row[0] += 1;
+            0
+        }
+        Some(t) => {
+            let delta = t.as_usize() as i64 - self_i as i64;
+            let zig = ((delta << 1) ^ (delta >> 63)) as u64;
+            let len = if zig == 0 {
+                1
+            } else {
+                (64 - zig.leading_zeros() as u64).div_ceil(7)
+            };
+            row[(len as usize).min(5)] += 1;
+            len
+        }
+    }
 }
 
 impl Default for Nodes {
@@ -1006,6 +1146,35 @@ fn test_single_node_empy() {
         vec.last_child_index(NodeIndex::new(1)),
         Some(NodeIndex::new(5))
     );
+}
+
+#[test]
+fn topology_report_counts_links_and_deltas() {
+    // root(0) → body(1) → { p(2) → text(3), span(4) }
+    let mut nodes = Nodes::new();
+    let body = nodes.add_as_last_child(NodeIndex::ROOT, HtmlTag::body);
+    let p = nodes.add_as_last_child(body, HtmlTag::p);
+    nodes.add_as_last_child(p, HtmlTag::sys_text); // string node, index 3
+    nodes.add_as_last_child(body, HtmlTag::span); // index 4
+
+    let r = nodes.view().topology_report();
+    assert_eq!((r.nodes, r.elements, r.strings, r.dead), (5, 4, 1, 0));
+    // Built at u24: 20-byte records, 3-byte link slots; links = (4 elem×5 + 1 str×3)×3 = 69.
+    assert_eq!(r.record_bytes, 100);
+    assert_eq!(r.link_bytes_fixed, 69);
+    // Every delta is ±few ⇒ one varint byte per present link; absences cost 0 B.
+    assert_eq!(r.link_bytes_varint, 12);
+    // …minus the 3 implicit first-children (each a 1-B link dropped to a presence bit).
+    assert_eq!(r.link_bytes_varint_implicit, 9);
+    assert_eq!(r.first_is_self_plus1, 3); // root, body, p
+    assert_eq!(r.next_is_self_plus1, 0);
+    assert_eq!(r.parent_is_self_minus1, 3); // body, p, text
+    // [absent, 1 B, 2 B, 3 B, 4 B, 5 B] per link (0=parent 1=prev 2=next 3=first 4=last).
+    assert_eq!(r.delta_hist[0], [1, 4, 0, 0, 0, 0]); // parent: root absent, 4 present
+    assert_eq!(r.delta_hist[1], [4, 1, 0, 0, 0, 0]); // prev: only span
+    assert_eq!(r.delta_hist[2], [4, 1, 0, 0, 0, 0]); // next: only p
+    assert_eq!(r.delta_hist[3], [1, 3, 0, 0, 0, 0]); // first: span absent, 3 present
+    assert_eq!(r.delta_hist[4], [1, 3, 0, 0, 0, 0]); // last: span absent, 3 present
 }
 
 #[test]

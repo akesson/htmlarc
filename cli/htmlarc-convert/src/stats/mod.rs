@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use anyhow::Result;
+use htmlarc_dom::dom::TopologyReport;
+use htmlarc_dom::prelude::HtmlDoc;
 
 use crate::args::Stats;
 use crate::source::{DocSink, Source, WarcSource, drive_runs_parallel, open_source, warc_files};
@@ -287,12 +289,53 @@ impl WidthImpact {
     }
 }
 
+/// ADR 0002 topology-packing probe (`--topology`) — post-PR-5, topology is ~62 % of the
+/// compressed general-web archive and the next size lever. Unlike the cardinality counters
+/// this needs the *real* parser (a tolerant token pass can't build a tree), so it runs the
+/// exact production path (`parse → into_optimal_width`) and aggregates each document's
+/// [`TopologyReport`]. It also measures the blob after a document-order [`rebuild`], to
+/// separate the "reorder + drop dead slots" win from the "delta-encode the links" win.
+/// Documents that fail to parse are skipped (as in production) and tallied.
+#[derive(Default)]
+struct TopoAcc {
+    parsed: u64,
+    failed: u64,
+    /// The blob as stored today (`parse → into_optimal_width`).
+    serialized: TopologyReport,
+    /// The blob after a document-order `rebuild()` (dead slots dropped, indices renumbered).
+    rebuilt: TopologyReport,
+}
+
+impl TopoAcc {
+    fn record(&mut self, html: &str) {
+        match HtmlDoc::parse(html) {
+            Ok(doc) => {
+                let dom = doc.dom();
+                self.serialized
+                    .merge(&dom.clone().into_optimal_width().topology_report());
+                self.rebuilt
+                    .merge(&dom.rebuild().into_optimal_width().topology_report());
+                self.parsed += 1;
+            }
+            Err(_) => self.failed += 1,
+        }
+    }
+
+    fn merge(&mut self, o: &TopoAcc) {
+        self.parsed += o.parsed;
+        self.failed += o.failed;
+        self.serialized.merge(&o.serialized);
+        self.rebuilt.merge(&o.rebuilt);
+    }
+}
+
 /// One bundle's results: shared-dictionary coverage, node total, and (optionally) compression.
 struct BundleDict {
     at_k: [(f64, u64); SHARED_K.len()],
     node_sum: u64,
     width: WidthImpact,
     compression: Option<Compression>,
+    topo: Option<TopoAcc>,
 }
 
 /// Accumulates one run's documents: histograms, the Lane A doc-frequency map, node total, and
@@ -303,16 +346,18 @@ struct StatsSink {
     node_sum: u64,
     width: WidthImpact,
     compress: Option<CompressAcc>,
+    topo: Option<TopoAcc>,
 }
 
 impl StatsSink {
-    fn new(compress: bool) -> Self {
+    fn new(compress: bool, topology: bool) -> Self {
         Self {
             hists: HistSet::new(),
             freq: HashMap::new(),
             node_sum: 0,
             width: WidthImpact::default(),
             compress: compress.then(CompressAcc::new),
+            topo: topology.then(TopoAcc::default),
         }
     }
 
@@ -343,6 +388,7 @@ impl StatsSink {
                 node_sum: self.node_sum,
                 width: self.width,
                 compression,
+                topo: self.topo,
             },
         )
     }
@@ -367,6 +413,9 @@ impl DocSink for StatsSink {
             }
             c.feed_b(&stats.lane_b);
         }
+        if let Some(t) = &mut self.topo {
+            t.record(html);
+        }
     }
 }
 
@@ -374,13 +423,14 @@ impl DocSink for StatsSink {
 fn accumulate(
     source: &dyn Source,
     compress: bool,
+    topology: bool,
     global: &mut HistSet,
     bundles: &mut Vec<BundleDict>,
 ) {
     drive_runs_parallel(
         source.run_count(),
         |rank| {
-            let mut sink = StatsSink::new(compress);
+            let mut sink = StatsSink::new(compress, topology);
             source.drive_run(rank, &mut sink);
             sink.into_bundle_dict()
         },
@@ -397,6 +447,7 @@ pub(crate) fn run(args: Stats) -> Result<()> {
         limit,
         format,
         compress,
+        topology,
     } = args;
 
     let mut global = HistSet::new();
@@ -415,7 +466,7 @@ pub(crate) fn run(args: Stats) -> Result<()> {
             };
             let source = WarcSource::open(file, None, remaining)?;
             counted += source.stats().prepared;
-            accumulate(&source, compress, &mut global, &mut bundles);
+            accumulate(&source, compress, topology, &mut global, &mut bundles);
             eprintln!(
                 "  [{}/{}] {} — {counted} docs cumulative",
                 i + 1,
@@ -426,7 +477,13 @@ pub(crate) fn run(args: Stats) -> Result<()> {
     } else {
         let source = open_source(&input, format.as_deref(), None, limit)?;
         counted = source.stats().prepared;
-        accumulate(source.as_ref(), compress, &mut global, &mut bundles);
+        accumulate(
+            source.as_ref(),
+            compress,
+            topology,
+            &mut global,
+            &mut bundles,
+        );
     }
 
     print_report(counted, &global, &bundles);
@@ -534,6 +591,124 @@ fn print_report(prepared: usize, global: &HistSet, bundles: &[BundleDict]) {
     }
 
     print_compression(bundles);
+    print_topology(bundles);
+}
+
+/// ADR 0002 topology-packing probe report: today's on-disk topology vs. the
+/// document-order-rebuilt and link-packed alternatives, with the per-link delta distribution
+/// that gates which packing is worth its hot-path cost.
+fn print_topology(bundles: &[BundleDict]) {
+    let mut t = TopoAcc::default();
+    for b in bundles {
+        if let Some(bt) = &b.topo {
+            t.merge(bt);
+        }
+    }
+    if t.parsed == 0 {
+        return;
+    }
+
+    let pct = |part: u64, whole: u64| 100.0 * part as f64 / whole.max(1) as f64;
+    println!("\nTopology packing probe (ADR 0002 — node links are 10 of 15 B/node at u16):");
+    println!(
+        "  Parsed {} docs ({} failed to parse, skipped).",
+        t.parsed, t.failed
+    );
+    print_topo_blob(
+        "as serialized today (parse → into_optimal_width)",
+        &t.serialized,
+    );
+    print_topo_blob("after document-order rebuild()", &t.rebuilt);
+
+    // Headline: today's on-disk topology against (a) a rebuild alone — drops dead slots, no
+    // format change — and (b) rebuild + link packing. The packed estimate keeps every non-link
+    // byte (tag, class/attr refs, text overlays), swaps the fixed link slots for the varint +
+    // implicit-first-child encoding, and adds a 1-byte/node link-presence mask.
+    let today = t.serialized.record_bytes;
+    let rebuilt_only = t.rebuilt.record_bytes;
+    let packed = packed_estimate(&t.rebuilt);
+    println!("\n  Headline (vs {} on disk today):", human_bytes(today));
+    println!(
+        "    rebuild alone (drop dead slots, no format change): {} (−{:.1}%)",
+        human_bytes(rebuilt_only),
+        pct(today.saturating_sub(rebuilt_only), today),
+    );
+    println!(
+        "    rebuild + varint links + implicit first-child + 1 B/node mask: {} (−{:.1}%)",
+        human_bytes(packed),
+        pct(today.saturating_sub(packed), today),
+    );
+    println!(
+        "    NOTE: varint links are a SIZE ceiling — variable-width defeats the single-load\n    \
+         traversal hot path (the NodeWidth +65% lesson). The hot-path-safe subset is dropping\n    \
+         dead slots + implicit first-child (fixed width); the varint figure bounds the rest."
+    );
+}
+
+/// Bytes of a link-packed blob: keep the non-link bytes, replace fixed link slots with the
+/// varint + implicit-first-child encoding, add a conservative 1-byte/node link-presence mask.
+fn packed_estimate(r: &TopologyReport) -> u64 {
+    (r.record_bytes - r.link_bytes_fixed) + r.link_bytes_varint_implicit + r.nodes
+}
+
+fn print_topo_blob(label: &str, r: &TopologyReport) {
+    if r.nodes == 0 {
+        return;
+    }
+    let pct = |part: u64, whole: u64| 100.0 * part as f64 / whole.max(1) as f64;
+    println!("\n  --- {label} ---");
+    println!(
+        "    nodes {}  (elements {}, strings {}, dead {} = {:.2}%)",
+        r.nodes,
+        r.elements,
+        r.strings,
+        r.dead,
+        pct(r.dead, r.nodes),
+    );
+    println!(
+        "    topology blob {}  (links {} = {:.0}% of it)",
+        human_bytes(r.record_bytes),
+        human_bytes(r.link_bytes_fixed),
+        pct(r.link_bytes_fixed, r.record_bytes),
+    );
+    println!(
+        "    link bytes:  fixed {} → varint {} (−{:.0}%) → +implicit-first-child {} (−{:.0}%)",
+        human_bytes(r.link_bytes_fixed),
+        human_bytes(r.link_bytes_varint),
+        pct(
+            r.link_bytes_fixed.saturating_sub(r.link_bytes_varint),
+            r.link_bytes_fixed
+        ),
+        human_bytes(r.link_bytes_varint_implicit),
+        pct(
+            r.link_bytes_fixed
+                .saturating_sub(r.link_bytes_varint_implicit),
+            r.link_bytes_fixed
+        ),
+    );
+    // Per-link delta width as % of PRESENT links; the absent (None) share is shown separately.
+    const LINKS: [&str; 5] = ["parent", "prev  ", "next  ", "first ", "last  "];
+    println!("    per-link delta width (% of present links | none = % absent):");
+    for (li, name) in LINKS.iter().enumerate() {
+        let row = &r.delta_hist[li];
+        let present: u64 = row[1..].iter().sum();
+        let all: u64 = row.iter().sum();
+        let p = |n: u64| pct(n, present);
+        println!(
+            "      {name}  1B {:>5.1}  2B {:>5.1}  3B {:>5.1}  4B+ {:>5.1}   | none {:>5.1}",
+            p(row[1]),
+            p(row[2]),
+            p(row[3]),
+            p(row[4] + row[5]),
+            pct(row[0], all),
+        );
+    }
+    println!(
+        "    invariants: first_child==self+1 {:.1}% of elements | next==self+1 {:.1}% | parent==self-1 {:.1}%",
+        pct(r.first_is_self_plus1, r.elements),
+        pct(r.next_is_self_plus1, r.nodes),
+        pct(r.parent_is_self_minus1, r.nodes),
+    );
 }
 
 fn print_compression(bundles: &[BundleDict]) {
