@@ -46,12 +46,10 @@ pub fn create_list_indexes(
 
     let mut threads = Vec::new();
     let index = Arc::new(AtomicUsize::new(0));
-    let count = Arc::new(AtomicUsize::new(0));
     for _ in 0..p_count {
         threads.push(thread::spawn({
             let filters = filters.clone();
             let index = index.clone();
-            let count = count.clone();
             let archive = archive.clone();
             move || {
                 let mut indexes = Vec::new();
@@ -63,10 +61,6 @@ pub fn create_list_indexes(
                     }
 
                     if archive.keep(i, &filters) {
-                        let count: usize = count.fetch_add(1, Ordering::Relaxed);
-                        if count >= first_n {
-                            break;
-                        }
                         indexes.push(i);
                     }
                 }
@@ -76,11 +70,19 @@ pub fn create_list_indexes(
         }))
     }
 
+    // Collect every kept index, then keep the lowest `first_n` in document order. This
+    // replaces a per-worker early-exit on a shared atomic counter: because workers steal
+    // indexes out of order, *which* `first_n` documents won the count race was
+    // non-deterministic (any document, even index 0, could lose), so `--first-n` returned a
+    // sorted-but-arbitrary subset — an intermittent `cmd_list_plain` flake. Collect-then-
+    // truncate matches the keyed fast path above; the cost is a full `keep()` scan even when
+    // `first_n` is small, acceptable for a list/pack command and the price of determinism.
     let mut indexes = threads
         .into_iter()
         .flat_map(|t: JoinHandle<Vec<usize>>| t.join().expect("Failed to process thread"))
         .collect::<Vec<_>>();
     indexes.sort();
+    indexes.truncate(first_n);
 
     Ok(indexes)
 }
