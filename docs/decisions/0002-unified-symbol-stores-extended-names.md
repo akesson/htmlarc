@@ -660,6 +660,46 @@ u16 ceiling (the per-doc max is climbing — `sym_union` 7,090 → 32,229 → 48
 economics, **topology (~62 % of the post-compression archive) is the next real size lever**, not
 ref widths.
 
+### Topology packing measured — parked behind a hot-path-safe encoding; parser recovery outranks it (2026-06-15)
+
+The `stats --topology` probe (parses each document through the production path
+`parse → into_optimal_width`, then walks the node blob; logic verified by a hand-computed unit
+test) ran over the same 60-segment Common Crawl corpus. It measures the redundancy in the five
+node-*link* slots — the size lever the lane economics named.
+
+**Findings (1,548,715 parsed docs, 2.51 B nodes):**
+
+- **Links are 52 % of the topology blob** (18.2 of 35.1 GiB), not the ⅔ that "10 of 15 B/node"
+  implies: text/comment nodes are 56 % of all nodes and spend 8 bytes on the `u32` text range
+  instead of two link slots, diluting the link share.
+- **The blob is already clean document order.** `dead = 0`, and the serialized blob is
+  *byte-identical* to a `rebuild()`-ed one — the builder appends in document order and the
+  convert path leaves no dead slots. A reorder/compaction pass buys **nothing** (−0.0 %); the
+  only lever is packing the links.
+- **Document-order locality is extreme.** Each link's delta from the node's own index, as a
+  zigzag-varint width over present links: parent 84.5 % 1 B / 99.4 % ≤ 2 B; prev/next ≈ 97 %
+  1 B; first 100 % 1 B; last 94.9 % 1 B. `first_child == self+1` for **79.9 % of elements**.
+- **Ceiling: −26.2 % of the topology blob** (35.1 → 26.0 GiB) — varint deltas + implicit
+  first-child + a 1 B/node presence mask; the link bytes alone go 18.2 → 6.7 GiB (−63 %).
+
+**Why parked, not picked up:**
+
+1. The −26 % is a **varint** ceiling, and variable-width fields defeat the single-load traversal
+   hot path (the NodeWidth +65 % lesson). The hot-path-safe subset — implicit first-child (a
+   fixed 13 B element record + a side table for the 20 % non-implicit), with dead slots already
+   at 0 — captures only part of it. The full win needs a fixed-1 B-delta-with-escape design
+   (prev/next/first/last are 95–100 % one byte; parent is the holdout at ~15 % needing 2 B) that
+   is not yet designed or benched. The *size* is proven; the *speed-safe encoding* is the open
+   work — the same measured-but-parked state as PR 6 / PR 7.
+2. **A bigger lever outranks it.** The same probe found **24.1 % of the corpus's text/html
+   documents (492,425 of 2,041,140) fail `HtmlDoc::parse` and are dropped from the archive
+   entirely** — see [0003](0003-parser-error-recovery.md). Reclaiming a quarter of the corpus
+   beats shrinking the kept three-quarters by 26 %, so the next format work waits behind parser
+   recovery.
+
+**Re-evaluate** alongside Lane B (PR 8 — same format bump), once a hot-path-safe link encoding
+exists and parser recovery has settled how many documents the format must hold.
+
 ## Open questions
 
 - ~~Reserved low `ValueRef` specials (e.g. interned-empty for boolean attrs)~~ — **decided
@@ -679,8 +719,11 @@ ref widths.
 - Lane B framing (per-bundle frame vs per-doc blobs + trained dict) — PR 8, per 0001. The
   8.5× general-web ratio (vs 24× wiki) makes the per-bundle-trained-dictionary variant more
   attractive for heterogeneous corpora.
-- Topology packing for general web (the ~62 % post-compression share) — candidate levers:
-  delta/implicit sibling links, varint offsets; measure after PR 3.
+- Topology packing for general web (the ~62 % post-compression share) — **measured 2026-06-15**
+  (`stats --topology`): −26.2 % topology-blob ceiling via varint + implicit-first-child links,
+  but that ceiling is variable-width (hot-path cost), and a reorder/compaction pass is a no-op
+  (`dead = 0`). **Parked** behind a fixed-1 B-delta-with-escape design and behind parser
+  recovery ([0003](0003-parser-error-recovery.md)); see the topology subsection above.
 - `RunVec` terminator → side bitvec (possible future optimization, analyzed 2026-06-11 and
   parked). Replacing the 2 B/run `0xFFFF` terminator with a 1-bit-per-slot boundary bitvec
   would save ~0.39 % of the archive on wiktionary_co (terminators are 361,110 B = 25.3 % of
