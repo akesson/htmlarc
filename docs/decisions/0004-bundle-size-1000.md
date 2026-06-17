@@ -87,9 +87,9 @@ take the win now rather than gate it on the unbuilt Lane A/B work.
   in-flight, **not** corpus size. The full 60-segment corpus adds only its ~0.8 GB of locator +
   doc-table bookkeeping on top, so worst case ≈ **~2.7 GB** — wide headroom on a 48 GB box, where
   the 10k cap OOM-killed the machine.
-- **On-disk size** grows ~+0.4% once Lane A/B land (Lane A drives it; Lane B and topology are
-  ~flat). Negligible today (data region empty); the bundle table grows ~10× (~34 KB at corpus
-  scale — noise).
+- **On-disk size** grows ~+0.4% on general web (WARC) and ~+1.0% on a homogeneous ZIM once
+  Lane A/B land (see the follow-up results below). Negligible today (data region empty); the
+  bundle table grows ~10× (~34 KB at corpus scale — noise).
 - **More runs** in convert: ~10× more, so ~10× more WARC file reopens/seeks and reorder-buffer
   churn — all negligible (total bytes decoded unchanged). ZIM bundles become ~5 clusters instead
   of ~50, still safely above the "never let bundle == cluster" floor that would replicate the
@@ -110,9 +110,35 @@ convert memory and on-disk framing stay independent. Likewise, **per-document co
 single-doc random access) would want the parked per-bundle trained-dictionary path, which recovers
 only part of the per-doc penalty — measure before adopting.
 
-### Follow-ups
+### Follow-up results (2026-06-17)
 
-- The framing numbers are one bundle of one WARC segment. Confirm on **2–3 more segments** and a
-  **ZIM** input (different clustering → different Lane A sensitivity) before the [0002] PR-8
-  constant freeze. The spike harness takes a `SPIKE_WARC` / `SPIKE_LANE` / `SPIKE_LEVEL` env and
-  is kept (ignored) for exactly this and for re-measuring once Lane B exists.
+Ran the harness (now `SPIKE_INPUT`, any source) over **3 WARC segments + a ZIM**, ~10k-doc
+samples, zstd-19. The `1k vs one-frame` delta per lane:
+
+| input | Lane B (text) | Lane A (symbols) | whole-archive est. |
+|---|---|---|---|
+| `cc_000` (WARC) | +0.5% | +6.5% | ~+0.4% |
+| `cc_001` (WARC) | +0.7% | +6.6% | ~+0.4% |
+| `cc_002` (WARC) | +0.6% | +6.7% | ~+0.4% |
+| `wiktionary_co` (ZIM) | **+24.0%** | **+8.6%** | **~+1.0%** |
+
+- **WARC is robust:** Lane B +0.6% / Lane A +6.6% across all three segments — the ~+0.4%
+  whole-archive holds.
+- **ZIM's lanes are far more framing-sensitive** (Lane B +24%!) because homogeneous corpora have
+  long-range redundancy a 1k window can't reach. **But the whole-archive hit is still ~+1.0%**:
+  topology is ~93% of the wiktionary archive (23.1 MiB vs 0.6 MiB Lane B + 1.2 MiB Lane A — tiny
+  entries, big structure), so the sensitive lanes are a small share. The two effects nearly cancel.
+- **Why text-heavy corpora are *not* a worse case:** per-byte framing sensitivity is highest for
+  *small* documents — wiktionary entries are ~1.8 KB, so even 1,000 of them (~1.8 MB) sit below
+  zstd's match window and a 10k window still captures more. Large documents (≈WARC's ~80 KB, or
+  full-article ZIMs) already fill the window at 1,000 docs, so their Lane B delta is small (the
+  WARC +0.6%). The worst per-byte case (tiny docs) also has proportionally large topology, capping
+  the whole-archive cost.
+
+**Conclusion: 1,000 confirmed.** Sub-1% on general web (robust), ~1% on a homogeneous ZIM.
+Residual unknown: a very large, homogeneous, *text-heavy* ZIM (e.g. full Wikipedia) — its lanes
+would be a bigger archive share; the window-saturation argument predicts a small delta there too,
+but it is unmeasured (the 8.5 GB `wiktionary_en` was out of scope for this pass). If such a corpus
+ever becomes size-critical, re-measure and prefer the decoupling path over a larger `BUNDLE_CAP`.
+The harness (`SPIKE_INPUT`/`SPIKE_LANE`/`SPIKE_LEVEL`, ignored test) is kept for that and for
+re-measuring once Lane B lands.
