@@ -35,12 +35,6 @@ impl SymbolTableBuilder {
         }
     }
 
-    /// Resolve an already-interned [`Sym`] back to its string before [`build`](Self::build).
-    /// Used by the parse builder to name an extended tag in a mismatched-end-tag error.
-    pub(crate) fn resolve(&self, sym: Sym) -> &str {
-        self.interner.get(sym.as_u16())
-    }
-
     pub(crate) fn build(self) -> SymbolTable {
         // The heap stays in insertion order (each name copied once at parse); the content
         // permutation `find` binary-searches is computed in `from_interner`.
