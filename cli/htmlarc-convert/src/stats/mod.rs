@@ -4,6 +4,8 @@
 //! `--compress`, it also measures per-bundle zstd of Lane A vs Lane B.
 
 mod counter;
+#[cfg(test)]
+mod framing_spike;
 
 use std::collections::HashMap;
 use std::io::Write;

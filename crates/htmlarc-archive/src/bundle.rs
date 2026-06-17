@@ -18,7 +18,13 @@ use crate::entry::HtmlEntry;
 /// cluster boundaries once a run reaches this many documents (so a bundle is `BUNDLE_CAP` rounded
 /// up to the next cluster); callers that stream documents without sealing (directory pack,
 /// re-save of a flat list) get the doc table chunked into bundles of exactly this size.
-pub const BUNDLE_CAP: usize = 10_000;
+///
+/// 1,000 (not 10,000): the bundle is both the convert in-flight unit and the on-disk
+/// compression/symbol-sharing window. Measured at 1k vs 10k (see `docs/decisions/0004`), the
+/// on-disk cost is ~+0.4% whole-archive while convert peak memory — which scales directly with
+/// per-bundle bytes — drops ~10×. Trivially reversible; raise it if a size-sensitive per-bundle
+/// feature (e.g. per-bundle topology compression) ever prefers a larger window.
+pub const BUNDLE_CAP: usize = 1_000;
 
 /// A group of up to [`BUNDLE_CAP`] pre-parsed documents, in arrival order.
 ///
