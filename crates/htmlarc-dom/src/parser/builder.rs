@@ -115,6 +115,11 @@ const INLINE_DEPTH: usize = 256;
 /// gate corpus is 3,235); [`MAX_NODES`] is the ultimate backstop.
 const MAX_DEPTH: usize = 8192;
 
+// `RelativeIter` (ancestor/child/sibling traversal) tracks signed nesting depth in an `i16`,
+// so the deepest archived tree must fit there. Raising `MAX_DEPTH` past `i16::MAX` (32,767)
+// would silently overflow that counter — fail the build instead of shipping the bug.
+const _: () = assert!(MAX_DEPTH <= i16::MAX as usize);
+
 /// Maximum node count, matching the U24 node-index sentinel (`Nodes` are always built at
 /// U24 width during parsing — see `Nodes::new`). Past this the builder poisons the
 /// document instead of tripping `Nodes::add_node`'s assert and aborting the import.
