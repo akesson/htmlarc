@@ -20,7 +20,7 @@ use counter::{DocStats, count_doc};
 
 // ADR 0002 ceilings (the values a per-document count must stay under).
 const NODE_CAP: u32 = 0x00FF_FFFF; // u24 node sentinel
-const DEPTH_CAP: u32 = 256;
+const DEPTH_CAP: u32 = 8_192; // builder MAX_DEPTH hard cap (256 = old inline/spill threshold)
 const LIST_CAP: u32 = 32_768; // 15-bit list next-pointer
 const HEAP_CAP: u32 = 65_535; // u16 string/entry table
 const SYM_LOCAL_CAP: u32 = 0xEF00; // 61,184 per-doc Lane A symbols

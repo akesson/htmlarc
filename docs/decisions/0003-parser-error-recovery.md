@@ -148,5 +148,62 @@ Re-measured on the same slice: failures **55 → 2** (the two u16-arena overflow
 `mesicnikosmicka.cz` class-list, `xopenload.me` attribute-list) = **0.0006 % loss**. Nesting is
 no longer a document-loss cause. The remaining 2 are the genuine per-document store ceilings.
 
-**Next:** re-measure Lane B (PR 8) and topology sizing on the now ~+24 %-larger archived
-population before freezing the 0002 constants.
+## Re-measure on the recovered population — 0002 constants frozen
+
+The re-measure that round 2b deferred is done: `stats --compress --topology` over the same
+343,427-doc / 10-segment slice, where the recovery parser now builds **343,665 of 343,667**
+documents (the topology probe runs over essentially the whole population for the first time;
+the two failures are the u16-arena docs). The **+24 % recovered documents did not move a single
+sizing economic** — every figure the 0002 constants encode held:
+
+| metric | parked baseline (~76 % parsed) | recovered population (99.9994 %) |
+|---|---|---|
+| dead topology slots | ≈ 0 % | 0.00 % |
+| `rebuild()` alone | ≈ no-op | −0.0 % |
+| varint links + implicit-first-child + 1 B mask | −26 % | −26.2 % |
+| Lane B (text + content attrs), zstd-19 | — | 36.3 GiB → 4.3 GiB (8.5×) |
+| Lane A: zstd vs raw + shared dict @K=4096 | zstd wins on bytes | zstd 451.9 MiB beats raw+dict 1.2 GiB by 766.5 MiB |
+| node record mixed u16/u24 (PR 6) | negligible | 8 docs need u24 links (0.0023 %), saves 0.0145 % |
+
+The per-link delta-width histograms and the structural invariants (first_child==self+1 79.6 %,
+next==self+1 37.4 %, parent==self-1 35.4 %) are indistinguishable from the pre-recovery
+baseline: the reclaimed malformed documents are **topologically ordinary**. Topology
+(6.2 GiB packed / 8.4 GiB today) still dominates Lane B (4.3 GiB), so the size ordering this
+ADR set — topology parked at the −26 % hot-path-safe ceiling, Lane B (PR 8) as the next size
+lever — is unchanged.
+
+Every per-document cap was validated. The hard caps (nodes > 16 M, distinct attr pairs,
+per-doc symbols) have **zero** documents over them; the populated "over-cap" counts
+(`max_depth`, `ext_tag_names`, `list_entries`) are all *graceful spill* thresholds, not drops —
+depth spills to the heap stack, extended tags spill to the overflow side map — confirmed by the
+parse losing only the 2 genuine arena overflows. **The 0002 capacity constants are therefore
+frozen at their current values; the next storage work is Lane B (PR 8).**
+
+A reporting note: `stats` measures `max_depth` with a raw tokenizer that does not auto-close, so
+its figures (worst 38,510, 1,329 docs > 256) wildly overcount the real tree-builder stack, whose
+effective depth tops out near 3,235. Its `DEPTH_CAP` reference was corrected from the stale
+inline threshold 256 to the real 8,192 hard cap, and the naive measure is now commented as a
+ceiling probe.
+
+### Deep nesting and traversal safety
+
+Round 2b lets documents nest up to the 8,192 hard cap (real depths reach ~3,235) where the old
+build dropped them past 256. This is safe for iteration and CSS queries because **none of the
+depth-scaling paths recurse on the native stack**:
+
+- **Descendant iteration** (`ElementIter`) walks an explicit heap-backed `VisitedStack`
+  (a `TinyVec` that spills past its inline slots), not recursion — an 8 k-deep document costs
+  ~64 KB of heap, no call-stack growth.
+- **Ancestor / child / sibling iteration** (`RelativeIter`) is an iterative cursor walk that
+  tracks signed depth in an `i16`. The builder's 8,192 cap sits ~4× under `i16::MAX` (32,767),
+  and a `const` assert in `builder.rs` now pins that coupling so raising `MAX_DEPTH` past
+  `i16::MAX` fails to compile rather than silently overflowing.
+- **CSS combinator matching** (`ComplexSelector::verify`) recurses on the number of selector
+  segments (user-supplied, tiny), not on tree depth; the depth-scaling ancestor/sibling walk
+  inside each segment is the iterative `RelativeIter`. A descendant combinator on a very deep
+  document is *slower* (an O(depth) ancestor walk per candidate) but bounded and correct — the
+  same per-hop cost that existed at depth 256.
+
+(Orthogonal and pre-existing: sibling ordinals are counted in `u16`, so a node with > 65,535
+*direct children* — breadth, not depth — would overflow that counter. Untouched by this change
+and not observed, but noted.)
