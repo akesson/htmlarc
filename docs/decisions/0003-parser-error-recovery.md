@@ -1,7 +1,8 @@
 # 0003 — Parser error-recovery: closing the text/html strictness gap
 
 - **Status:** Accepted — implemented (rounds 1–2); fork resolved as **(b) harden the in-house
-  builder**. Rounds 1–2 close ~99.9 % of the gap; remaining failures are capacity overflow only.
+  builder**. Confirmed at full corpus scale: **24.1 % → 0.00054 % document loss** (11 of
+  2,036,318 docs), all 11 genuine capacity overflow — zero structural.
 - **Date:** 2026-06-15
 - **Scope:** `htmlarc-dom` (parser / tree builder), `cli/htmlarc-convert` (skip accounting)
 - **Companion:** surfaced by the [0002](0002-unified-symbol-stores-extended-names.md)
@@ -102,6 +103,24 @@ Across both rounds, **85,100 of the original 85,155 failures (99.94 %) are recla
 strictness gap is effectively closed. The reclaimed documents are genuinely archived (unique
 docs in the slice's archive rose 276,875 → 343,372, a delta of exactly 66,497), not merely
 un-errored.
+
+**Confirmed at full corpus scale (all 60 segments, 2,036,318 docs, recovery parser, 5m 27s).**
+The slice projection holds: **11 documents fail = 0.00054 %** (≈ 5 per million), down from the
+strict baseline's **24.1 % (492,425 docs)** — **≈ 99.998 % of the strictness gap closed over the
+whole corpus**, not just a representative slice. Every one of the 11 is genuine per-document
+capacity overflow, **zero structural**:
+
+| residual class | count |
+|---|---|
+| class-list arena (> 65,535) | 4 |
+| attribute-list arena (> 65,535) | 4 |
+| element nesting (> 8,192) | 3 |
+
+The 3 nesting failures are notable: the slice had none (its deepest document was 3,235), so the
+full corpus surfaced three genuinely pathological deep-nested pages beyond the 8,192 sanity
+ceiling — the cap catching real nesting bombs exactly as intended, rather than ordinary deep
+pages (which `TinyVec` heap-spill now absorbs). The parser fails **only** on the fixed-capacity
+store ceilings, corpus-wide.
 
 **Round 1** (commit `72d9c34` foreign-content stack-walk on `main`, then `642a50b`): ignore a
 self-closing `/` on ordinary/custom HTML elements (`<div/>`→`<div>`); make `<source>` void;
