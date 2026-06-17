@@ -1,4 +1,4 @@
-use tinyvec::ArrayVec;
+use tinyvec::TinyVec;
 
 use crate::{
     dom::{DomInner, NodeIndex, Nodes},
@@ -22,7 +22,7 @@ pub(crate) enum CursorTag {
 
 impl Default for CursorTag {
     fn default() -> Self {
-        // `ArrayVec` fills its backing slots with `Default`; this filler is never read.
+        // `TinyVec`'s inline `ArrayVec` fills its backing slots with `Default`; never read.
         CursorTag::Std(HtmlTag::sys_root)
     }
 }
@@ -102,16 +102,18 @@ impl DomBuilder {
     }
 }
 
-/// Maximum element nesting depth. Past this the builder poisons the document and skips
-/// the over-deep subtree rather than panicking the fixed-capacity parse stacks. General
-/// scraped HTML reaches well past the previous limit of 64 (deep `<div>`/`<span>` soup),
-/// so this is set generously; the cost is `256 * (1 + 4)` bytes of stack per parse.
-///
-/// TODO(ADR 0002): the general-web gate found 0.23% of Common Crawl docs deeper than 256
-/// (max 2,950). Those are skipped cleanly today; the redesign should switch these
-/// `ArrayVec` stacks to a heap `Vec` with a higher sanity cap (~8,192) — an `ArrayVec` that
-/// large is too much stack per parse.
-const MAX_DEPTH: usize = 256;
+/// Inline element-nesting depth: the parse stacks ([`DomBuilderCursor`]) keep this many levels
+/// inline (no heap), spilling to a heap `Vec` only beyond it (`TinyVec`). General scraped HTML
+/// reaches well past the old limit of 64 (deep `<div>`/`<span>` soup); the general-web gate
+/// found only 0.23% of Common Crawl docs deeper than this, so ~99.8% of documents keep the
+/// historical zero-allocation, fully-inline behavior (~`256 * 8` bytes of stack per parse).
+const INLINE_DEPTH: usize = 256;
+
+/// Sanity ceiling on element-nesting depth. Past this the builder poisons the document and
+/// skips the over-deep subtree, so an adversarial nesting bomb cannot grow the spilled heap
+/// stack without bound. Set generously above any real document (the deepest measured on the
+/// gate corpus is 3,235); [`MAX_NODES`] is the ultimate backstop.
+const MAX_DEPTH: usize = 8192;
 
 /// Maximum node count, matching the U24 node-index sentinel (`Nodes` are always built at
 /// U24 width during parsing — see `Nodes::new`). Past this the builder poisons the
@@ -121,8 +123,8 @@ const MAX_NODES: usize = 0x00FF_FFFF;
 #[derive(Default)]
 pub struct DomBuilderCursor {
     pub dom: DomBuilder,
-    pub tag_stack: ArrayVec<[CursorTag; MAX_DEPTH]>,
-    pub index_stack: ArrayVec<[NodeIndex; MAX_DEPTH]>,
+    pub tag_stack: TinyVec<[CursorTag; INLINE_DEPTH]>,
+    pub index_stack: TinyVec<[NodeIndex; INLINE_DEPTH]>,
     pub attr_list_index: Option<RunIndex>,
     /// Set (first reason wins) when the node count or nesting depth overflows; combined
     /// with the sub-store builders' flags by [`overflow`](Self::overflow).
@@ -182,7 +184,7 @@ impl DomStack for DomBuilderCursor {
         // Both stacks are left untouched (they stay in lock-step), so the matching close
         // tag still pops cleanly — the document is discarded by `HtmlDoc::parse` anyway.
         if self.tag_stack.len() >= MAX_DEPTH {
-            self.overflow.get_or_insert("element nesting exceeds 256");
+            self.overflow.get_or_insert("element nesting exceeds 8192");
             return;
         }
         if !self.node_budget_ok() {

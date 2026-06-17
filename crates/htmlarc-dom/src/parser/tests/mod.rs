@@ -455,11 +455,24 @@ fn class_list_overflow_is_a_per_document_error() {
 
 #[test]
 fn nesting_depth_boundary() {
-    // 256 levels parse; the 257th trips the depth guard (previously a hard panic).
-    let ok = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
-    assert!(HtmlDoc::parse(&ok).is_ok(), "256-deep nesting must parse");
+    // The first 256 levels are kept inline (no heap); deeper nesting spills the parse stack
+    // to the heap and still parses — it used to hit a hard 256 cap that dropped the whole
+    // document. Just past the inline boundary must therefore parse, not fail.
+    let inline = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
+    assert!(
+        HtmlDoc::parse(&inline).is_ok(),
+        "256-deep (inline) nesting must parse"
+    );
+    let spilled = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
+    assert!(
+        HtmlDoc::parse(&spilled).is_ok(),
+        "257-deep nesting must spill to the heap and parse"
+    );
 
-    let too_deep = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
+    // The 8,192 sanity ceiling still trips: 8,192 levels parse, the 8,193rd is poisoned.
+    let cap = format!("{}{}", "<div>".repeat(8192), "</div>".repeat(8192));
+    assert!(HtmlDoc::parse(&cap).is_ok(), "8192-deep nesting must parse");
+    let too_deep = format!("{}{}", "<div>".repeat(8193), "</div>".repeat(8193));
     assert!(parse_overflow(&too_deep).contains("capacity"));
 }
 
