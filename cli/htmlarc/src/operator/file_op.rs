@@ -6,14 +6,13 @@ use std::{
 
 use anyhow::Result;
 use htmlarc_dom::prelude::*;
-use sanitize_filename::sanitize;
 use termion::{
     event::Key,
     input::TermRead,
     raw::{IntoRawMode, RawTerminal},
 };
 
-use super::{DataOperator, OperationError};
+use super::{DataOperator, OperationError, html_stem};
 use crate::source::ArchiveSource;
 
 pub struct FileOperator;
@@ -148,9 +147,9 @@ impl DataOperator for FileOperator {
                 .ok_or_else(|| OperationError::GetEntry(word.to_string(), "list archive"))?;
             let html_2 = diff_arch.to_html(*i, fmt);
 
-            let sanitized = sanitize(word);
-            let word_path_1 = folder.join(format!("{}.1.html", sanitized));
-            let word_path_2 = folder.join(format!("{}.2.html", sanitized));
+            let stem = html_stem(word);
+            let word_path_1 = folder.join(format!("{stem}.1.html"));
+            let word_path_2 = folder.join(format!("{stem}.2.html"));
 
             fs::write(word_path_1, html_1)?;
             fs::write(word_path_2, html_2)?;
@@ -176,8 +175,7 @@ impl DataOperator for FileOperator {
 
         let fmt = HtmlFormat::raw_else_pretty(raw_html);
         for i in indexes {
-            let sanitized = sanitize(archive.key(*i));
-            let word_path = folder.join(format!("{}.html", sanitized));
+            let word_path = folder.join(format!("{}.html", html_stem(archive.key(*i))));
             fs::write(word_path, archive.to_html(*i, fmt))?;
         }
 

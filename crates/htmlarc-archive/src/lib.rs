@@ -15,7 +15,7 @@ pub use archive::HtmlArchive;
 pub use archive_trait::{Archive, ArchiveEntry};
 pub use builder::HtmlArchiveBuilder;
 pub use bundle::{BUNDLE_CAP, DocBundle};
-pub use entry::{ArchivedHtmlEntry, HtmlEntry};
+pub use entry::{ArchivedHtmlEntry, HtmlEntry, SerializedEntry};
 pub use error::ArchiveErr;
 pub use filter::{Filter, FilterError};
 pub use mmap::MmapArchive;
