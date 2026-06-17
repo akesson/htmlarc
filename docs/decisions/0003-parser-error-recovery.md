@@ -124,8 +124,29 @@ content versus a full HTML5 builder, but the document is *extracted* rather than
 fixed-capacity store ceilings, exactly the stated goal ("reserve hard failure for genuinely
 unrecoverable input"). Nesting-overflow failures rose 42 → 53 between rounds: ~11 deeply-nested
 documents now parse *past* their first structural orphan and only then hit the 256-depth ceiling
-— a bucket shift, not a regression (the depth cap, builder.rs `MAX_DEPTH`, has a standing TODO to
-move to a heap `Vec` with a ~8,192 sanity cap, which would reclaim most of these too).
+— a bucket shift, not a regression.
+
+### Round 2b — spill-to-heap parse depth (depth cap resolved)
+
+Probing the 53 nesting failures with an uncapped build showed their true depths cluster tightly:
+264–3,235 (median 380, p90 842) — ordinary deeply-nested real pages (e-commerce listings,
+nested-quote forum threads), **none pathological, none over 8,192**. So the fixed depth cap, not
+the documents, was the limit.
+
+The parse stacks (`tag_stack` / `index_stack` in `DomBuilderCursor`) moved from a fixed
+`ArrayVec<[T; 256]>` to a **`tinyvec::TinyVec<[T; 256]>`**: the first 256 levels stay inline
+(no heap, identical to before for ~99.8 % of documents), and deeper nesting **spills to a heap
+`Vec`** instead of being dropped. The hard cap became an 8,192 *sanity* ceiling (above any real
+document; `MAX_NODES` backstops a true nesting bomb). This is the builder.rs `MAX_DEPTH` TODO,
+but keeping inline storage for the common case rather than the TODO's plain-`Vec` (which would
+heap-allocate every parse). Cost, isolated by microbench (`ArrayVec`+fast-path vs `TinyVec`+
+fast-path): **~1.6 % parse** from the inline-path enum branch — and the same change folds in an
+O(1) end-tag fast path (`pop_tag` checks the stack top before the linear `_stack_contains` scan
+round 2 had put on every close).
+
+Re-measured on the same slice: failures **55 → 2** (the two u16-arena overflows;
+`mesicnikosmicka.cz` class-list, `xopenload.me` attribute-list) = **0.0006 % loss**. Nesting is
+no longer a document-loss cause. The remaining 2 are the genuine per-document store ceilings.
 
 **Next:** re-measure Lane B (PR 8) and topology sizing on the now ~+24 %-larger archived
 population before freezing the 0002 constants.

@@ -95,23 +95,30 @@ pub(crate) trait DomStack {
             return Ok(());
         }
         let tag = self.make_tag(name);
-        // An end tag that closes no currently-open element is ignored, not fatal. HTML5's
-        // tree construction drops an unmatched end tag — an empty stack, or `</x>` with no
-        // open `<x>` anywhere on the stack — and keeps building. Failing the whole document
-        // over one orphan `</div>` or stray `</p>` discards an otherwise-extractable page;
-        // these are ~99% of the remaining structural text/html loss tail (ADR 0003 round 2).
-        // Probe membership *before* popping: popping is destructive, and re-pushing to undo
-        // would append a duplicate node (see `_push_tag` in the real builder).
+        // Fast path: the end tag closes the current open element — the overwhelmingly common,
+        // well-formed case. O(1): just compare the stack top, no scan. (The slow path below
+        // does a linear `_stack_contains`, and the matching element sits at the *back* of the
+        // stack, so reaching it via the scan would walk the whole open-element stack on every
+        // close; this keeps the common case off that path.)
+        if self._last_tag().as_ref() == Some(&tag) {
+            self._pop_tag();
+            return Ok(());
+        }
+        // The top did not match. An end tag that closes no currently-open element is ignored,
+        // not fatal. HTML5's tree construction drops an unmatched end tag — an empty stack, or
+        // `</x>` with no open `<x>` anywhere on the stack — and keeps building. Failing the
+        // whole document over one orphan `</div>` or stray `</p>` discards an otherwise-
+        // extractable page; these are ~99% of the remaining structural text/html loss tail
+        // (ADR 0003 round 2). Probe membership *before* popping: popping is destructive, and
+        // re-pushing to undo would append a duplicate node (see `_push_tag` in the real builder).
         if !self._stack_contains(&tag) {
             return Ok(());
         }
-        // `tag` is open somewhere on the stack from here on, so the pop is infallible.
+        // `tag` is open deeper on the stack (and is not the top), so the pop is infallible and
+        // yields some element other than `tag`.
         let Some(popped) = self._pop_tag() else {
             return Ok(());
         };
-        if tag == popped {
-            return Ok(());
-        }
         // The implied-end-tag rule: a `</parent>` may close a still-open child. Compare the
         // parent by full identity too, so an extended parent only satisfies its own name.
         if self._last_tag().as_ref() == Some(&tag)
