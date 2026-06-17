@@ -43,13 +43,6 @@ impl StringInterner {
         Some(i)
     }
 
-    /// The string at heap index `i` (an already-interned id). Lets a builder resolve a live
-    /// [`Sym`](crate::stores::Sym) back to its name before [`build`](crate::stores::SymbolTableBuilder::build)
-    /// — used for parse-error messages naming an extended tag.
-    pub(crate) fn get(&self, i: u16) -> &str {
-        &self.heap[i]
-    }
-
     /// Consumes the interner, yielding the heap (insertion order).
     pub(crate) fn into_heap(self) -> StringHeap {
         self.heap

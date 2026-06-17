@@ -4,7 +4,7 @@ use crate::dom::NodeIndex;
 use crate::html::HtmlTag;
 use crate::stores::AttrName;
 
-use crate::{HtmlParseError, HtmlParseResult};
+use crate::HtmlParseResult;
 
 /// A parsed tag name: a recognised [`HtmlTag`], or an *extended* (custom/unknown) name kept
 /// verbatim. Mirrors [`AttrName`] for attribute names (ADR 0002 §3–§4). The `extended` marker
@@ -49,9 +49,6 @@ pub(crate) trait DomStack {
     /// the auto-close classifiers.
     fn kind_of(tag: &Self::Tag) -> HtmlTag;
 
-    /// Render a stack token's name for a parse-error message.
-    fn tag_display(&self, tag: &Self::Tag) -> String;
-
     /// Only for internal use
     fn _pop_tag(&mut self) -> Option<Self::Tag>;
 
@@ -64,8 +61,6 @@ pub(crate) trait DomStack {
     fn _stack_contains(&self, tag: &Self::Tag) -> bool;
 
     fn _push_tag(&mut self, tag: Self::Tag);
-
-    fn stack_info(&self) -> String;
 
     /// Only for adding comments and text (always a system tag, never extended).
     fn add_text_tag(&mut self, tag: HtmlTag, value: &str);
@@ -88,13 +83,42 @@ pub(crate) trait DomStack {
     }
 
     fn pop_tag(&mut self, name: TagName<'_>) -> HtmlParseResult<()> {
-        let tag = self.make_tag(name);
-        let popped = self
-            ._pop_tag()
-            .ok_or(HtmlParseError::new("Closing a tag, but none open"))?;
-        if tag == popped {
+        // A void element has no end tag. A stray `</source>`, `</br>`, … is a parse error that
+        // HTML5 ignores — the element was already closed at its own start tag — so drop it
+        // without touching the stack. Popping here would discard the void element's real parent
+        // (the stack top), and erroring would drop the whole document. This recovers the common
+        // pages that write explicit `<source>…</source>` (or `</br>`) pairs (ADR 0003). Only a
+        // recognised standard name can be void; an extended name never is.
+        if let TagName::Std(tag) = name
+            && tag.is_void_element()
+        {
             return Ok(());
         }
+        let tag = self.make_tag(name);
+        // Fast path: the end tag closes the current open element — the overwhelmingly common,
+        // well-formed case. O(1): just compare the stack top, no scan. (The slow path below
+        // does a linear `_stack_contains`, and the matching element sits at the *back* of the
+        // stack, so reaching it via the scan would walk the whole open-element stack on every
+        // close; this keeps the common case off that path.)
+        if self._last_tag().as_ref() == Some(&tag) {
+            self._pop_tag();
+            return Ok(());
+        }
+        // The top did not match. An end tag that closes no currently-open element is ignored,
+        // not fatal. HTML5's tree construction drops an unmatched end tag — an empty stack, or
+        // `</x>` with no open `<x>` anywhere on the stack — and keeps building. Failing the
+        // whole document over one orphan `</div>` or stray `</p>` discards an otherwise-
+        // extractable page; these are ~99% of the remaining structural text/html loss tail
+        // (ADR 0003 round 2). Probe membership *before* popping: popping is destructive, and
+        // re-pushing to undo would append a duplicate node (see `_push_tag` in the real builder).
+        if !self._stack_contains(&tag) {
+            return Ok(());
+        }
+        // `tag` is open deeper on the stack (and is not the top), so the pop is infallible and
+        // yields some element other than `tag`.
+        let Some(popped) = self._pop_tag() else {
+            return Ok(());
+        };
         // The implied-end-tag rule: a `</parent>` may close a still-open child. Compare the
         // parent by full identity too, so an extended parent only satisfies its own name.
         if self._last_tag().as_ref() == Some(&tag)
@@ -104,23 +128,16 @@ pub(crate) trait DomStack {
         }
         // Tolerant recovery (ADR 0002 §5): a malformed subtree — most often unclosed SVG
         // children such as `<svg>…<path></svg>` — leaves elements open that a real
-        // foreign-content tree builder would implicitly close. If this end tag matches an
-        // element still open deeper in the stack, pop the intervening unclosed elements (now
-        // closed by their ancestor) rather than failing the whole document. A stray end tag
-        // with no matching open element is still an error. This only runs on the path that
-        // used to error, so every document that already parsed is unaffected.
-        if self._stack_contains(&tag) {
-            while let Some(open) = self._pop_tag() {
-                if open == tag {
-                    return Ok(());
-                }
+        // foreign-content tree builder would implicitly close. This end tag matches an
+        // element still open deeper in the stack, so pop the intervening unclosed elements
+        // (now closed by their ancestor) rather than failing the whole document.
+        while let Some(open) = self._pop_tag() {
+            if open == tag {
+                return Ok(());
             }
         }
-        Err(HtmlParseError::new(format!(
-            "Expected tag '{name}', but found stack '{} > {}'",
-            self.stack_info(),
-            self.tag_display(&popped),
-        )))
+        // Unreachable: the membership check above guarantees the loop pops `tag`.
+        Ok(())
     }
 }
 

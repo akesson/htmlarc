@@ -161,6 +161,7 @@ pub(crate) fn parse_into<D: DomStack>(input: &str, dom: &mut D) -> HtmlParseResu
         start: None,
         attr: None,
         current: None,
+        foreign_depth: 0,
     };
 
     {
@@ -216,6 +217,13 @@ struct Driver<'d, D: DomStack> {
     attr: Option<PendingName>,
     /// The element currently open (materialised), for the void/self-closing pop decision.
     current: Option<HtmlTag>,
+    /// Open-element depth of `svg`/`math` subtrees, mirrored from the emitter's foreign-content
+    /// tracking (`RawTextEmitter::foreign_depth`). The pop decision in
+    /// [`close_start_tag`](Self::close_start_tag) needs it to tell a foreign `<path/>` (the
+    /// self-closing flag is honored — childless) from an ordinary `<div/>` (the flag is ignored
+    /// — stays open). svg/math children are stored as `extended`, indistinguishable from a
+    /// non-foreign custom element by tag alone, so depth is the only available signal (ADR 0003).
+    foreign_depth: u32,
 }
 
 impl<D: DomStack> Driver<'_, D> {
@@ -303,21 +311,44 @@ impl<D: DomStack> Driver<'_, D> {
     fn close_start_tag(&mut self, self_closing: bool) {
         self.commit_start();
         self.flush_attr(""); // a trailing valueless attribute
-        if let Some(tag) = self.current.take()
-            && (self_closing || tag.is_void_element())
-        {
-            // This element was pushed an instant ago, so an identity check would be vacuous
-            // (and impossible for an extended tag, whose kind alone is `extended`); pop it
-            // directly. A self-closing foreign element (`<path/>`) thus becomes childless.
+        let Some(tag) = self.current.take() else {
+            return;
+        };
+        // Is this element foreign — svg/math itself, or anything inside an open svg/math
+        // subtree? Foreign children are stored as `extended`, so the depth, not the tag, is the
+        // signal (see `foreign_depth`).
+        let in_foreign = tag.is_foreign_element() || self.foreign_depth > 0;
+        if tag.is_void_element() || (self_closing && in_foreign) {
+            // A void element has no end tag; a self-closing foreign element (`<path/>`) is
+            // childless. Either way it was pushed an instant ago, so pop it directly — an
+            // identity check would be vacuous (and impossible for an extended tag, whose kind
+            // alone is `extended`).
             self.dom._pop_tag();
+        } else if tag.is_foreign_element() {
+            // A non-self-closing `<svg>`/`<math>` opens a foreign subtree; track its depth so
+            // the self-closing decision above stays correct for the descendants within it.
+            self.foreign_depth += 1;
         }
+        // An ordinary HTML element or non-foreign custom element carrying a stray self-closing
+        // slash (`<div/>`, `<x-y/>`) is intentionally NOT popped: HTML5 ignores the slash on
+        // these and keeps the element open, so a later `</div>` matches it instead of orphaning
+        // the whole document — the dominant structural-failure bucket the converter used to
+        // drop (ADR 0003). The element auto-closes at its real end tag, EOF, or an implied end.
     }
 
     fn end_tag(&mut self, name: &[u8]) {
         let name = String::from_utf8_lossy(name);
         // Unknown end-tag names parse as extended tags rather than erroring (ADR 0002 §4); a
         // genuine mismatch is still caught by `pop_tag`'s identity check.
-        self.pop(TagName::parse(&name));
+        let tag = TagName::parse(&name);
+        // Leaving an `<svg>`/`<math>` subtree: mirror the emitter's foreign-depth decrement so
+        // the self-closing decision in `close_start_tag` reverts once we are back in HTML.
+        if let TagName::Std(t) = &tag
+            && t.is_foreign_element()
+        {
+            self.foreign_depth = self.foreign_depth.saturating_sub(1);
+        }
+        self.pop(tag);
     }
 
     fn text(&mut self, value: &[u8]) {

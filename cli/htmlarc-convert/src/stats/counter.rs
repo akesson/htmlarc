@@ -136,6 +136,10 @@ impl Counter {
     fn close_start_tag(&mut self, self_closing: bool) {
         self.flush_attr(None);
         if !self_closing && !self.cur_tag_void {
+            // Naive nesting: this counts raw open/close tags with no implied-end-tag or
+            // auto-close, so it is an upper bound that overcounts the real tree-builder
+            // stack (which collapses `<p>`/`<li>`/`<td>` soup). Use it as a ceiling probe,
+            // not as the effective depth the parser actually reaches.
             self.depth += 1;
             self.max_depth = self.max_depth.max(self.depth);
         }

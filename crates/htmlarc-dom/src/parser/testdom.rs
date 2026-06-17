@@ -69,6 +69,14 @@ impl TestDom {
         let current = self.dom.last_mut().unwrap();
         current.attrs.push((name, value.to_string()))
     }
+
+    /// The rendered name of a stack tag, for the debug log in [`_push_tag`](Self::_push_tag).
+    fn tag_display(&self, tag: &TestTag) -> String {
+        match tag {
+            TestTag::Std(t) => t.as_str().to_string(),
+            TestTag::Ext(s) => s.clone(),
+        }
+    }
 }
 
 impl Display for TestDom {
@@ -97,13 +105,6 @@ impl DomStack for TestDom {
         }
     }
 
-    fn tag_display(&self, tag: &TestTag) -> String {
-        match tag {
-            TestTag::Std(t) => t.as_str().to_string(),
-            TestTag::Ext(s) => s.clone(),
-        }
-    }
-
     fn _push_tag(&mut self, tag: TestTag) {
         let name = self.tag_display(&tag);
         debug!("push_tag {name}");
@@ -123,14 +124,6 @@ impl DomStack for TestDom {
 
     fn _stack_contains(&self, tag: &TestTag) -> bool {
         self.stack.contains(tag)
-    }
-
-    fn stack_info(&self) -> String {
-        self.stack
-            .iter()
-            .map(|t| self.tag_display(t))
-            .collect::<Vec<_>>()
-            .join(" > ")
     }
 
     fn add_text_tag(&mut self, tag: HtmlTag, value: &str) {

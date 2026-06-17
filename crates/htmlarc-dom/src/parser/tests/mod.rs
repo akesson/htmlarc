@@ -144,18 +144,19 @@ fn reserved_spellings_parse_as_custom_elements() {
 }
 
 #[test]
-fn mismatched_custom_end_tag_is_a_parse_error() {
+fn mismatched_custom_end_tag_does_not_close_a_different_element() {
     // Two distinct custom elements share the `extended` kind, but full identity keeps them
-    // apart: `</b-b>` cannot close `<a-a>`. The error names the offending tags.
-    let err = parse_error("<a-a></b-b>");
-    assert!(
-        err.contains("a-a") && err.contains("b-b"),
-        "error should name both custom tags: {err}"
-    );
-    // A standard end tag cannot close a custom element, nor vice versa.
-    assert!(parse_error("<x-y></div>").contains("x-y"));
-    assert!(parse_error("<div></x-y>").contains("x-y"));
-    // Matching identity closes cleanly.
+    // apart: `</b-b>` cannot close `<a-a>`. The mismatched end tag matches no open element,
+    // so it is ignored (ADR 0003 round 2) and `<a-a>` closes at EOF — it is never closed by
+    // a differently-named end tag.
+    roundtrip_to("<a-a></b-b>", "<a-a></a-a>");
+    // A standard end tag cannot close a custom element, nor vice versa — each is ignored.
+    roundtrip_to("<x-y></div>", "<x-y></x-y>");
+    roundtrip_to("<div></x-y>", "<div></div>");
+    // Proof the orphan close was ignored, not treated as closing `<a-a>`: trailing content
+    // still lands inside `<a-a>` rather than escaping it.
+    roundtrip_to("<a-a></b-b>more</a-a>", "<a-a>more</a-a>");
+    // Matching identity still closes cleanly.
     roundtrip("<a-a></a-a>");
 }
 
@@ -269,12 +270,17 @@ fn unclosed_foreign_children_recover_to_matching_ancestor() {
 }
 
 #[test]
-fn stray_end_tag_with_no_open_match_still_errors() {
-    // Recovery only fires when the end tag matches an element open deeper in the stack; a
-    // genuinely stray end tag is still a parse error (the document is discarded). This keeps
-    // the recovery path from masking real structural corruption.
-    assert!(parse_error("<svg><path></g></svg>").contains("Expected tag 'g'"));
-    assert!(parse_error("<div></section>").contains("Expected tag 'section'"));
+fn unmatched_end_tag_is_ignored() {
+    // An end tag matching no open element is ignored, not fatal (ADR 0003 round 2). HTML5's
+    // tree construction drops it and keeps building; failing the whole document over one
+    // orphan close discards an otherwise-extractable page. This supersedes the earlier stance
+    // (ADR 0002 PR 5), which kept such tags a parse error to surface structural corruption —
+    // the wrong trade for an extraction archive, where it cost ~20% of the corpus.
+    // `</g>` matches nothing and is dropped; `</svg>` then stack-walks the still-open `<path>`
+    // and `<svg>` (the deeper-match recovery from ADR 0002 §5).
+    roundtrip_to("<svg><path></g></svg>", "<svg><path></path></svg>");
+    // `</section>` matches nothing, so it is dropped; the `<div>` auto-closes at EOF.
+    roundtrip_to("<div></section>", "<div></div>");
 }
 
 #[test]
@@ -318,6 +324,86 @@ fn foreign_content_pretty_formats() {
         "pretty: {pretty}"
     );
     assert!(!pretty.contains("extended"), "pretty: {pretty}");
+}
+
+// --- parser error recovery (ADR 0003) ---
+
+#[test]
+fn self_closing_slash_on_html_element_is_ignored() {
+    // `<div/>` is XML self-closing syntax on a non-void HTML element. HTML5 ignores the slash
+    // and keeps the element open, so the later `</div>` matches. htmlarc used to honor the
+    // slash, self-close the `<div>`, and then orphan the `</div>` — discarding the *whole*
+    // document. This was the dominant (~97.9 %) structural-failure bucket behind the 24 %
+    // document-loss rate (ADR 0003).
+    roundtrip_to(r#"<div id="x"/></div>"#, r#"<div id="x"></div>"#);
+    // The element stays open and absorbs the following content up to its real end tag.
+    roundtrip_to("<div/>text</div>", "<div>text</div>");
+    roundtrip_to("<p/>hi</p>", "<p>hi</p>");
+    // No matching end tag: it auto-closes at EOF, still childless — same as the bare tag.
+    roundtrip_to("<section/>", "<section></section>");
+}
+
+#[test]
+fn self_closing_foreign_siblings_stay_siblings() {
+    // The fix above must stay foreign-aware. An SVG icon sprite is a run of self-closing
+    // siblings; each `<path/>` must pop as a sibling, not nest inside the previous one. svg
+    // children are stored as `extended` (ADR 0002 §5), indistinguishable from a non-foreign
+    // custom element by tag alone, so the self-closing flag is honored only while inside a
+    // foreign subtree (tracked by depth). A naive tag-only gate would silently nest these.
+    roundtrip_to(
+        r#"<svg><path d="M0"/><path d="M1"/></svg>"#,
+        r#"<svg><path d="M0"></path><path d="M1"></path></svg>"#,
+    );
+    // Nested foreign groups: depth must rise and fall so deeper self-closing children still
+    // pop, and content after the subtree returns to HTML rules.
+    roundtrip_to(
+        r#"<svg><g><path/><path/></g><rect/></svg><div/>x"#,
+        r#"<svg><g><path></path><path></path></g><rect></rect></svg><div>x</div>"#,
+    );
+}
+
+#[test]
+fn stray_void_end_tags_are_ignored() {
+    // Void elements have no end tag; an explicit `</source>` is a parse error HTML5 ignores,
+    // not a document-killer. `<audio>`/`<video>`/`<picture>` pages commonly write
+    // `<source>…</source>` pairs. `source` is void (WHATWG), so each pops at its own start tag
+    // and the stray close is dropped, leaving childless siblings (ADR 0003).
+    roundtrip_to(
+        r#"<audio><source src="a.ogg"></source><source src="a.mp3"></source></audio>"#,
+        r#"<audio><source src="a.ogg"><source src="a.mp3"></audio>"#,
+    );
+    // The close can appear with no matching open element at all — still ignored, the
+    // surrounding document is preserved rather than discarded.
+    roundtrip_to("<p>text</source></p>", "<p>text</p>");
+}
+
+#[test]
+fn unmatched_html_end_tags_are_ignored() {
+    // The dominant remaining failure bucket (ADR 0003 round 2): orphan and over-eager end
+    // tags from messy scraped HTML. Each closes no open element, so HTML5 drops it; htmlarc
+    // used to discard the whole document. An orphan inline `</span>` inside a `<p>` is gone:
+    roundtrip_to("<div><p>hi</span></p></div>", "<div><p>hi</p></div>");
+    // Over-closing — extra `</div>`s past the matching one — is ignored.
+    roundtrip_to("<div>x</div></div></div>", "<div>x</div>");
+    // A stray block close in the middle of content does not drop the surrounding element.
+    roundtrip_to("<main><p>x</p></aside></main>", "<main><p>x</p></main>");
+}
+
+#[test]
+fn stray_end_tag_on_empty_stack_is_ignored() {
+    // An end tag with nothing open at all (the stack is empty) is dropped rather than failing
+    // the parse (ADR 0003 round 2; was the "Closing a tag, but none open" error).
+    roundtrip_to("</div><p>hi</p>", "<p>hi</p>");
+    roundtrip_to("</a></b></c><p>x</p>", "<p>x</p>");
+}
+
+#[test]
+fn stray_foreign_end_tag_does_not_corrupt_following_parse() {
+    // A stray `</svg>`/`</math>` is now ignored instead of failing the document; the
+    // emitter/driver foreign-depth counters saturate at zero (they never underflow), so HTML
+    // parsing continues normally afterwards.
+    roundtrip_to("</svg><div>x</div>", "<div>x</div>");
+    roundtrip_to("<div></svg>x</div>", "<div>x</div>");
 }
 
 // --- per-document overflow guardrails (ADR 0002, PR 1) ---
@@ -369,22 +455,25 @@ fn class_list_overflow_is_a_per_document_error() {
 
 #[test]
 fn nesting_depth_boundary() {
-    // 256 levels parse; the 257th trips the depth guard (previously a hard panic).
-    let ok = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
-    assert!(HtmlDoc::parse(&ok).is_ok(), "256-deep nesting must parse");
+    // The first 256 levels are kept inline (no heap); deeper nesting spills the parse stack
+    // to the heap and still parses — it used to hit a hard 256 cap that dropped the whole
+    // document. Just past the inline boundary must therefore parse, not fail.
+    let inline = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
+    assert!(
+        HtmlDoc::parse(&inline).is_ok(),
+        "256-deep (inline) nesting must parse"
+    );
+    let spilled = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
+    assert!(
+        HtmlDoc::parse(&spilled).is_ok(),
+        "257-deep nesting must spill to the heap and parse"
+    );
 
-    let too_deep = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
+    // The 8,192 sanity ceiling still trips: 8,192 levels parse, the 8,193rd is poisoned.
+    let cap = format!("{}{}", "<div>".repeat(8192), "</div>".repeat(8192));
+    assert!(HtmlDoc::parse(&cap).is_ok(), "8192-deep nesting must parse");
+    let too_deep = format!("{}{}", "<div>".repeat(8193), "</div>".repeat(8193));
     assert!(parse_overflow(&too_deep).contains("capacity"));
-}
-
-/// Parse `html`, asserting it fails, and return the error message. Like
-/// [`parse_overflow`] but for ordinary (non-capacity) parse errors, e.g. a tag mismatch.
-#[track_caller]
-fn parse_error(html: &str) -> String {
-    match HtmlDoc::parse(html) {
-        Ok(_) => panic!("expected a parse error, but parse succeeded"),
-        Err(e) => e.to_string(),
-    }
 }
 
 #[track_caller] // Will show the location of the caller in test failure messages
