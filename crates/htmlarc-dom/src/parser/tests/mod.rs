@@ -144,18 +144,19 @@ fn reserved_spellings_parse_as_custom_elements() {
 }
 
 #[test]
-fn mismatched_custom_end_tag_is_a_parse_error() {
+fn mismatched_custom_end_tag_does_not_close_a_different_element() {
     // Two distinct custom elements share the `extended` kind, but full identity keeps them
-    // apart: `</b-b>` cannot close `<a-a>`. The error names the offending tags.
-    let err = parse_error("<a-a></b-b>");
-    assert!(
-        err.contains("a-a") && err.contains("b-b"),
-        "error should name both custom tags: {err}"
-    );
-    // A standard end tag cannot close a custom element, nor vice versa.
-    assert!(parse_error("<x-y></div>").contains("x-y"));
-    assert!(parse_error("<div></x-y>").contains("x-y"));
-    // Matching identity closes cleanly.
+    // apart: `</b-b>` cannot close `<a-a>`. The mismatched end tag matches no open element,
+    // so it is ignored (ADR 0003 round 2) and `<a-a>` closes at EOF — it is never closed by
+    // a differently-named end tag.
+    roundtrip_to("<a-a></b-b>", "<a-a></a-a>");
+    // A standard end tag cannot close a custom element, nor vice versa — each is ignored.
+    roundtrip_to("<x-y></div>", "<x-y></x-y>");
+    roundtrip_to("<div></x-y>", "<div></div>");
+    // Proof the orphan close was ignored, not treated as closing `<a-a>`: trailing content
+    // still lands inside `<a-a>` rather than escaping it.
+    roundtrip_to("<a-a></b-b>more</a-a>", "<a-a>more</a-a>");
+    // Matching identity still closes cleanly.
     roundtrip("<a-a></a-a>");
 }
 
@@ -269,12 +270,17 @@ fn unclosed_foreign_children_recover_to_matching_ancestor() {
 }
 
 #[test]
-fn stray_end_tag_with_no_open_match_still_errors() {
-    // Recovery only fires when the end tag matches an element open deeper in the stack; a
-    // genuinely stray end tag is still a parse error (the document is discarded). This keeps
-    // the recovery path from masking real structural corruption.
-    assert!(parse_error("<svg><path></g></svg>").contains("Expected tag 'g'"));
-    assert!(parse_error("<div></section>").contains("Expected tag 'section'"));
+fn unmatched_end_tag_is_ignored() {
+    // An end tag matching no open element is ignored, not fatal (ADR 0003 round 2). HTML5's
+    // tree construction drops it and keeps building; failing the whole document over one
+    // orphan close discards an otherwise-extractable page. This supersedes the earlier stance
+    // (ADR 0002 PR 5), which kept such tags a parse error to surface structural corruption —
+    // the wrong trade for an extraction archive, where it cost ~20% of the corpus.
+    // `</g>` matches nothing and is dropped; `</svg>` then stack-walks the still-open `<path>`
+    // and `<svg>` (the deeper-match recovery from ADR 0002 §5).
+    roundtrip_to("<svg><path></g></svg>", "<svg><path></path></svg>");
+    // `</section>` matches nothing, so it is dropped; the `<div>` auto-closes at EOF.
+    roundtrip_to("<div></section>", "<div></div>");
 }
 
 #[test]
@@ -371,6 +377,35 @@ fn stray_void_end_tags_are_ignored() {
     roundtrip_to("<p>text</source></p>", "<p>text</p>");
 }
 
+#[test]
+fn unmatched_html_end_tags_are_ignored() {
+    // The dominant remaining failure bucket (ADR 0003 round 2): orphan and over-eager end
+    // tags from messy scraped HTML. Each closes no open element, so HTML5 drops it; htmlarc
+    // used to discard the whole document. An orphan inline `</span>` inside a `<p>` is gone:
+    roundtrip_to("<div><p>hi</span></p></div>", "<div><p>hi</p></div>");
+    // Over-closing — extra `</div>`s past the matching one — is ignored.
+    roundtrip_to("<div>x</div></div></div>", "<div>x</div>");
+    // A stray block close in the middle of content does not drop the surrounding element.
+    roundtrip_to("<main><p>x</p></aside></main>", "<main><p>x</p></main>");
+}
+
+#[test]
+fn stray_end_tag_on_empty_stack_is_ignored() {
+    // An end tag with nothing open at all (the stack is empty) is dropped rather than failing
+    // the parse (ADR 0003 round 2; was the "Closing a tag, but none open" error).
+    roundtrip_to("</div><p>hi</p>", "<p>hi</p>");
+    roundtrip_to("</a></b></c><p>x</p>", "<p>x</p>");
+}
+
+#[test]
+fn stray_foreign_end_tag_does_not_corrupt_following_parse() {
+    // A stray `</svg>`/`</math>` is now ignored instead of failing the document; the
+    // emitter/driver foreign-depth counters saturate at zero (they never underflow), so HTML
+    // parsing continues normally afterwards.
+    roundtrip_to("</svg><div>x</div>", "<div>x</div>");
+    roundtrip_to("<div></svg>x</div>", "<div>x</div>");
+}
+
 // --- per-document overflow guardrails (ADR 0002, PR 1) ---
 //
 // Each pathological document below used to either silently corrupt its stores (a u16
@@ -426,16 +461,6 @@ fn nesting_depth_boundary() {
 
     let too_deep = format!("{}{}", "<div>".repeat(257), "</div>".repeat(257));
     assert!(parse_overflow(&too_deep).contains("capacity"));
-}
-
-/// Parse `html`, asserting it fails, and return the error message. Like
-/// [`parse_overflow`] but for ordinary (non-capacity) parse errors, e.g. a tag mismatch.
-#[track_caller]
-fn parse_error(html: &str) -> String {
-    match HtmlDoc::parse(html) {
-        Ok(_) => panic!("expected a parse error, but parse succeeded"),
-        Err(e) => e.to_string(),
-    }
 }
 
 #[track_caller] // Will show the location of the caller in test failure messages
