@@ -177,13 +177,6 @@ impl DomStack for DomBuilderCursor {
         }
     }
 
-    fn tag_display(&self, tag: &CursorTag) -> String {
-        match tag {
-            CursorTag::Std(t) => t.as_str().to_string(),
-            CursorTag::Ext(sym) => self.dom.symbols.resolve(*sym).to_string(),
-        }
-    }
-
     fn _push_tag(&mut self, tag: CursorTag) {
         // Over-deep or over-large documents are poisoned and the offending node skipped.
         // Both stacks are left untouched (they stay in lock-step), so the matching close
@@ -209,14 +202,6 @@ impl DomStack for DomBuilderCursor {
         let i = self.dom.nodes.add_as_last_child_byte(self.index(), byte);
         log(i, || format!("push: {tag:?}"));
         self.push_index(i);
-    }
-
-    fn stack_info(&self) -> String {
-        self.tag_stack
-            .iter()
-            .map(|t| self.tag_display(t))
-            .collect::<Vec<_>>()
-            .join(" > ")
     }
 
     fn _last_tag(&self) -> Option<CursorTag> {
