@@ -36,7 +36,7 @@ unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
 walkdir = "2.5"
 xflags = "0.3"
-zstd = "0.12"
+zstd = "0.13"
 # Fork of the unmaintained `zim` 0.4 crate, patched to open modern ZIMs (header
 # minor version >= 2, which omit the legacy title pointer list). See akesson/zim.
 zim = { git = "https://github.com/akesson/zim", branch = "fix-modern-zim-title-ptr" }
