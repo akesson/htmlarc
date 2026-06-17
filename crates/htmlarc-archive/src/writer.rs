@@ -27,7 +27,7 @@ use rkyv::rancor::Error;
 
 use crate::bundle::{BUNDLE_CAP, BundleDesc};
 use crate::doc_table::{self, DocEntry};
-use crate::entry::HtmlEntry;
+use crate::entry::{HtmlEntry, SerializedEntry};
 use crate::error::ArchiveErr;
 use crate::header::{HEADER_LEN, header_bytes};
 use crate::trailer::Trailer;
@@ -92,24 +92,50 @@ impl ArchiveWriter {
 
     /// Append an already-built entry (used when re-saving an in-memory archive, and by the
     /// parallel ZIM export which builds [`HtmlEntry`]s off-thread). Same first-wins dedup as
-    /// [`push`](Self::push).
+    /// [`push`](Self::push). Serializes on the calling thread.
     pub fn push_entry(&mut self, entry: &HtmlEntry) -> Result<(), ArchiveErr> {
+        // Dedup before serializing so duplicates cost nothing.
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
             return Ok(());
         }
         let bytes =
             rkyv::to_bytes::<Error>(entry).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+        self.write_doc(&entry.key, entry.key_len, entry.checksum, &bytes)
+    }
+
+    /// Append a document that was already serialized off-thread (the parallel `convert` path
+    /// serializes each entry on its worker so the coordinator never holds the live `DomInner`).
+    /// Same first-wins dedup as [`push_entry`](Self::push_entry); the serialization is already
+    /// done, so a duplicate just discards the bytes.
+    pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<(), ArchiveErr> {
+        if !self.seen.insert(entry.key.clone()) {
+            self.collapsed += 1;
+            return Ok(());
+        }
+        self.write_doc(&entry.key, entry.key_len, entry.checksum, &entry.bytes)
+    }
+
+    /// Append one document's serialized blob and record its doc-table row. The caller has
+    /// already performed the dedup `seen` insert; this just writes the bytes (8-byte padded)
+    /// and pushes the [`DocEntry`]. The single source of byte offsets is `self.pos`.
+    fn write_doc(
+        &mut self,
+        key: &str,
+        key_len: u16,
+        checksum: u64,
+        bytes: &[u8],
+    ) -> Result<(), ArchiveErr> {
         let offset = self.pos;
         let len = bytes.len() as u64;
-        self.out.write_all(&bytes).map_err(ArchiveErr::FileWrite)?;
+        self.out.write_all(bytes).map_err(ArchiveErr::FileWrite)?;
         self.pos += len;
         self.pad_to_align()?;
 
         self.docs.push(DocEntry {
-            key: entry.key.clone(),
-            key_len: entry.key_len,
-            checksum: entry.checksum,
+            key: key.to_string(),
+            key_len,
+            checksum,
             offset,
             len,
         });
