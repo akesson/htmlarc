@@ -12,15 +12,15 @@
 //! (`count_doc`). That is a slight under-statement of the eventual on-disk lanes (the production
 //! form drops markup it re-derives), but the *relative* framing comparison is unaffected.
 //!
-//! Run (needs a real WARC; uses the tolerant counting tokenizer, not the full parser):
-//!   SPIKE_WARC=~/Developer/akesson/htmlarc/cli/htmlarc-convert/testdata/cc_000.warc.gz \
+//! Run (WARC or ZIM input; uses the tolerant counting tokenizer, not the full parser):
+//!   SPIKE_INPUT=…/cc_000.warc.gz   # or a .zim — format inferred from the path
 //!   SPIKE_LIMIT=10000 SPIKE_LEVEL=19 SPIKE_LANE=b \
 //!     cargo test -p htmlarc-convert --release framing_spike -- --ignored --nocapture
 
 use std::path::Path;
 
 use super::counter::count_doc;
-use crate::source::{DocSink, Source, WarcSource};
+use crate::source::{DocSink, open_source};
 
 const SUB: usize = 1000; // sub-frame size for the "smaller bundle" variant
 const DICT_MAX: usize = 112_640; // 110 KiB trained-dict cap
@@ -56,27 +56,14 @@ fn zc(data: &[u8], lvl: i32) -> usize {
     zstd::bulk::compress(data, lvl).unwrap().len()
 }
 
-#[derive(Default, Clone, Copy)]
 struct Totals {
     docs: usize,
     raw: usize,
-    one_frame: usize, // (A) one zstd frame per bundle  — best ratio, no random access
-    sub_frames: usize, // (B) one frame per 1k docs       — the BUNDLE_CAP=1000 proxy
-    per_doc: usize,   // (C) one frame per doc           — full random access, no sharing
-    per_doc_dict: usize, // (D) per doc, against a per-bundle trained dict (excl. dict bytes)
+    one_frame: usize, // (A) one zstd frame over the whole sample — best ratio, coarse reads
+    sub_frames: usize, // (B) one frame per `SUB` docs — the smaller-bundle proxy
+    per_doc: usize,   // (C) one frame per doc — full random access, no cross-doc sharing
+    per_doc_dict: usize, // (D) per doc, against a trained dict (excl. dict bytes)
     dict_bytes: usize, // (D) the dict that must be stored once per bundle
-}
-
-impl Totals {
-    fn add(&mut self, o: &Totals) {
-        self.docs += o.docs;
-        self.raw += o.raw;
-        self.one_frame += o.one_frame;
-        self.sub_frames += o.sub_frames;
-        self.per_doc += o.per_doc;
-        self.per_doc_dict += o.per_doc_dict;
-        self.dict_bytes += o.dict_bytes;
-    }
 }
 
 fn measure_bundle(docs: &[Vec<u8>], lvl: i32) -> Totals {
@@ -130,9 +117,11 @@ fn mib(n: usize) -> f64 {
 }
 
 #[test]
-#[ignore = "throwaway spike; set SPIKE_WARC to a real .warc.gz"]
+#[ignore = "framing probe; set SPIKE_INPUT to a real .warc.gz or .zim"]
 fn framing_spike() {
-    let path = std::env::var("SPIKE_WARC").expect("set SPIKE_WARC=/path/to/cc.warc.gz");
+    let path = std::env::var("SPIKE_INPUT")
+        .or_else(|_| std::env::var("SPIKE_WARC"))
+        .expect("set SPIKE_INPUT=/path/to/cc.warc.gz or a .zim");
     let limit = std::env::var("SPIKE_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -143,30 +132,26 @@ fn framing_spike() {
         .unwrap_or(true);
     let lane = if lane_b { "B (text)" } else { "A (symbols)" };
 
-    let src = WarcSource::open(Path::new(&path), None, Some(limit)).unwrap();
-    eprintln!(
-        "framing_spike: lane {lane} — {path}\n  {} run(s), {} prepared docs, zstd level {lvl}, sub-frame={SUB}\n",
-        src.run_count(),
-        src.stats().prepared
-    );
-
-    let mut agg = Totals::default();
+    // Treat the whole driven sample (up to `limit`) as ONE logical bundle and compare framings
+    // within it — deliberately independent of the source's `BUNDLE_CAP` run chunking, so the
+    // 1k-vs-Nk comparison means the same thing whatever BUNDLE_CAP currently is. (WARC or ZIM:
+    // the format is inferred from the path.)
+    let src = open_source(Path::new(&path), None, None, Some(limit)).unwrap();
+    let mut docs: Vec<Vec<u8>> = Vec::new();
     for rank in 0..src.run_count() {
         let mut c = Collect {
             lane_b,
             docs: Vec::new(),
         };
         src.drive_run(rank, &mut c);
-        let t = measure_bundle(&c.docs, lvl);
-        eprintln!(
-            "  bundle {rank}: {} docs, lane {lane} raw {:.1} MiB → one-frame {:.1} MiB ({:.2}×)",
-            t.docs,
-            mib(t.raw),
-            mib(t.one_frame),
-            t.raw as f64 / t.one_frame.max(1) as f64,
-        );
-        agg.add(&t);
+        docs.append(&mut c.docs);
     }
+    eprintln!(
+        "framing_spike: lane {lane} — {path}\n  {} docs collected ({} prepared), zstd level {lvl}, sub-frame={SUB}\n",
+        docs.len(),
+        src.stats().prepared
+    );
+    let agg = measure_bundle(&docs, lvl);
 
     let r = |comp: usize| agg.raw as f64 / comp.max(1) as f64;
     let vs_one =
@@ -212,9 +197,9 @@ fn framing_spike() {
         vs_one(dict_total)
     );
     println!(
-        "      └ dict overhead: {:.2} MiB total ({} bundle(s))",
+        "      └ dict overhead: {:.2} MiB (one dict over {} docs)",
         mib(agg.dict_bytes),
-        src.run_count()
+        agg.docs
     );
     println!(
         "\nreads: A=whole bundle, B={SUB} docs, C/D=1 doc per decompress.\n\
