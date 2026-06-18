@@ -19,3 +19,8 @@ unicode-segmentation = { workspace = true }
 # `css!(...)` (compile-time-checked selectors) for the `wiktionary` example.
 htmlarc-macros = { workspace = true }
 anyhow = { workspace = true }
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+harness = false
+name = "mmap_read"
