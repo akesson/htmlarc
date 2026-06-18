@@ -27,41 +27,56 @@ pub fn create_list_indexes(
     // otherwise it materializes only the handful of candidate documents to apply the CSS/exclude
     // rules. Reduces a keyed list from an O(n) corpus sweep to O(list) indexed lookups.
     if let Some(keys) = filters.include_keys() {
-        let mut indexes: Vec<usize> = keys
+        // Resolve keys to flat positions first, then evaluate the keep-filter in bundle→doc
+        // order: any blob materialization (a mixed `words:` + `css:` filter, via `keep`) then
+        // touches each bundle once, where lexical/hash key order would scatter it across bundles
+        // (relevant once the reserved per-bundle region holds shared data). A pure word filter
+        // short-circuits through `keep_key` and never touches a blob. Positions are pre-sorted,
+        // so the kept subset is already in document order for `--first-n`.
+        let mut positions: Vec<usize> = keys
             .iter()
-            .filter_map(|key| {
-                let i = archive.position_for_key(key)?;
-                let kept = filters
-                    .keep_key(key)
-                    .unwrap_or_else(|| archive.keep(i, &filters));
-                kept.then_some(i)
+            .filter_map(|key| archive.position_for_key(key))
+            .collect();
+        positions.sort_unstable();
+        let mut indexes: Vec<usize> = positions
+            .into_iter()
+            .filter(|&i| {
+                filters
+                    .keep_key(archive.key(i))
+                    .unwrap_or_else(|| archive.keep(i, &filters))
             })
             .collect();
-        indexes.sort_unstable();
         indexes.truncate(first_n);
         return Ok(indexes);
     }
 
     let p_count = thread::available_parallelism().map_or(1, |p| p.get());
 
+    // One whole bundle (up to BUNDLE_CAP docs) is the unit of work — workers steal bundles by
+    // index, mirroring the `probe` sweep (`probe::probe`). This keeps each worker on a
+    // contiguous bundle→doc range, the natural place to hoist a per-bundle-data load once a
+    // later step populates the reserved per-bundle region (instead of re-reading it per doc).
+    let bundle_count = archive.bundle_count();
     let mut threads = Vec::new();
-    let index = Arc::new(AtomicUsize::new(0));
+    let next_bundle = Arc::new(AtomicUsize::new(0));
     for _ in 0..p_count {
         threads.push(thread::spawn({
             let filters = filters.clone();
-            let index = index.clone();
+            let next_bundle = next_bundle.clone();
             let archive = archive.clone();
             move || {
                 let mut indexes = Vec::new();
                 loop {
-                    let i: usize = index.fetch_add(1, Ordering::Relaxed);
+                    let bundle = next_bundle.fetch_add(1, Ordering::Relaxed);
 
-                    if i >= archive.len() {
+                    if bundle >= bundle_count {
                         break;
                     }
 
-                    if archive.keep(i, &filters) {
-                        indexes.push(i);
+                    for i in archive.bundle_range(bundle) {
+                        if archive.keep(i, &filters) {
+                            indexes.push(i);
+                        }
                     }
                 }
 
@@ -70,13 +85,13 @@ pub fn create_list_indexes(
         }))
     }
 
-    // Collect every kept index, then keep the lowest `first_n` in document order. This
-    // replaces a per-worker early-exit on a shared atomic counter: because workers steal
-    // indexes out of order, *which* `first_n` documents won the count race was
-    // non-deterministic (any document, even index 0, could lose), so `--first-n` returned a
-    // sorted-but-arbitrary subset — an intermittent `cmd_list_plain` flake. Collect-then-
-    // truncate matches the keyed fast path above; the cost is a full `keep()` scan even when
-    // `first_n` is small, acceptable for a list/pack command and the price of determinism.
+    // Collect every kept index, then keep the lowest `first_n` in document order. There is no
+    // per-worker early-exit: because workers steal bundles out of order, *which* `first_n`
+    // documents won an early-exit race would be non-deterministic (any document could lose),
+    // so `--first-n` would return a sorted-but-arbitrary subset — an intermittent
+    // `cmd_list_plain` flake. Collect-then-truncate matches the keyed fast path above; the cost
+    // is a full `keep()` scan even when `first_n` is small, acceptable for a list/pack command
+    // and the price of determinism.
     let mut indexes = threads
         .into_iter()
         .flat_map(|t: JoinHandle<Vec<usize>>| t.join().expect("Failed to process thread"))

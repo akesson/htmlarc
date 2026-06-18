@@ -175,13 +175,19 @@ impl ProbeArchive for HtmlArchive {
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes {
-        let mut sorted: Vec<&String> = keys.iter().collect();
-        sorted.sort_unstable();
+        // Resolve keys to flat positions and process in bundle→doc order (matching the bulk
+        // `probe_bundle` sweep), so a future per-bundle-data load touches each bundle once
+        // instead of re-reading it for keys scattered by lexical order. `position_for_key` is
+        // footer-only, so absent keys drop out here without touching a blob.
+        let mut positions: Vec<usize> = keys
+            .iter()
+            .filter_map(|key| self.position_for_key(key))
+            .collect();
+        positions.sort_unstable();
         let mut counter = CountedNodes::default();
-        for key in sorted {
-            if let Some(doc) = self.get(key)
-                && filters.keep(&doc.key, &doc.html)
-            {
+        for i in positions {
+            let doc = &self[i];
+            if filters.keep(&doc.key, &doc.html) {
                 counter.analyze_html(&doc.key, &doc.root(), expressions);
             }
         }
@@ -219,18 +225,20 @@ impl ProbeArchive for MmapArchive {
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes {
-        let mut sorted: Vec<&String> = keys.iter().collect();
-        sorted.sort_unstable();
+        // Resolve keys to flat positions and process in bundle→doc order (matching the bulk
+        // `probe_bundle` sweep), so a future per-bundle-data load touches each bundle once
+        // instead of re-reading it for keys scattered by lexical order. `position_for_key` is
+        // footer-only, so an absent key drops out here without a blob fetch; a present key that
+        // points at a corrupt blob still aborts via the positional index (the same abort-worthy
+        // stance as the bulk sweep — every blob a present key points at is valid by construction).
+        let mut positions: Vec<usize> = keys
+            .iter()
+            .filter_map(|key| self.position_for_key(key))
+            .collect();
+        positions.sort_unstable();
         let mut counter = CountedNodes::default();
-        for key in sorted {
-            // Mirror the bulk-iteration stance: an absent key is skipped, but a key that resolves
-            // to a corrupt blob is abort-worthy (every blob a present key points at is valid by
-            // construction), so surface it rather than silently under-counting.
-            let doc = match self.get(key) {
-                Ok(Some(doc)) => doc,
-                Ok(None) => continue,
-                Err(e) => panic!("corrupt document blob for key '{key}': {e:?}"),
-            };
+        for i in positions {
+            let doc = &self[i];
             let k = doc.key();
             if filters.keep(k, &doc.html) {
                 counter.analyze_html(k, &doc.root(), expressions);
