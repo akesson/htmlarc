@@ -107,8 +107,8 @@ impl Display for ElementFormat<'_> {
 
 impl<'dom> ElementFormat<'dom> {
     /// Formats an element
-    pub fn format<Dom: DomRef>(&self, element: &HtmlElement<'dom, Dom>) -> ElementString<'dom> {
-        let mut attrs: SmallVec<[ElementAttribute<'dom>; 4]> = SmallVec::new();
+    pub fn format<Dom: DomRef>(&self, element: &HtmlElement<'dom, Dom>) -> ElementString {
+        let mut attrs: SmallVec<[ElementAttribute; 4]> = SmallVec::new();
 
         for selector in &self.selectors {
             match selector.name {
@@ -129,14 +129,12 @@ impl<'dom> ElementFormat<'dom> {
                     if let Some((operator, pattern)) = selector.value {
                         for class in element.classes() {
                             if operator.matches(pattern, class) {
-                                let class = Class::from(class);
-                                attrs.push(ElementAttribute::Class(class));
+                                attrs.push(ElementAttribute::Class(class.to_string()));
                             }
                         }
                     } else {
                         for class in element.classes() {
-                            let class = Class::from(class);
-                            attrs.push(ElementAttribute::Class(class));
+                            attrs.push(ElementAttribute::Class(class.to_string()));
                         }
                     }
                 }
@@ -155,7 +153,11 @@ impl<'dom> ElementFormat<'dom> {
                             None => true,
                         };
                         if name_matches && value_matches {
-                            attrs.push(ElementAttribute::Attribute(attr));
+                            attrs.push(ElementAttribute::Attribute {
+                                name: attr.name.to_string(),
+                                is_id: attr.name == AttrName::Std(HtmlAttr::id),
+                                val: attr.val.to_string(),
+                            });
                         }
                     }
                 }
@@ -164,7 +166,7 @@ impl<'dom> ElementFormat<'dom> {
 
         ElementString {
             style: self.style,
-            tag_name: element.tag_name(),
+            tag_name: element.tag_name().to_string(),
             attrs,
             with_words: self.with_words,
         }

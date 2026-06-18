@@ -1,39 +1,45 @@
 use crate::probe::format::*;
-use htmlarc_dom::prelude::AttrName;
 
+/// Fully-owned attribute representation (no borrow into the document), so a probe result is
+/// independent of the source document's lifetime. `is_id` is captured at construction so the
+/// CSS formatters can still render `#id` without holding an `AttrName` that borrows the document.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ElementAttribute<'dom> {
-    Class(Class<'dom>),
-    Attribute(Attribute<'dom>),
+pub enum ElementAttribute {
+    Class(String),
+    Attribute {
+        name: String,
+        is_id: bool,
+        val: String,
+    },
     Text(String),
 }
 
-impl ElementAttribute<'_> {
+impl ElementAttribute {
     pub fn format(&self, style: &ElementStyle) -> String {
         match style {
             ElementStyle::HtmlFmt => match self {
-                ElementAttribute::Class(class) => class.to_string(),
-                ElementAttribute::Attribute(attr) => format!("{}=\'{}\'", attr.name, attr.val),
+                ElementAttribute::Class(class) => class.clone(),
+                ElementAttribute::Attribute { name, val, .. } => format!("{name}=\'{val}\'"),
                 ElementAttribute::Text(text) => format!("text=\'{}\'", text),
             },
             ElementStyle::CssFmt => match self {
                 ElementAttribute::Class(class) => format!(".{}", class),
-                ElementAttribute::Attribute(attribute) => {
-                    if attribute.name == AttrName::Std(HtmlAttr::id) {
-                        format!("#{}", attribute.val)
+                ElementAttribute::Attribute { name, is_id, val } => {
+                    if *is_id {
+                        format!("#{}", val)
                     } else {
-                        format!("[{}=\'{}\']", attribute.name, attribute.val)
+                        format!("[{}=\'{}\']", name, val)
                     }
                 }
                 ElementAttribute::Text(text) => format!("[text=\'{}\']", text),
             },
             ElementStyle::CssTerse => match self {
                 ElementAttribute::Class(class) => format!(".{}", class),
-                ElementAttribute::Attribute(attribute) => {
-                    if attribute.name == AttrName::Std(HtmlAttr::id) {
-                        format!("#{}", attribute.val)
+                ElementAttribute::Attribute { is_id, val, .. } => {
+                    if *is_id {
+                        format!("#{}", val)
                     } else {
-                        format!("[\'{}\']", attribute.val)
+                        format!("[\'{}\']", val)
                     }
                 }
                 ElementAttribute::Text(text) => format!("[\'{}\']", text),
