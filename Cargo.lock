@@ -801,6 +801,7 @@ name = "htmlarc-archive"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "criterion",
  "fs-err",
  "htmlarc-dom",
  "htmlarc-macros",

@@ -1,10 +1,13 @@
 use std::ops::{Index, Range};
 use std::path::Path;
 
+use htmlarc_dom::prelude::ArchivedDom;
 use memmap2::Mmap;
 use rkyv::rancor::Error;
 
+use crate::Filter;
 use crate::bundle::ArchivedBundleTable;
+use crate::bundle_strings::ArchivedBundleStrings;
 use crate::doc_table::{self, ArchivedDocTable, ArchivedSortIndex};
 use crate::entry::ArchivedHtmlEntry;
 use crate::error::ArchiveErr;
@@ -161,6 +164,81 @@ impl MmapArchive {
         start..start + desc.doc_count.to_native() as usize
     }
 
+    /// The bundle that owns flat (doc-table) position `i`. Bundles tile `[0, len)` contiguously by
+    /// `doc_start`, so this is the last bundle whose start is `<= i`.
+    fn bundle_of(&self, i: usize) -> usize {
+        self.bundle_table()
+            .partition_point(|d| (d.doc_start.to_native() as usize) <= i)
+            - 1
+    }
+
+    /// Validate and read bundle `b`'s relocated string block in place (safe `access`, plus an
+    /// offset-table sanity check), the way `blob` does for document blobs — lazily,
+    /// only when a document in that bundle is actually read.
+    pub fn bundle_strings(&self, b: usize) -> Result<&ArchivedBundleStrings, ArchiveErr> {
+        let desc = &self.bundle_table()[b];
+        let off = desc.data_offset.to_native();
+        let len = desc.data_len.to_native();
+        let end = off
+            .checked_add(len)
+            .ok_or_else(|| ArchiveErr::Validate("bundle data offset/len overflow".into()))?;
+        let slice = self.mmap.get(off as usize..end as usize).ok_or_else(|| {
+            ArchiveErr::Validate("bundle string block lies outside the file".into())
+        })?;
+        let bs = rkyv::access::<ArchivedBundleStrings, Error>(slice)
+            .map_err(|e| ArchiveErr::Validate(e.to_string()))?;
+        if !bs.validate() {
+            return Err(ArchiveErr::Validate(
+                "bundle string block has a malformed offset table".into(),
+            ));
+        }
+        // Cross-check the block against the bundle descriptor (the owned load path does the same):
+        // if the two disagree, a later `source_for(slot)` could index past the offset table and
+        // panic, so surface the mismatch as `Err` here instead — keeping `bundle_strings` the one
+        // validation gate for the block.
+        if bs.doc_count() != desc.doc_count.to_native() as usize {
+            return Err(ArchiveErr::Validate(
+                "bundle string block document count disagrees with its bundle descriptor".into(),
+            ));
+        }
+        Ok(bs)
+    }
+
+    /// Validate and bind the document at flat position `i` to its bundle's relocated text, ready
+    /// to query/render. `Err` if either the document blob or the bundle's string block fails
+    /// validation.
+    fn try_doc(&self, i: usize) -> Result<ArchivedDom<'_>, ArchiveErr> {
+        let b = self.bundle_of(i);
+        let slot = i - self.bundle_table()[b].doc_start.to_native() as usize;
+        let d = &self.doc_table()[i];
+        let entry = self.blob(d.offset.to_native(), d.len.to_native())?;
+        let strings = self.bundle_strings(b)?;
+        Ok(entry.bind(strings.source_for(slot)))
+    }
+
+    /// The queryable document at flat (bundle→doc) position `i`, bound to its bundle's text.
+    /// Panics on a corrupt blob — like [`Index`], a bad blob at a valid index means the archive
+    /// is corrupt and `Index` cannot return a `Result`. Use [`get`](Self::get)/[`key_at`](Self::key_at) for
+    /// metadata-only access that never touches a blob.
+    ///
+    /// Each call re-reads and re-validates `i`'s bundle string block, so a loop that sweeps a
+    /// whole bundle through `doc()` revalidates the block once per document. To sweep, read the
+    /// block once with [`bundle_strings`](Self::bundle_strings) over a
+    /// [`bundle_range`](Self::bundle_range) and `bind` each entry to `source_for(slot)` (as
+    /// `entries_matching` and the `probe` sweep do).
+    pub fn doc(&self, i: usize) -> ArchivedDom<'_> {
+        self.try_doc(i).expect("corrupt document or bundle blob")
+    }
+
+    /// Look a document up by key and bind it to its text. `Ok(None)` = absent; `Err` = the
+    /// matching blob (document or bundle strings) failed validation.
+    pub fn doc_by_key(&self, key: &str) -> Result<Option<ArchivedDom<'_>>, ArchiveErr> {
+        match doc_table::find_index(self.doc_table(), self.sort_index(), key) {
+            Some(i) => Ok(Some(self.try_doc(i)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Look an entry up by key. `Ok(None)` = absent; `Err` = the matching blob failed validation.
     /// The binary search only reads the footer; the blob is touched only on a hit.
     pub fn get(&self, key: &str) -> Result<Option<&ArchivedHtmlEntry>, ArchiveErr> {
@@ -243,5 +321,34 @@ impl crate::Archive for MmapArchive {
 
     fn keys(&self) -> impl Iterator<Item = &str> {
         MmapArchive::keys(self)
+    }
+
+    /// Sweep bundle→doc, binding each document to its bundle's text only when the filter's CSS
+    /// rules actually need the body (a key-only filter short-circuits via [`Filter::keep_key`]).
+    /// Reads the bundle string block once per bundle.
+    fn entries_matching<'a>(&'a self, filter: &'a Filter) -> Vec<&'a str> {
+        let mut keys = Vec::new();
+        for b in 0..self.bundle_count() {
+            let range = self.bundle_range(b);
+            // Only touched if some document in the bundle needs the DOM inspected.
+            let mut strings = None;
+            for i in range.clone() {
+                let key = self.key_at(i);
+                let keep = match filter.keep_key(key) {
+                    Some(k) => k,
+                    None => {
+                        let bs = *strings.get_or_insert_with(|| {
+                            self.bundle_strings(b).expect("corrupt bundle string block")
+                        });
+                        let entry = &self[i];
+                        filter.keep(key, &entry.bind(bs.source_for(i - range.start)))
+                    }
+                };
+                if keep {
+                    keys.push(key);
+                }
+            }
+        }
+        keys
     }
 }

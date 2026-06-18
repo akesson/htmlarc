@@ -1,20 +1,23 @@
 //! The streaming archive writer.
 //!
 //! [`ArchiveWriter`] serializes and appends each document the moment it's pushed, then drops it.
-//! Only a small in-RAM doc table (one [`DocEntry`] per doc) plus a dedup key-set survive across
-//! the pack, so peak RSS never scales with the whole corpus.
+//! Only a small in-RAM doc table (one [`DocEntry`] per doc), the per-bundle descriptors, and the
+//! *current* bundle's relocated text survive across the pack, so peak RSS scales with one bundle,
+//! never the whole corpus.
 //!
-//! On-disk result (v4, bundle-segmented):
-//! `[header][doc blob]…[per-bundle data region][doc table][bundle table][sort index][trailer]`.
-//! Documents are grouped into [bundles](crate::DocBundle) **in arrival order**. A caller that
-//! owns whole bundles (the ZIM export, which produces cluster-aligned runs) marks each boundary
-//! with [`seal_bundle`](ArchiveWriter::seal_bundle); a caller that just streams documents (a
-//! directory pack, a re-save of a flat list) seals nothing and the bundle table falls back to
-//! chunking the doc table into [`BUNDLE_CAP`]-sized runs at [`finish`](ArchiveWriter::finish).
-//! Either way the boundaries are a deterministic function of the input, not of the thread count.
-//! Every blob/region is 8-byte aligned (rkyv with `pointer_width_64` needs 8-aligned starts).
-//! The file is written to a sibling temp path and atomically renamed on `finish`, so an open
-//! `MmapArchive` over a previous build is never corrupted in place.
+//! On-disk result (bundle-segmented): each document's text/comment pool is relocated out of its
+//! blob into its bundle's [`BundleStrings`] block, written right after that bundle's document
+//! blobs:
+//! `[header] ( [bundle doc blobs] [bundle string block] )* [doc table][bundle table][sort index][trailer]`.
+//! Documents are grouped into [bundles](crate::DocBundle) **in arrival order**. A caller marks
+//! each bundle boundary with [`seal_bundle`](ArchiveWriter::seal_bundle), which flushes that
+//! bundle's accumulated string block and records its `(data_offset, data_len)` in the bundle
+//! table; any unsealed tail is sealed by [`finish`](ArchiveWriter::finish). Callers that stream
+//! without natural boundaries (a directory pack, a flat re-save) seal every [`BUNDLE_CAP`]
+//! documents. Either way the boundaries are a deterministic function of the input, not of the
+//! thread count. Every blob/region is 8-byte aligned (rkyv with `pointer_width_64` needs
+//! 8-aligned starts). The file is written to a sibling temp path and atomically renamed on
+//! `finish`, so an open `MmapArchive` over a previous build is never corrupted in place.
 
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
@@ -25,7 +28,8 @@ use fs_err::File;
 use htmlarc_dom::prelude::HtmlDoc;
 use rkyv::rancor::Error;
 
-use crate::bundle::{BUNDLE_CAP, BundleDesc};
+use crate::bundle::BundleDesc;
+use crate::bundle_strings::BundleStrings;
 use crate::doc_table::{self, DocEntry};
 use crate::entry::{HtmlEntry, SerializedEntry};
 use crate::error::ArchiveErr;
@@ -34,7 +38,7 @@ use crate::trailer::Trailer;
 
 const ALIGN: u64 = 8;
 
-/// Streams documents into a v4 `.htmlarc`, one blob at a time.
+/// Streams documents into a `.htmlarc`, one blob at a time.
 pub struct ArchiveWriter {
     out: BufWriter<File>,
     /// Running byte position in the file (header + blobs + padding). The single source of
@@ -42,10 +46,14 @@ pub struct ArchiveWriter {
     pos: u64,
     /// One row per stored document, in arrival (== bundle→doc) order.
     docs: Vec<DocEntry>,
-    /// Doc-table index at which each sealed bundle *ends* (ascending). Empty when the caller
-    /// never calls [`seal_bundle`](Self::seal_bundle), in which case the bundle table is derived
-    /// by chunking at [`BUNDLE_CAP`].
-    bundle_ends: Vec<usize>,
+    /// One descriptor per sealed bundle, in order — built incrementally as each bundle is sealed
+    /// (its string block is flushed at the same moment, so its `data_offset`/`data_len` are known).
+    bundles: Vec<BundleDesc>,
+    /// The current (not-yet-sealed) bundle's relocated text — one segment per document since the
+    /// last seal. Flushed and reset by [`seal_bundle`](Self::seal_bundle).
+    cur_strings: BundleStrings,
+    /// Doc-table index at which the current bundle started.
+    bundle_start_doc: usize,
     seen: HashSet<String>,
     collapsed: u64,
     tmp_path: PathBuf,
@@ -70,7 +78,9 @@ impl ArchiveWriter {
             out,
             pos: HEADER_LEN as u64,
             docs: Vec::new(),
-            bundle_ends: Vec::new(),
+            bundles: Vec::new(),
+            cur_strings: BundleStrings::default(),
+            bundle_start_doc: 0,
             seen: HashSet::new(),
             collapsed: 0,
             tmp_path,
@@ -87,44 +97,52 @@ impl ArchiveWriter {
             return Ok(());
         }
         let entry = HtmlEntry::new(key, html);
-        self.push_entry(&entry)
+        self.push_entry(entry)
     }
 
-    /// Append an already-built entry (used when re-saving an in-memory archive, and by the
-    /// parallel ZIM export which builds [`HtmlEntry`]s off-thread). Same first-wins dedup as
-    /// [`push`](Self::push). Serializes on the calling thread.
-    pub fn push_entry(&mut self, entry: &HtmlEntry) -> Result<(), ArchiveErr> {
+    /// Append an already-built entry (used when re-saving an in-memory archive). Same first-wins
+    /// dedup as [`push`](Self::push). Consumes the entry so its text pool can be relocated into
+    /// the current bundle's string block, leaving the per-document blob string-less.
+    pub fn push_entry(&mut self, mut entry: HtmlEntry) -> Result<(), ArchiveErr> {
         // Dedup before serializing so duplicates cost nothing.
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
             return Ok(());
         }
+        let strings = entry.html.take_string_pool();
         let bytes =
-            rkyv::to_bytes::<Error>(entry).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        self.write_doc(&entry.key, entry.key_len, entry.checksum, &bytes)
+            rkyv::to_bytes::<Error>(&entry).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+        self.write_doc(&entry.key, entry.key_len, entry.checksum, &bytes, &strings)
     }
 
     /// Append a document that was already serialized off-thread (the parallel `convert` path
     /// serializes each entry on its worker so the coordinator never holds the live `DomInner`).
-    /// Same first-wins dedup as [`push_entry`](Self::push_entry); the serialization is already
-    /// done, so a duplicate just discards the bytes.
+    /// Its text pool was already relocated into [`SerializedEntry::strings`]. Same first-wins
+    /// dedup as [`push_entry`](Self::push_entry).
     pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<(), ArchiveErr> {
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
             return Ok(());
         }
-        self.write_doc(&entry.key, entry.key_len, entry.checksum, &entry.bytes)
+        self.write_doc(
+            &entry.key,
+            entry.key_len,
+            entry.checksum,
+            &entry.bytes,
+            &entry.strings,
+        )
     }
 
-    /// Append one document's serialized blob and record its doc-table row. The caller has
-    /// already performed the dedup `seen` insert; this just writes the bytes (8-byte padded)
-    /// and pushes the [`DocEntry`]. The single source of byte offsets is `self.pos`.
+    /// Append one document's (string-less) blob, record its doc-table row, and accumulate its
+    /// relocated text into the current bundle's string block. The caller has already performed
+    /// the dedup `seen` insert. The single source of byte offsets is `self.pos`.
     fn write_doc(
         &mut self,
         key: &str,
         key_len: u16,
         checksum: u64,
         bytes: &[u8],
+        strings: &[u8],
     ) -> Result<(), ArchiveErr> {
         let offset = self.pos;
         let len = bytes.len() as u64;
@@ -132,6 +150,7 @@ impl ArchiveWriter {
         self.pos += len;
         self.pad_to_align()?;
 
+        self.cur_strings.push_doc(strings);
         self.docs.push(DocEntry {
             key: key.to_string(),
             key_len,
@@ -157,7 +176,7 @@ impl ArchiveWriter {
         Ok(())
     }
 
-    /// Append a pre-serialized footer blob, padding to an 8-byte boundary first, and return its
+    /// Append a pre-serialized blob, padding to an 8-byte boundary first, and return its
     /// `(offset, unpadded_len)`. Padding before *every* region keeps each rkyv blob 8-aligned (a
     /// misaligned start corrupts `pointer_width_64` relative pointers).
     fn write_blob(&mut self, bytes: &[u8]) -> Result<(u64, u64), ArchiveErr> {
@@ -169,51 +188,30 @@ impl ArchiveWriter {
         Ok((offset, len))
     }
 
-    /// Mark the end of a bundle at the current document count. Called by a caller that owns whole
-    /// bundles (the ZIM export, after a cluster-aligned run) so the on-disk bundle boundaries
-    /// match the runs the worker produced. An empty seal (no documents since the last one) is a
-    /// no-op, so a run that parses to zero documents never creates an empty bundle.
-    pub fn seal_bundle(&mut self) {
-        let end = self.docs.len();
-        if end > self.bundle_ends.last().copied().unwrap_or(0) {
-            self.bundle_ends.push(end);
+    /// Seal the current bundle: flush its accumulated string block into the file and record the
+    /// bundle's doc range plus that block's `(data_offset, data_len)`. A seal with no documents
+    /// since the last one is a no-op, so a run that parses to zero documents never creates an
+    /// empty bundle. Callers that own whole bundles (the ZIM export's cluster-aligned runs) call
+    /// this at each boundary; streaming callers call it every [`BUNDLE_CAP`](crate::BUNDLE_CAP)
+    /// documents.
+    pub fn seal_bundle(&mut self) -> Result<(), ArchiveErr> {
+        let doc_count = self.docs.len() - self.bundle_start_doc;
+        if doc_count == 0 {
+            return Ok(());
         }
-    }
+        let strings = std::mem::take(&mut self.cur_strings);
+        let block =
+            rkyv::to_bytes::<Error>(&strings).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+        let (data_offset, data_len) = self.write_blob(&block)?;
 
-    /// Build the bundle table from the doc table. When the caller sealed explicit boundaries (the
-    /// ZIM export's cluster-aligned runs) those are used verbatim, with any unsealed tail forming
-    /// a final bundle; otherwise the doc table is chunked into [`BUNDLE_CAP`]-sized bundles. The
-    /// data slot is reserved (0/0) for now.
-    fn build_bundle_table(&self) -> Vec<BundleDesc> {
-        let total = self.docs.len();
-        let ends: Vec<usize> = if self.bundle_ends.is_empty() {
-            (1..=total.div_ceil(BUNDLE_CAP))
-                .map(|k| (k * BUNDLE_CAP).min(total))
-                .collect()
-        } else {
-            let mut ends = self.bundle_ends.clone();
-            // A caller might push documents after its last seal; bundle the tail too.
-            if ends.last().copied().unwrap_or(0) < total {
-                ends.push(total);
-            }
-            ends
-        };
-
-        let mut bundles = Vec::with_capacity(ends.len());
-        let mut start = 0usize;
-        for end in ends {
-            if end == start {
-                continue;
-            }
-            bundles.push(BundleDesc {
-                doc_start: start as u32,
-                doc_count: (end - start) as u32,
-                data_offset: 0,
-                data_len: 0,
-            });
-            start = end;
-        }
-        bundles
+        self.bundles.push(BundleDesc {
+            doc_start: self.bundle_start_doc as u32,
+            doc_count: doc_count as u32,
+            data_offset,
+            data_len,
+        });
+        self.bundle_start_doc = self.docs.len();
+        Ok(())
     }
 
     /// A permutation of doc-table positions ordered by `(key_len, key)` — the keyed-lookup index.
@@ -228,14 +226,18 @@ impl ArchiveWriter {
         perm
     }
 
-    /// Finalize: write the (empty) per-bundle data region, the doc table (bundle order), the
+    /// Finalize: seal any unsealed tail bundle, then write the doc table (bundle order), the
     /// bundle table, and the sort index, then the trailer; flush and atomically rename.
     pub fn finish(mut self) -> Result<(), ArchiveErr> {
-        let bundles = self.build_bundle_table();
+        // Flush the final, unsealed bundle (a streaming caller's tail, or the whole archive when
+        // no one sealed explicitly).
+        self.seal_bundle()?;
+
         let sort_index = self.build_sort_index();
 
-        // Per-bundle data region: empty for now, but keep its start 8-aligned and recorded so a
-        // future per-bundle-data step can populate it without another format bump.
+        // The per-bundle string blocks are interleaved with the document blobs (each `BundleDesc`
+        // records its own `data_offset`/`data_len`), so the trailer's data-region slot is
+        // vestigial: record an empty region at the current position to keep its bounds valid.
         self.pad_to_align()?;
         let data_offset = self.pos;
         let data_len = 0u64;
@@ -243,8 +245,8 @@ impl ArchiveWriter {
         // The doc table is already in arrival (== bundle→doc) order.
         let doc_bytes = rkyv::to_bytes::<Error>(&self.docs)
             .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        let bundle_bytes =
-            rkyv::to_bytes::<Error>(&bundles).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+        let bundle_bytes = rkyv::to_bytes::<Error>(&self.bundles)
+            .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
         let sort_bytes = rkyv::to_bytes::<Error>(&sort_index)
             .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
         let (doc_table_offset, doc_table_len) = self.write_blob(&doc_bytes)?;
@@ -261,7 +263,7 @@ impl ArchiveWriter {
             data_offset,
             data_len,
             doc_count: self.docs.len() as u64,
-            bundle_count: bundles.len() as u64,
+            bundle_count: self.bundles.len() as u64,
         };
         self.out
             .write_all(&trailer.to_bytes())

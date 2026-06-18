@@ -127,9 +127,12 @@ pub(crate) fn run(args: Convert) -> Result<()> {
                         report.exported += 1;
                     }
                     // Seal the run as its own bundle (a no-op for an empty run), so on-disk
-                    // bundles are exactly the source's runs.
-                    if write_err.is_none() {
-                        writer.seal_bundle();
+                    // bundles are exactly the source's runs. Sealing flushes the bundle's
+                    // relocated string block, so only one run's text is buffered at a time.
+                    if write_err.is_none()
+                        && let Err(e) = writer.seal_bundle()
+                    {
+                        write_err = Some(e.into());
                     }
                 }
             });
