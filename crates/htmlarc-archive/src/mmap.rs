@@ -173,7 +173,7 @@ impl MmapArchive {
     }
 
     /// Validate and read bundle `b`'s relocated string block in place (safe `access`, plus an
-    /// offset-table sanity check), the way [`blob`](Self::blob) does for document blobs — lazily,
+    /// offset-table sanity check), the way `blob` does for document blobs — lazily,
     /// only when a document in that bundle is actually read.
     pub fn bundle_strings(&self, b: usize) -> Result<&ArchivedBundleStrings, ArchiveErr> {
         let desc = &self.bundle_table()[b];
@@ -190,6 +190,15 @@ impl MmapArchive {
         if !bs.validate() {
             return Err(ArchiveErr::Validate(
                 "bundle string block has a malformed offset table".into(),
+            ));
+        }
+        // Cross-check the block against the bundle descriptor (the owned load path does the same):
+        // if the two disagree, a later `source_for(slot)` could index past the offset table and
+        // panic, so surface the mismatch as `Err` here instead — keeping `bundle_strings` the one
+        // validation gate for the block.
+        if bs.doc_count() != desc.doc_count.to_native() as usize {
+            return Err(ArchiveErr::Validate(
+                "bundle string block document count disagrees with its bundle descriptor".into(),
             ));
         }
         Ok(bs)
@@ -209,8 +218,14 @@ impl MmapArchive {
 
     /// The queryable document at flat (bundle→doc) position `i`, bound to its bundle's text.
     /// Panics on a corrupt blob — like [`Index`], a bad blob at a valid index means the archive
-    /// is corrupt and `Index` cannot return a `Result`. Use [`get`](Self::get)/[`key_at`] for
+    /// is corrupt and `Index` cannot return a `Result`. Use [`get`](Self::get)/[`key_at`](Self::key_at) for
     /// metadata-only access that never touches a blob.
+    ///
+    /// Each call re-reads and re-validates `i`'s bundle string block, so a loop that sweeps a
+    /// whole bundle through `doc()` revalidates the block once per document. To sweep, read the
+    /// block once with [`bundle_strings`](Self::bundle_strings) over a
+    /// [`bundle_range`](Self::bundle_range) and `bind` each entry to `source_for(slot)` (as
+    /// `entries_matching` and the `probe` sweep do).
     pub fn doc(&self, i: usize) -> ArchivedDom<'_> {
         self.try_doc(i).expect("corrupt document or bundle blob")
     }
