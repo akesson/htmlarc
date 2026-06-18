@@ -45,6 +45,23 @@ impl ArchiveSource {
         self.len() == 0
     }
 
+    /// Number of bundles. Lets the parallel `list` sweep steal whole bundles (matching the
+    /// `probe` sweep) instead of individual document indices.
+    pub fn bundle_count(&self) -> usize {
+        match self {
+            Self::Owned(a) => a.bundle_count(),
+            Self::Mapped(m) => m.bundle_count(),
+        }
+    }
+
+    /// The half-open flat (bundle→doc) position range covered by bundle `b`.
+    pub fn bundle_range(&self, b: usize) -> std::ops::Range<usize> {
+        match self {
+            Self::Owned(a) => a.bundle_range(b),
+            Self::Mapped(m) => m.bundle_range(b),
+        }
+    }
+
     pub fn key(&self, i: usize) -> &str {
         match self {
             Self::Owned(a) => a[i].key.as_str(),

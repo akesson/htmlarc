@@ -177,6 +177,18 @@ impl HtmlArchive {
         &self.bundles
     }
 
+    /// Number of bundles. Mirrors [`crate::MmapArchive::bundle_count`] so a caller can sweep
+    /// either archive type bundle→doc with one code path.
+    pub fn bundle_count(&self) -> usize {
+        self.bundles.len()
+    }
+
+    /// The half-open flat (bundle→doc) position range covered by bundle `b`. Mirrors
+    /// [`crate::MmapArchive::bundle_range`].
+    pub fn bundle_range(&self, b: usize) -> std::ops::Range<usize> {
+        self.bundle_starts[b]..self.bundle_starts[b + 1]
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.entries().map(|e| e.key.as_str())
     }
