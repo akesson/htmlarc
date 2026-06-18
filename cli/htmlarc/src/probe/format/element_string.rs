@@ -10,20 +10,24 @@ use crate::probe::format::*;
 /// It also implements equality so that ElementStrings can be compared.
 /// This is the point of it: many of these can be cheaply created and compared
 /// to each other, and only the ones that are actually used can be turned into strings.
+///
+/// It holds **fully owned** data (no borrow into the document), so a probe result is
+/// independent of the source document's lifetime: the aggregated `CountedNodes` tree
+/// can be merged across bundles and rendered after the documents it came from are gone.
 #[derive(Debug, Clone, Eq)]
-pub struct ElementString<'dom> {
+pub struct ElementString {
     /// The style decides how the tag and attributes are formatted.
     pub(super) style: ElementStyle,
     /// The element's tag name (an extended/custom element resolves to its real name, never
     /// the `extended` marker — ADR 0002 §4).
-    pub(super) tag_name: &'dom str,
+    pub(super) tag_name: String,
     /// The attributes are the one that matches the selection criteria,
     /// and are thus included in the string.
-    pub(super) attrs: SmallVec<[ElementAttribute<'dom>; 4]>,
+    pub(super) attrs: SmallVec<[ElementAttribute; 4]>,
     pub(crate) with_words: bool,
 }
 
-impl Hash for ElementString<'_> {
+impl Hash for ElementString {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.style.hash(state);
         self.tag_name.hash(state);
@@ -31,13 +35,13 @@ impl Hash for ElementString<'_> {
     }
 }
 
-impl PartialEq for ElementString<'_> {
+impl PartialEq for ElementString {
     fn eq(&self, other: &Self) -> bool {
         self.style == other.style && self.tag_name == other.tag_name && self.attrs == other.attrs
     }
 }
 
-impl Display for ElementString<'_> {
+impl Display for ElementString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.style {
             ElementStyle::HtmlFmt => {
