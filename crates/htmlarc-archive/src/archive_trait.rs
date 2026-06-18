@@ -1,47 +1,23 @@
-use htmlarc_dom::prelude::{DomRead, HtmlElement, HtmlFormat, HtmlTag};
-
 use crate::{ArchiveErr, Filter};
 
 /// One entry — a key plus its DOM — in an [`Archive`].
 ///
 /// Abstracts over the owned ([`crate::HtmlEntry`]) and zero-copy memory-mapped
-/// ([`crate::ArchivedHtmlEntry`]) representations: the associated [`Dom`](Self::Dom)
-/// is `DomInner` for the former and `ArchivedDomInner` for the latter, and both
-/// implement [`DomRead`], so the document is queried and rendered identically.
+/// ([`crate::ArchivedHtmlEntry`]) representations. It exposes only the metadata that lives
+/// alongside every document (key, checksum); the document body is reached differently per
+/// backing, because a memory-mapped entry's text is relocated into its bundle and must be bound
+/// to a text source first (owned: [`crate::HtmlEntry::root`]; mmap: [`crate::MmapArchive::doc`]).
 pub trait ArchiveEntry {
-    type Dom: DomRead;
-
     /// The entry key (e.g. the source file name).
     fn key(&self) -> &str;
     /// Checksum of the stored DOM, for fast archive diffing.
     fn checksum(&self) -> u64;
-    /// The entry's document, as something queryable.
-    fn dom(&self) -> &Self::Dom;
-
-    /// The document root element.
-    fn root(&self) -> HtmlElement<'_, Self::Dom> {
-        self.dom().root()
-    }
-
-    /// The `<body>` element, if present.
-    fn body(&self) -> Option<HtmlElement<'_, Self::Dom>> {
-        self.dom()
-            .root()
-            .forwards()
-            .find(|element| element.tag() == HtmlTag::body)
-    }
-
-    /// Render the document to an HTML string.
-    fn to_html(&self, fmt: HtmlFormat) -> String {
-        self.dom().to_html(fmt)
-    }
 }
 
 /// A queryable archive of HTML documents, addressed by key.
 ///
 /// Implemented by both the in-memory [`crate::HtmlArchive`] and the zero-copy
-/// [`crate::MmapArchive`] so callers can be generic over how the bytes are stored
-/// — mirroring how [`DomRead`] unifies owned and archived DOMs.
+/// [`crate::MmapArchive`] so callers can be generic over how the bytes are stored.
 pub trait Archive {
     type Entry: ArchiveEntry;
 
@@ -66,9 +42,9 @@ pub trait Archive {
         self.entries().map(ArchiveEntry::key)
     }
 
-    /// Entries whose key and DOM pass `filter` (its CSS-selector / word predicate).
-    fn entries_matching<'a>(&'a self, filter: &'a Filter) -> impl Iterator<Item = &'a Self::Entry> {
-        self.entries()
-            .filter(move |entry| filter.keep(entry.key(), entry.dom()))
-    }
+    /// The keys of every document that passes `filter`. Required (not a default) because a
+    /// memory-mapped archive must bind each document to its bundle's relocated text before the
+    /// filter's CSS rules can inspect it — which only that backing knows how to do. A key-only
+    /// filter ([`Filter::keep_key`]) short-circuits without touching the document body.
+    fn entries_matching<'a>(&'a self, filter: &'a Filter) -> Vec<&'a str>;
 }

@@ -7,7 +7,7 @@ use crate::dom::nodes::NodesView;
 use crate::html::{HtmlAttr, HtmlTag};
 use crate::stores::{
     AttrName, AttrStoreView, Attribute, Class, EXT_BASE, EXT_OVERFLOW, ExtTagsView, RunIndex,
-    RunValues, RunVecView, StringStackView, Sym, SymbolTableView,
+    RunValues, RunVecView, StringSource, Sym, SymbolTableView,
 };
 
 /// A borrowed, read-only view over a DOM document.
@@ -27,7 +27,7 @@ pub struct DomView<'a> {
     pub(crate) symbols: SymbolTableView<'a>,
     pub(crate) class_lists: RunVecView<'a>,
     pub(crate) ext_tags: ExtTagsView<'a>,
-    pub(crate) strings: StringStackView<'a>,
+    pub(crate) strings: StringSource<'a>,
 }
 
 impl<'a> DomView<'a> {
@@ -37,7 +37,7 @@ impl<'a> DomView<'a> {
         symbols: SymbolTableView<'a>,
         class_lists: RunVecView<'a>,
         ext_tags: ExtTagsView<'a>,
-        strings: StringStackView<'a>,
+        strings: StringSource<'a>,
     ) -> Self {
         Self {
             nodes,

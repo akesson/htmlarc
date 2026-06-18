@@ -5,7 +5,7 @@ use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
 use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
-use crate::stores::{AttrStore, ExtTags, RunVec, StringStack, SymbolTable};
+use crate::stores::{AttrStore, ExtTags, RunVec, StringSource, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
@@ -341,6 +341,20 @@ impl DomInner {
         self
     }
 
+    /// Take the document's text/comment pool, leaving it empty. Used when relocating strings
+    /// into a per-bundle store: the bytes move to the bundle and the per-document blob is
+    /// serialized string-less. The node text ranges stay valid against the relocated segment.
+    pub fn take_string_pool(&mut self) -> Vec<u8> {
+        self.strings.take_bytes()
+    }
+
+    /// Install a text/comment pool — the inverse of [`take_string_pool`](Self::take_string_pool),
+    /// used when an archive that relocated its strings is loaded fully into memory and each
+    /// document's segment is re-attached to its owned [`DomInner`].
+    pub fn set_string_pool(&mut self, bytes: Vec<u8>) {
+        self.strings = StringStack::from_bytes(bytes);
+    }
+
     /// ADR 0002 topology-packing probe: tally the redundancy in the node-link slots so the
     /// delta/implicit-link packing ceiling can be measured on real corpora before committing
     /// to an encoding. Read-only; call on the serialized form (after [`into_optimal_width`])
@@ -352,17 +366,37 @@ impl DomInner {
 }
 
 impl ArchivedDomInner {
-    /// A zero-copy [`DomView`] over the rkyv-archived document — every sub-view
-    /// borrows directly from the (mmap'd) archived bytes.
-    pub(crate) fn view(&self) -> DomView<'_> {
+    /// Assemble a zero-copy [`DomView`] over the rkyv-archived document. The topology/attribute
+    /// sub-views borrow directly from the (mmap'd) archived bytes; the *text* pool is supplied
+    /// separately as a [`StringSource`] because a relocated document's strings live in its bundle,
+    /// not in its own blob. [`ArchivedDom`] pairs the two.
+    pub(crate) fn view_with<'a>(&'a self, strings: StringSource<'a>) -> DomView<'a> {
         DomView::new(
             self.nodes.view(),
             self.attrs.view(),
             self.symbols.view(),
             self.class_lists.view(),
             self.ext_tags.view(),
-            self.strings.view(),
+            strings,
         )
+    }
+
+    /// Bind this archived document to an external text source (its bundle's per-document
+    /// segment). The reader uses this for relocated archives.
+    pub fn with_strings<'a>(&'a self, strings: StringSource<'a>) -> ArchivedDom<'a> {
+        ArchivedDom {
+            inner: self,
+            strings,
+        }
+    }
+
+    /// Bind using the document's *own* inline string pool — valid when the blob was serialized
+    /// whole (a standalone `rkyv::to_bytes` round-trip, or a non-relocated archive). For a
+    /// relocated blob the inline pool is empty, so the reader must use
+    /// [`with_strings`](Self::with_strings) instead.
+    pub fn bound(&self) -> ArchivedDom<'_> {
+        let strings = self.strings.view();
+        self.with_strings(strings)
     }
 }
 
@@ -374,7 +408,32 @@ impl Debug for ArchivedDomInner {
     }
 }
 
-impl DomRead for ArchivedDomInner {
+/// An archived document bound to its text source — the readable, queryable form of a
+/// memory-mapped document. It pairs a borrowed [`ArchivedDomInner`] (topology/attributes, read
+/// zero-copy from the mmap) with the [`StringSource`] that resolves its text (the document's
+/// segment of its bundle's string pool). It implements [`DomRead`]/[`DomRef`] so the query layer
+/// reads it exactly like an owned [`DomInner`].
+#[derive(Clone, Copy)]
+pub struct ArchivedDom<'a> {
+    inner: &'a ArchivedDomInner,
+    strings: StringSource<'a>,
+}
+
+impl<'a> ArchivedDom<'a> {
+    fn view(&self) -> DomView<'a> {
+        self.inner.view_with(self.strings)
+    }
+}
+
+impl Debug for ArchivedDom<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedDom")
+            .field("node count", &self.inner.nodes.view().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl DomRead for ArchivedDom<'_> {
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
     }
@@ -384,12 +443,16 @@ impl DomRead for ArchivedDomInner {
     }
 
     fn repackage(&self) -> DomInner {
-        rkyv::deserialize::<DomInner, rkyv::rancor::Error>(self)
-            .expect("archived DomInner must deserialize")
+        // Topology deserializes straight from the blob; the (relocated) text is materialised
+        // from the bound source into a fresh owned pool, leaving the document fully self-owned.
+        let mut dom = rkyv::deserialize::<DomInner, rkyv::rancor::Error>(self.inner)
+            .expect("archived DomInner must deserialize");
+        dom.set_string_pool(self.strings.materialize());
+        dom
     }
 }
 
-impl DomRef for ArchivedDomInner {
+impl DomRef for ArchivedDom<'_> {
     fn dom_view(&self) -> DomView<'_> {
         self.view()
     }
@@ -632,7 +695,7 @@ fn large_document_uses_u24_and_exceeds_u16() {
     let bytes = rkyv::to_bytes::<Error>(&dom).unwrap();
     let archived = rkyv::access::<ArchivedDomInner, Error>(&bytes[..]).expect("zero-copy access");
 
-    let view = archived.view();
+    let view = archived.bound().view();
     assert_eq!(view.nodes.len(), (n + 1) as usize);
 
     // a node AND a link value past u16::MAX round-trip correctly
@@ -936,6 +999,7 @@ fn extended_tags_survive_u16_archived_round_trip() {
         "small document must down-pack to the 15-byte U16 node stride"
     );
     // Render directly off the archived view: `tag_name` resolves through `ExtTagsView::Archived`.
+    let archived = archived.bound();
     assert_eq!(
         archived.to_html(HtmlFormat::Raw),
         raw,
