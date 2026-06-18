@@ -4,7 +4,7 @@
 use htmlarc_archive::{
     BUNDLE_CAP, DocBundle, HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive,
 };
-use htmlarc_dom::prelude::{HtmlDoc, HtmlFormat, HtmlTag};
+use htmlarc_dom::prelude::{DomRead, HtmlDoc, HtmlFormat, HtmlTag};
 
 fn sample_archive() -> HtmlArchive {
     let mut b = HtmlArchiveBuilder::default();
@@ -61,14 +61,19 @@ fn mmap_matches_owned() {
         // The directory's checksum (read without touching the blob) must agree too.
         assert_eq!(mmap.checksum_for_key(key), Some(owned_entry.checksum));
 
-        // The whole point: byte-identical rendering, zero-copy vs owned.
+        // The whole point: byte-identical rendering, zero-copy vs owned. `doc_by_key` binds the
+        // document to its bundle's relocated text.
+        let doc = mmap
+            .doc_by_key(key)
+            .expect("valid blob")
+            .expect("key present in mmap archive");
         assert_eq!(
-            archived.to_html(HtmlFormat::Raw),
+            doc.to_html(HtmlFormat::Raw),
             owned_entry.html.to_html(HtmlFormat::Raw),
             "raw render differs for {key}"
         );
         assert_eq!(
-            archived.to_html(HtmlFormat::Pretty),
+            doc.to_html(HtmlFormat::Pretty),
             owned_entry.html.to_html(HtmlFormat::Pretty),
             "pretty render differs for {key}"
         );
@@ -95,7 +100,7 @@ fn mmap_css_select_matches_owned() {
         .map(|el| el.tag())
         .collect();
     let mmap_hits: Vec<HtmlTag> = mmap
-        .get("alpha")
+        .doc_by_key("alpha")
         .unwrap()
         .unwrap()
         .root()
@@ -163,8 +168,9 @@ fn mmap_rejects_corrupt_blob() {
     // must materialize a blob surfaces the corruption as an `Err` — never UB, never absence.
     let mut bytes = std::fs::read(&path).unwrap();
     let n = bytes.len();
-    // v4 trailer is the last 88 bytes; doc_table_offset is its first field (bytes [0..8]). The
-    // document blobs span [HEADER_LEN, doc_table_offset) (the per-bundle data region is empty).
+    // The trailer is the last 88 bytes; doc_table_offset is its first field (bytes [0..8]). The
+    // body — document blobs interleaved with per-bundle string blocks — spans
+    // [HEADER_LEN, doc_table_offset); destroying it corrupts every document blob.
     let doc_table_offset = u64::from_le_bytes(bytes[n - 88..n - 80].try_into().unwrap()) as usize;
     for b in bytes[16..doc_table_offset].iter_mut() {
         *b ^= 0xFF;
@@ -363,14 +369,15 @@ fn mmap_archive_is_send_sync() {
 
 #[test]
 fn archive_trait_and_filter_work_generically() {
-    use htmlarc_archive::{Archive, ArchiveEntry, Filter};
+    use htmlarc_archive::{Archive, Filter};
 
     // One generic routine over the shared trait runs against both backings.
     fn keys_with_h1<A: Archive>(archive: &A) -> Vec<String> {
         let filter = Filter::new(vec!["css:h1".to_string()], vec![]).unwrap();
         archive
             .entries_matching(&filter)
-            .map(|e| e.key().to_string())
+            .into_iter()
+            .map(|k| k.to_string())
             .collect()
     }
 
@@ -386,6 +393,83 @@ fn archive_trait_and_filter_work_generically() {
 
     // is_empty parity (HtmlArchive gained it; MmapArchive already had it).
     assert!(!owned.is_empty() && !mmap.is_empty());
+
+    std::fs::remove_file(&path).ok();
+}
+
+/// The load-bearing relocation test: with the per-document text pool moved out into each bundle's
+/// string block, every document must still resolve *its own* text — across bundle boundaries, by
+/// position and by key, identically for the owned and memory-mapped backings.
+#[test]
+fn relocated_strings_round_trip_across_bundle_boundaries() {
+    let n = BUNDLE_CAP * 2 + 3; // three bundles: two full + a partial tail
+    let mut b = HtmlArchiveBuilder::default();
+    for i in 0..n {
+        // Distinct per-document text so a mis-bound bundle or slot (off-by-one in the offset
+        // table) renders the wrong content and fails loudly.
+        let html = format!("<p class=\"c{i}\">content-{i}</p>");
+        b.add_html(format!("k{i:05}"), HtmlDoc::parse(&html).unwrap());
+    }
+    let path = temp_path("relocate_boundaries");
+    b.write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+    assert_eq!(mmap.bundle_count(), 3, "expected two full bundles + a tail");
+    assert_eq!(mmap.len(), n);
+    assert_eq!(owned.len(), n);
+
+    for i in [
+        0,
+        BUNDLE_CAP - 1,
+        BUNDLE_CAP,
+        BUNDLE_CAP + 1,
+        2 * BUNDLE_CAP,
+        n - 1,
+    ] {
+        let want = format!("content-{i}");
+        let by_pos = mmap.doc(i).to_html(HtmlFormat::Raw);
+        assert!(
+            by_pos.contains(&want),
+            "doc {i}: wrong relocated text: {by_pos}"
+        );
+
+        // Owned (text re-attached at load) and mmap (bound from the bundle block) must agree.
+        assert_eq!(
+            by_pos,
+            owned[i].html.to_html(HtmlFormat::Raw),
+            "doc {i}: owned vs mmap render differ"
+        );
+
+        // Keyed lookup resolves to the same document (it locates the bundle from the position).
+        let by_key = mmap
+            .doc_by_key(&format!("k{i:05}"))
+            .unwrap()
+            .unwrap()
+            .to_html(HtmlFormat::Raw);
+        assert_eq!(by_key, by_pos, "doc {i}: keyed vs positional render differ");
+    }
+
+    std::fs::remove_file(&path).ok();
+}
+
+/// Materialising an archived (relocated) document into an owned, editable `DomInner` must pull its
+/// text back out of the bundle block — the archived→owned `repackage` boundary.
+#[test]
+fn mmap_doc_repackage_materializes_relocated_text() {
+    let path = temp_path("repackage");
+    sample_archive().write_to(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    let doc = mmap.doc_by_key("alpha").unwrap().unwrap();
+    let archived_html = doc.to_html(HtmlFormat::Raw);
+    let owned = doc.repackage();
+    assert_eq!(
+        owned.to_html(HtmlFormat::Raw),
+        archived_html,
+        "repackaged owned render must match the archived render (text materialized from bundle)"
+    );
+    assert!(!archived_html.is_empty(), "alpha should render some text");
 
     std::fs::remove_file(&path).ok();
 }

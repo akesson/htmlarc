@@ -2,6 +2,7 @@ mod attrstore;
 mod ext_tags;
 mod interner;
 mod runs;
+mod string_source;
 mod stringheap;
 mod stringstack;
 mod symbols;
@@ -16,7 +17,7 @@ pub(crate) use ext_tags::{EXT_BASE, EXT_OVERFLOW, ExtTags, ExtTagsView};
 // Class and attribute lists are contiguous runs of bare ids, so `dom`/`accessors` reach the
 // run arena directly rather than through a list-specific store.
 pub(crate) use runs::{RunIndex, RunRebuilder, RunValues, RunVec, RunVecView};
+pub use string_source::StringSource;
 pub use stringstack::StringStack;
-pub(crate) use stringstack::StringStackView;
 pub use symbols::Class;
 pub(crate) use symbols::{Sym, SymbolTable, SymbolTableBuilder, SymbolTableView};
