@@ -1,4 +1,7 @@
-use crate::{archive::HtmlArchive, entry::HtmlEntry, error::ArchiveErr, writer::ArchiveWriter};
+use crate::{
+    archive::HtmlArchive, bundle::BUNDLE_CAP, entry::HtmlEntry, error::ArchiveErr,
+    writer::ArchiveWriter,
+};
 use htmlarc_dom::prelude::HtmlDoc;
 use std::{collections::HashSet, path::Path};
 
@@ -27,10 +30,15 @@ impl HtmlArchiveBuilder {
 
     pub fn write_to<P: AsRef<Path>>(self, path: P) -> Result<(), ArchiveErr> {
         // Stream the entries through the writer in insertion order so there is exactly one
-        // serialization path, one on-disk format, and one bundle layout.
+        // serialization path, one on-disk format, and one bundle layout. Seal a bundle every
+        // BUNDLE_CAP documents — matching `HtmlArchive::from_vec`'s grouping — so the boundaries
+        // are identical to `build()` and only one bundle's relocated text is buffered at a time.
         let mut writer = ArchiveWriter::create(path)?;
-        for entry in &self.entries {
+        for (i, entry) in self.entries.into_iter().enumerate() {
             writer.push_entry(entry)?;
+            if (i + 1).is_multiple_of(BUNDLE_CAP) {
+                writer.seal_bundle()?;
+            }
         }
         writer.finish()
     }

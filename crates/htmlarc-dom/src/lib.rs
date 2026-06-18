@@ -30,7 +30,7 @@ pub mod prelude {
     pub use crate::accessors::{Attributes, AttributesMut, Classes, ClassesMut};
     pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
-        ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
+        ArchivedDom, ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
     };
     pub use crate::error::{
         ElementError, HtmlParseError, HtmlParseResult, IterationError, Locatable, LocatedError,
@@ -42,7 +42,7 @@ pub mod prelude {
         CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
         RevElementIter, Tag, TagIter,
     };
-    pub use crate::stores::{AttrName, Attribute, Class};
+    pub use crate::stores::{AttrName, Attribute, Class, StringSource};
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

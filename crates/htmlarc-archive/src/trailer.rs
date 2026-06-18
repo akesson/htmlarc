@@ -12,11 +12,15 @@
 //! | 24..32 | bundle-table blob length                  |
 //! | 32..40 | sort-index blob offset                    |
 //! | 40..48 | sort-index blob length                    |
-//! | 48..56 | per-bundle data region offset             |
-//! | 56..64 | per-bundle data region length (0 for now) |
+//! | 48..56 | data-region offset (vestigial)             |
+//! | 56..64 | data-region length (vestigial — always 0)  |
 //! | 64..72 | document count                            |
 //! | 72..80 | bundle count                              |
 //! | 80..88 | magic `b"HARCFOOT"`                       |
+//!
+//! The per-bundle string blocks are interleaved with the document blobs and located via the
+//! bundle table (each [`BundleDesc`](crate::bundle::BundleDesc) carries its own offset/length), so
+//! the old single contiguous "data region" slot is now vestigial (offset valid, length 0).
 
 use crate::error::ArchiveErr;
 use crate::header::HEADER_LEN;

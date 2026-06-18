@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use htmlarc_archive::{Filter, HtmlArchive, MmapArchive};
-use htmlarc_dom::prelude::HtmlFormat;
+use htmlarc_dom::prelude::{DomRead, HtmlFormat};
 
 /// The archive a CLI command operates on.
 ///
@@ -81,7 +81,8 @@ impl ArchiveSource {
     pub fn to_html(&self, i: usize, fmt: HtmlFormat) -> String {
         match self {
             Self::Owned(a) => a[i].html.to_html(fmt),
-            Self::Mapped(m) => m[i].to_html(fmt),
+            // The memory-mapped document's text lives in its bundle; `doc` binds the two.
+            Self::Mapped(m) => m.doc(i).to_html(fmt),
         }
     }
 
@@ -90,10 +91,7 @@ impl ArchiveSource {
     pub fn keep(&self, i: usize, filter: &Filter) -> bool {
         match self {
             Self::Owned(a) => filter.keep(&a[i].key, &a[i].html),
-            Self::Mapped(m) => {
-                let e = &m[i];
-                filter.keep(e.key(), &e.html)
-            }
+            Self::Mapped(m) => filter.keep(m.key_at(i), &m.doc(i)),
         }
     }
 
@@ -119,7 +117,7 @@ impl ArchiveSource {
     pub fn html_for_key(&self, key: &str, fmt: HtmlFormat) -> Result<Option<String>> {
         match self {
             Self::Owned(a) => Ok(a.get(key).map(|e| e.html.to_html(fmt))),
-            Self::Mapped(m) => Ok(m.get(key)?.map(|e| e.to_html(fmt))),
+            Self::Mapped(m) => Ok(m.doc_by_key(key)?.map(|d| d.to_html(fmt))),
         }
     }
 }

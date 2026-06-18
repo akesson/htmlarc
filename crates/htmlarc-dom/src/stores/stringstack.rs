@@ -2,6 +2,12 @@ use std::ops::{Index, Range};
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use super::StringSource;
+
+/// The owned text/comment pool of one document: a flat UTF-8 `[u8]` that text nodes index by
+/// `Range<u32>`. It is the *builder* (and live-edit) form — reads go through a
+/// [`StringSource`], so a document is agnostic to whether its bytes are owned here, borrowed
+/// from an mmap, or (later) inflated from a per-bundle compressed frame.
 #[derive(Default, Archive, Serialize, Deserialize, Hash, Clone)]
 pub struct StringStack {
     strings: Vec<u8>,
@@ -14,6 +20,12 @@ impl StringStack {
         }
     }
 
+    /// Wrap an already-built pool (e.g. a document's segment copied out of a per-bundle store
+    /// when an archived document is materialised into an editable one).
+    pub fn from_bytes(strings: Vec<u8>) -> Self {
+        Self { strings }
+    }
+
     pub fn push(&mut self, text: &str) -> Range<u32> {
         let start = self.strings.len() as u32;
         self.strings.extend_from_slice(text.as_bytes());
@@ -24,38 +36,21 @@ impl StringStack {
         self.strings.len()
     }
 
-    pub(crate) fn view(&self) -> StringStackView<'_> {
-        StringStackView {
-            strings: &self.strings,
-        }
-    }
-}
-
-/// Borrowed read-only view over the text/comment payload pool. The pool is a flat
-/// UTF-8 `[u8]`, byte-identical owned vs archived, so the same view serves both.
-#[derive(Clone, Copy)]
-pub(crate) struct StringStackView<'a> {
-    strings: &'a [u8],
-}
-
-impl<'a> StringStackView<'a> {
-    #[cfg(test)]
-    pub(crate) fn as_bytes(&self) -> &'a [u8] {
-        self.strings
+    /// Take the pool's bytes, leaving it empty. Used when serialising a document into a
+    /// per-bundle store: the bytes move to the bundle and the per-document blob is left
+    /// string-less.
+    pub fn take_bytes(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.strings)
     }
 
-    pub(crate) fn get(&self, range: Range<u32>) -> &'a str {
-        unsafe {
-            std::str::from_utf8_unchecked(&self.strings[range.start as usize..range.end as usize])
-        }
+    pub(crate) fn view(&self) -> StringSource<'_> {
+        StringSource::plain(&self.strings)
     }
 }
 
 impl ArchivedStringStack {
-    pub(crate) fn view(&self) -> StringStackView<'_> {
-        StringStackView {
-            strings: &self.strings,
-        }
+    pub(crate) fn view(&self) -> StringSource<'_> {
+        StringSource::plain(&self.strings)
     }
 }
 

@@ -19,8 +19,13 @@ pub struct SerializedEntry {
     pub key_len: u16,
     /// Checksum of the stored DOM.
     pub checksum: u64,
-    /// The rkyv-archived [`HtmlEntry`] blob, ready to write verbatim.
+    /// The rkyv-archived [`HtmlEntry`] blob, ready to write verbatim. Its text/comment pool has
+    /// been moved out into [`strings`](Self::strings), so the blob is string-less; the node text
+    /// ranges stay valid against the relocated pool.
     pub bytes: AlignedVec,
+    /// The document's text/comment pool, relocated out of `bytes` so the writer can pack a whole
+    /// bundle's pools into the bundle's data region.
+    pub strings: Vec<u8>,
 }
 
 /// One pre-parsed HTML document in an archive, addressed by `key`.
@@ -81,7 +86,11 @@ impl HtmlEntry {
     /// Call this on a worker thread so the coordinator never touches the live `DomInner`; the
     /// returned [`SerializedEntry`] is what [`ArchiveWriter::push_serialized`](crate::ArchiveWriter::push_serialized)
     /// appends. Consumes `self` so the heavy DOM is dropped the moment its bytes exist.
-    pub fn into_serialized(self) -> Result<SerializedEntry, ArchiveErr> {
+    pub fn into_serialized(mut self) -> Result<SerializedEntry, ArchiveErr> {
+        // Relocate the text pool out of the blob first: the bytes go to the bundle's data region
+        // and the per-document blob is serialized string-less (its node ranges still resolve
+        // against the relocated segment).
+        let strings = self.html.take_string_pool();
         let bytes =
             rkyv::to_bytes::<Error>(&self).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
         Ok(SerializedEntry {
@@ -89,12 +98,14 @@ impl HtmlEntry {
             key_len: self.key_len,
             checksum: self.checksum,
             bytes,
+            strings,
         })
     }
 }
 
-/// Zero-copy accessors on the rkyv-archived entry, so a memory-mapped archive reads
-/// keys, checksums, and renders documents without deserializing anything.
+/// Zero-copy accessors on the rkyv-archived entry. Key and checksum read straight from the blob;
+/// the document itself is reached through [`bind`](Self::bind), because a relocated document's
+/// text lives in its bundle (not its own blob) and must be supplied as a [`StringSource`].
 impl ArchivedHtmlEntry {
     pub fn key(&self) -> &str {
         self.key.as_str()
@@ -104,19 +115,10 @@ impl ArchivedHtmlEntry {
         self.checksum.to_native()
     }
 
-    pub fn root(&self) -> HtmlElement<'_, ArchivedDomInner> {
-        self.html.root()
-    }
-
-    pub fn body(&self) -> Option<HtmlElement<'_, ArchivedDomInner>> {
-        self.html
-            .root()
-            .forwards()
-            .find(|element| element.tag() == HtmlTag::body)
-    }
-
-    pub fn to_html(&self, fmt: HtmlFormat) -> String {
-        self.html.to_html(fmt)
+    /// Bind this entry's topology to its text source (its bundle's per-document segment),
+    /// yielding a readable, queryable [`ArchivedDom`].
+    pub fn bind<'a>(&'a self, strings: StringSource<'a>) -> ArchivedDom<'a> {
+        self.html.with_strings(strings)
     }
 }
 
@@ -143,8 +145,6 @@ impl PartialOrd for HtmlEntry {
 }
 
 impl crate::ArchiveEntry for HtmlEntry {
-    type Dom = DomInner;
-
     fn key(&self) -> &str {
         self.key.as_str()
     }
@@ -152,24 +152,14 @@ impl crate::ArchiveEntry for HtmlEntry {
     fn checksum(&self) -> u64 {
         self.checksum
     }
-
-    fn dom(&self) -> &DomInner {
-        &self.html
-    }
 }
 
 impl crate::ArchiveEntry for ArchivedHtmlEntry {
-    type Dom = ArchivedDomInner;
-
     fn key(&self) -> &str {
         self.key.as_str()
     }
 
     fn checksum(&self) -> u64 {
         self.checksum.to_native()
-    }
-
-    fn dom(&self) -> &ArchivedDomInner {
-        &self.html
     }
 }

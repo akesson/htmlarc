@@ -1,8 +1,10 @@
 use std::{ops::Index, path::Path};
 
 use crate::{
+    Filter,
     builder::HtmlArchiveBuilder,
     bundle::{BUNDLE_CAP, BundleDesc, DocBundle},
+    bundle_strings::ArchivedBundleStrings,
     doc_table::{self, DocEntry},
     entry::HtmlEntry,
     error::ArchiveErr,
@@ -71,8 +73,15 @@ impl HtmlArchive {
                 .collect::<Vec<_>>();
             paths.sort();
             let mut writer = ArchiveWriter::create(output)?;
+            let mut sealed = 0usize;
             for p in &paths {
                 stream_html_file(&mut writer, p)?;
+                // Seal a bundle every BUNDLE_CAP documents so only one bundle's relocated text is
+                // buffered at a time (the writer flushes the block at each seal).
+                if writer.doc_count() - sealed >= BUNDLE_CAP {
+                    writer.seal_bundle()?;
+                    sealed = writer.doc_count();
+                }
             }
             let n = writer.doc_count();
             writer.finish()?;
@@ -132,28 +141,50 @@ impl HtmlArchive {
         let bundle_descs = rkyv::from_bytes::<Vec<BundleDesc>, Error>(bt_slice)
             .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
 
-        let mut entries = Vec::with_capacity(docs.len());
-        for d in &docs {
-            let blob = bounded(&data, d.offset, d.len, "document blob")?;
-            let entry = rkyv::from_bytes::<HtmlEntry, Error>(blob)
-                .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
-            entries.push(entry);
-        }
-
-        // Re-group the flat entry list into bundles per the bundle table.
-        let mut entries = entries.into_iter();
+        // Walk the bundle table in order; each bundle's documents are a contiguous doc-table
+        // range, and its relocated text is read from the bundle's string block and re-attached to
+        // each document's owned `DomInner` — so the in-memory archive is fully self-contained
+        // again (its entries own their strings, exactly as before relocation).
         let mut bundles = Vec::with_capacity(bundle_descs.len());
+        let mut next_doc = 0usize;
         for desc in &bundle_descs {
-            let mut bundle_entries = Vec::with_capacity(desc.doc_count as usize);
-            for _ in 0..desc.doc_count {
-                let entry = entries.next().ok_or_else(|| {
+            let start = desc.doc_start as usize;
+            let count = desc.doc_count as usize;
+            if start != next_doc {
+                return Err(ArchiveErr::Validate(
+                    "bundle table is not contiguous over the doc table".into(),
+                ));
+            }
+
+            let block = bounded(
+                &data,
+                desc.data_offset,
+                desc.data_len,
+                "bundle string block",
+            )?;
+            let strings = rkyv::access::<ArchivedBundleStrings, Error>(block)
+                .map_err(|e| ArchiveErr::Validate(e.to_string()))?;
+            if !strings.validate() || strings.doc_count() != count {
+                return Err(ArchiveErr::Validate(
+                    "bundle string block does not match its document count".into(),
+                ));
+            }
+
+            let mut bundle_entries = Vec::with_capacity(count);
+            for slot in 0..count {
+                let d = docs.get(start + slot).ok_or_else(|| {
                     ArchiveErr::Validate("bundle table doc count exceeds the doc table".into())
                 })?;
+                let blob = bounded(&data, d.offset, d.len, "document blob")?;
+                let mut entry = rkyv::from_bytes::<HtmlEntry, Error>(blob)
+                    .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
+                entry.html.set_string_pool(strings.segment(slot).to_vec());
                 bundle_entries.push(entry);
             }
+            next_doc += count;
             bundles.push(DocBundle::from_entries(bundle_entries));
         }
-        if entries.next().is_some() {
+        if next_doc != docs.len() {
             return Err(ArchiveErr::Validate(
                 "doc table has more documents than the bundle table accounts for".into(),
             ));
@@ -246,17 +277,19 @@ impl HtmlArchive {
         (b, i - self.bundle_starts[b])
     }
 
-    /// Serialize the archive to `path` in the v4 bundle-segmented `.htmlarc` format, streaming
-    /// one doc blob at a time (bundle→doc order) through [`ArchiveWriter`]. Each in-memory bundle
-    /// is sealed as its own on-disk bundle, so re-saving preserves the existing boundaries (e.g.
-    /// the cluster-aligned runs of a ZIM-exported archive) rather than re-chunking at `BUNDLE_CAP`.
-    pub fn write_to<P: AsRef<Path>>(&self, path: P) -> Result<(), ArchiveErr> {
+    /// Serialize the archive to `path` in the bundle-segmented `.htmlarc` format, streaming one
+    /// doc blob at a time (bundle→doc order) through [`ArchiveWriter`]. Each in-memory bundle is
+    /// sealed as its own on-disk bundle, so re-saving preserves the existing boundaries (e.g. the
+    /// cluster-aligned runs of a ZIM-exported archive) rather than re-chunking at `BUNDLE_CAP`.
+    /// Consumes the archive so each document's text pool can be moved into its bundle's string
+    /// block (relocation) rather than cloned.
+    pub fn write_to<P: AsRef<Path>>(self, path: P) -> Result<(), ArchiveErr> {
         let mut writer = ArchiveWriter::create(path)?;
-        for bundle in &self.bundles {
-            for entry in bundle.iter() {
+        for bundle in self.bundles {
+            for entry in bundle.into_entries() {
                 writer.push_entry(entry)?;
             }
-            writer.seal_bundle();
+            writer.seal_bundle()?;
         }
         writer.finish()
     }
@@ -367,6 +400,18 @@ impl crate::Archive for HtmlArchive {
 
     fn entries(&self) -> impl Iterator<Item = &HtmlEntry> {
         HtmlArchive::entries(self)
+    }
+
+    /// Owned entries are self-contained (their text was re-attached at load), so the filter reads
+    /// each document directly. A key-only filter short-circuits without touching the DOM.
+    fn entries_matching<'a>(&'a self, filter: &'a Filter) -> Vec<&'a str> {
+        self.entries()
+            .filter(|e| match filter.keep_key(&e.key) {
+                Some(keep) => keep,
+                None => filter.keep(&e.key, &e.html),
+            })
+            .map(|e| e.key.as_str())
+            .collect()
     }
 }
 

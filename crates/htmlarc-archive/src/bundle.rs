@@ -5,10 +5,11 @@
 //! Bulk iteration always proceeds bundle→doc. (Keyed lookup, by contrast, goes through a
 //! separate global sort index — see [`crate::doc_table`].)
 //!
-//! On disk a bundle is *not* a single serialized blob; its documents are stored as individual
-//! rkyv blobs (so a memory-mapped reader keeps lazy, per-document validation and zero-copy
-//! access). A [`BundleDesc`] in the footer records which doc-table range belongs to the bundle,
-//! plus a reserved `(data_offset, data_len)` slot for per-bundle data extracted in a later step.
+//! On disk a bundle's documents are stored as individual rkyv blobs (so a memory-mapped reader
+//! keeps lazy, per-document validation and zero-copy access), followed by one
+//! [`BundleStrings`](crate::bundle_strings) block holding every document's text/comment pool,
+//! relocated out of the per-document blobs. A [`BundleDesc`] in the footer records which doc-table
+//! range belongs to the bundle plus the `(data_offset, data_len)` of that string block.
 
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -28,8 +29,9 @@ pub const BUNDLE_CAP: usize = 1_000;
 
 /// A group of up to [`BUNDLE_CAP`] pre-parsed documents, in arrival order.
 ///
-/// This is the in-memory form held by [`HtmlArchive`](crate::HtmlArchive). A later step will
-/// attach per-bundle extracted data here (and persist it via [`BundleDesc`]'s reserved slot).
+/// This is the in-memory form held by [`HtmlArchive`](crate::HtmlArchive); each entry owns its
+/// text pool here (the on-disk per-bundle relocation is applied by [`crate::ArchiveWriter`] on
+/// write and undone on load).
 #[derive(Default)]
 pub struct DocBundle {
     entries: Vec<HtmlEntry>,
@@ -70,17 +72,18 @@ impl std::ops::Index<usize> for DocBundle {
 }
 
 /// The footer descriptor for one bundle: the half-open `[doc_start, doc_start + doc_count)`
-/// range of the doc table that belongs to it, plus a reserved byte range in the per-bundle
-/// data region (`data_len == 0` for now — populated by a later per-bundle-data step).
+/// range of the doc table that belongs to it, plus the byte range of the bundle's
+/// [`BundleStrings`](crate::bundle_strings) block in the file (the relocated text of every
+/// document in the bundle).
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct BundleDesc {
     /// Index of this bundle's first document in the (bundle-ordered) doc table.
     pub doc_start: u32,
     /// Number of documents in this bundle.
     pub doc_count: u32,
-    /// Byte offset of this bundle's data blob within the per-bundle data region.
+    /// Byte offset of this bundle's string block in the file.
     pub data_offset: u64,
-    /// Length of this bundle's data blob (0 until the per-bundle-data step lands).
+    /// Length of this bundle's string block.
     pub data_len: u64,
 }
 

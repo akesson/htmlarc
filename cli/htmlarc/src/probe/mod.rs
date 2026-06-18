@@ -21,6 +21,7 @@ use node_counter::CountedNodes;
 use crate::MmapArchive;
 use crate::args::Probe;
 use anyhow::{Context, Result, anyhow};
+use htmlarc_dom::prelude::DomRead;
 
 /// Run the `probe` subcommand: open the source, parse probe expressions, count matches
 /// across all documents, and print the aggregated tree.
@@ -206,11 +207,17 @@ impl ProbeArchive for MmapArchive {
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes {
+        // Read this bundle's relocated string block once, then bind each document to its segment.
+        let range = self.bundle_range(bundle);
+        let strings = self
+            .bundle_strings(bundle)
+            .expect("corrupt bundle string block");
         let mut counter = CountedNodes::default();
-        for i in self.bundle_range(bundle) {
-            let doc = &self[i];
-            let key = doc.key();
-            if filters.keep(key, &doc.html) {
+        for i in range.clone() {
+            let entry = &self[i];
+            let key = entry.key();
+            let doc = entry.bind(strings.source_for(i - range.start));
+            if filters.keep(key, &doc) {
                 counter.analyze_html(key, &doc.root(), expressions);
             } else {
                 debug!("Skipping: {key}");
@@ -238,9 +245,11 @@ impl ProbeArchive for MmapArchive {
         positions.sort_unstable();
         let mut counter = CountedNodes::default();
         for i in positions {
-            let doc = &self[i];
-            let k = doc.key();
-            if filters.keep(k, &doc.html) {
+            // `doc` binds the document to its bundle's relocated text (resolving the bundle from
+            // the flat position internally).
+            let doc = self.doc(i);
+            let k = self.key_at(i);
+            if filters.keep(k, &doc) {
                 counter.analyze_html(k, &doc.root(), expressions);
             }
         }

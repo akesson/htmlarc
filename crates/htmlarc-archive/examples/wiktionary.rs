@@ -282,11 +282,13 @@ fn assert_head_is_minimal(archive_path: &Path, key: &str) -> Result<()> {
 /// asserting the article content survived the reduction.
 fn query_definitions(archive_path: &Path) -> Result<()> {
     let mmap = MmapArchive::open(archive_path)?;
-    for entry in mmap.entries() {
-        let key = entry.key();
+    for i in 0..mmap.len() {
+        let key = mmap.key_at(i);
+        // Bind the document to its bundle's relocated text before querying it.
+        let doc = mmap.doc(i);
 
         // The article must still be present and non-empty after reduction.
-        let article = entry
+        let article = doc
             .root()
             .select_css("div.mw-parser-output")
             .ok()
@@ -301,8 +303,7 @@ fn query_definitions(archive_path: &Path) -> Result<()> {
         // Pull the first numbered definition (`<ol><li>`) as a human-readable sample,
         // falling back to any list item or paragraph.
         let first_match = |sel: &'static str| {
-            entry
-                .root()
+            doc.root()
                 .select_css(sel)
                 .ok()
                 .and_then(|mut m| m.first().ok())

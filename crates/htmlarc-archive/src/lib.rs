@@ -2,6 +2,7 @@ mod archive;
 mod archive_trait;
 mod builder;
 mod bundle;
+mod bundle_strings;
 mod doc_table;
 mod entry;
 mod error;
