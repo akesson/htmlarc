@@ -67,7 +67,7 @@ pub fn probe<A: ProbeArchive>(
     archive: &'static A,
     expressions: &'static [ProbeExpression<'static>],
     filters: &'static Filter,
-) -> CountedNodes<'static> {
+) -> CountedNodes {
     // Fast path: an include filter that restricts by key can only match those keys — resolve them
     // through the keyed index and skip the bundle sweep (and every other document's blob) entirely.
     if let Some(keys) = filters.include_keys() {
@@ -133,7 +133,7 @@ pub trait ProbeArchive: Sync {
         bundle: usize,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a>;
+    ) -> CountedNodes;
 
     /// Probe only the documents whose key is in `keys`, resolved through the keyed index — the
     /// fast path when an include filter restricts by key. Skips bundle iteration entirely, so it
@@ -144,7 +144,7 @@ pub trait ProbeArchive: Sync {
         keys: &HashSet<String>,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a>;
+    ) -> CountedNodes;
 }
 
 impl ProbeArchive for HtmlArchive {
@@ -157,7 +157,7 @@ impl ProbeArchive for HtmlArchive {
         bundle: usize,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a> {
+    ) -> CountedNodes {
         let mut counter = CountedNodes::default();
         for doc in self.bundles()[bundle].entries() {
             if filters.keep(&doc.key, &doc.html) {
@@ -174,7 +174,7 @@ impl ProbeArchive for HtmlArchive {
         keys: &HashSet<String>,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a> {
+    ) -> CountedNodes {
         let mut sorted: Vec<&String> = keys.iter().collect();
         sorted.sort_unstable();
         let mut counter = CountedNodes::default();
@@ -199,7 +199,7 @@ impl ProbeArchive for MmapArchive {
         bundle: usize,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a> {
+    ) -> CountedNodes {
         let mut counter = CountedNodes::default();
         for i in self.bundle_range(bundle) {
             let doc = &self[i];
@@ -218,7 +218,7 @@ impl ProbeArchive for MmapArchive {
         keys: &HashSet<String>,
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
-    ) -> CountedNodes<'a> {
+    ) -> CountedNodes {
         let mut sorted: Vec<&String> = keys.iter().collect();
         sorted.sort_unstable();
         let mut counter = CountedNodes::default();
