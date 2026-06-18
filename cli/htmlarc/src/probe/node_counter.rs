@@ -5,22 +5,22 @@ use htmlarc_dom::{
     prelude::{DomRef, HtmlElement, NodeIndex, Tag, TagIter},
 };
 use pretty::{Doc, RcDoc};
-use smallvec::{SmallVec, ToSmallVec};
+use smallvec::SmallVec;
 use std::ops::AddAssign;
 
 use super::{ElementString, ProbeExpression};
 
 #[derive(Debug, Clone)]
-pub struct NodeCount<'dom> {
+pub struct NodeCount {
     parent_index: Option<usize>,
-    node: ElementString<'dom>,
+    node: ElementString,
     count: usize,
-    words: SmallVec<[&'dom str; 4]>,
+    words: SmallVec<[String; 4]>,
 }
 
-impl<'dom> NodeCount<'dom> {
-    fn new(parent_index: Option<usize>, node: ElementString<'dom>, words: &[&'dom str]) -> Self {
-        let words = words.to_smallvec();
+impl NodeCount {
+    fn new(parent_index: Option<usize>, node: ElementString, words: &[String]) -> Self {
+        let words: SmallVec<[String; 4]> = words.iter().cloned().collect();
 
         Self {
             parent_index,
@@ -29,22 +29,22 @@ impl<'dom> NodeCount<'dom> {
             words,
         }
     }
-    fn increase(&mut self, count: usize, words: &[&'dom str]) {
+    fn increase(&mut self, count: usize, words: &[String]) {
         self.count += count;
         for word in words {
             if !self.words.contains(word) {
-                self.words.push(word);
+                self.words.push(word.clone());
             }
         }
     }
 }
 
 #[derive(Debug, Default)]
-pub struct CountedNodes<'dom> {
-    nodes: Vec<Vec<NodeCount<'dom>>>,
+pub struct CountedNodes {
+    nodes: Vec<Vec<NodeCount>>,
 }
 
-impl AddAssign for CountedNodes<'_> {
+impl AddAssign for CountedNodes {
     fn add_assign(&mut self, rhs: Self) {
         if self.nodes.is_empty() {
             *self = rhs;
@@ -62,11 +62,11 @@ impl AddAssign for CountedNodes<'_> {
     }
 }
 
-impl<'dom> CountedNodes<'dom> {
+impl CountedNodes {
     pub fn insert(
         &mut self,
-        node: ElementString<'dom>,
-        word: &'dom str,
+        node: ElementString,
+        word: &str,
         depth: usize,
         parent_index: Option<usize>,
     ) -> usize {
@@ -82,15 +82,15 @@ impl<'dom> CountedNodes<'dom> {
                     current.node == node
                 }
             }) {
-                self.nodes.get_mut(depth).unwrap()[position].increase(1, &[word]);
+                self.nodes.get_mut(depth).unwrap()[position].increase(1, &[word.to_string()]);
                 position
             } else {
                 let nodes = self.nodes.get_mut(depth).unwrap();
-                nodes.push(NodeCount::new(parent_index, node, &[word]));
+                nodes.push(NodeCount::new(parent_index, node, &[word.to_string()]));
                 nodes.len() - 1
             }
         } else {
-            let nodes = vec![NodeCount::new(parent_index, node, &[word])];
+            let nodes = vec![NodeCount::new(parent_index, node, &[word.to_string()])];
             self.nodes.push(nodes);
 
             0
@@ -99,9 +99,9 @@ impl<'dom> CountedNodes<'dom> {
 
     pub fn analyze_html<Dom: DomRef>(
         &mut self,
-        word: &'dom str,
-        root: &HtmlElement<'dom, Dom>,
-        expressions: &[ProbeExpression<'dom>],
+        word: &str,
+        root: &HtmlElement<'_, Dom>,
+        expressions: &[ProbeExpression<'_>],
     ) {
         let mut index_stack: Vec<(usize, NodeIndex)> = Vec::new();
 
@@ -207,7 +207,7 @@ impl<'dom> CountedNodes<'dom> {
         &mut self,
         lhs_parent_index: Option<usize>,
         rhs_node_index: usize,
-        rhs: &CountedNodes<'dom>,
+        rhs: &CountedNodes,
         depth: usize,
     ) {
         let rhs_node = &rhs.nodes[depth][rhs_node_index];
