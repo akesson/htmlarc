@@ -1,6 +1,7 @@
 mod args;
 mod commands;
 mod convert;
+mod framing;
 mod source;
 mod stats;
 #[cfg(test)]
@@ -39,6 +40,7 @@ fn run_cli() -> Result<()> {
         HtmlarcConvertCmd::List(a) => commands::list(a),
         HtmlarcConvertCmd::Extract(a) => commands::extract(a),
         HtmlarcConvertCmd::Convert(a) => convert::run(a),
+        HtmlarcConvertCmd::Framing(a) => framing::run(a),
         HtmlarcConvertCmd::Stats(a) => stats::run(a),
     }
 }

@@ -38,6 +38,17 @@ xflags::xflags! {
             optional --format fmt: String
         }
 
+        /// Evaluate per-bundle string-block compression framings on a built .htmlarc: sweep
+        /// docs/slice × zstd level (and a per-bundle trained dict) over the real BundleStrings
+        /// block, reporting size/ratio and random (cold get) vs sequential (seq scan) decode
+        /// cost. A read-only probe — it never writes a new format. Build the archive with
+        /// `convert` first. Override the grids with FRAMING_SLICES / FRAMING_LEVELS env vars.
+        cmd framing {
+            /// The .htmlarc archive(s) to analyse. Pass several to pool their documents into one
+            /// analysis — e.g. an English and a Chinese archive, to study a multilingual mix.
+            repeated input: PathBuf
+        }
+
         /// Probe per-document and per-bundle string/list cardinalities (a tolerant pass
         /// that does not require the documents to parse). Gates the ADR 0002 constants.
         cmd stats {
