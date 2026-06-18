@@ -24,3 +24,7 @@ criterion = { workspace = true, features = ["html_reports"] }
 [[bench]]
 harness = false
 name = "mmap_read"
+
+[[bench]]
+harness = false
+name = "string_access"
