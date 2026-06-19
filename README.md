@@ -120,7 +120,6 @@ memory-map (no deserialization).
 ```
 crates/
   htmlarc-dom/      flat, rkyv-archivable HTML DOM + parser + CSS3 selector engine
-  htmlarc-macros/   `css!(...)` — compile-time-validated CSS selectors
   htmlarc-archive/  the single-file .htmlarc archive (build / open / query / diff)
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
