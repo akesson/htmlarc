@@ -24,8 +24,13 @@ pub struct SerializedEntry {
     /// ranges stay valid against the relocated pool.
     pub bytes: AlignedVec,
     /// The document's text/comment pool, relocated out of `bytes` so the writer can pack a whole
-    /// bundle's pools into the bundle's data region.
+    /// bundle's pools into the bundle's data region. This is the **raw** pool as produced here; the
+    /// convert worker may replace it in place with its compressed frame (ADR 0005), in which case
+    /// [`raw_len`](Self::raw_len) records the original length.
     pub strings: Vec<u8>,
+    /// The decompressed length of [`strings`](Self::strings). Equal to `strings.len()` until a
+    /// worker compresses the pool into a frame, after which it is the frame's inflated size.
+    pub raw_len: u32,
 }
 
 /// One pre-parsed HTML document in an archive, addressed by `key`.
@@ -93,12 +98,14 @@ impl HtmlEntry {
         let strings = self.html.take_string_pool();
         let bytes =
             rkyv::to_bytes::<Error>(&self).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+        let raw_len = strings.len() as u32;
         Ok(SerializedEntry {
             key: self.key,
             key_len: self.key_len,
             checksum: self.checksum,
             bytes,
             strings,
+            raw_len,
         })
     }
 }

@@ -420,7 +420,11 @@ pub struct ArchivedDom<'a> {
 }
 
 impl<'a> ArchivedDom<'a> {
-    fn view(&self) -> DomView<'a> {
+    /// The query view over this bound document. Tied to the archive lifetime `'a` (not the
+    /// `&self` borrow), so a caller holding an `ArchivedDom` over `'a`-lived backing — e.g. a
+    /// reader that inflated a document's text into an owned buffer it keeps — can hand out a view
+    /// that outlives this `ArchivedDom` value.
+    pub fn view(&self) -> DomView<'a> {
         self.inner.view_with(self.strings)
     }
 }

@@ -430,7 +430,7 @@ fn accumulate(
     bundles: &mut Vec<BundleDict>,
 ) {
     drive_runs_parallel(
-        source.run_count(),
+        0..source.run_count(),
         |rank| {
             let mut sink = StatsSink::new(compress, topology);
             source.drive_run(rank, &mut sink);

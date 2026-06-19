@@ -1,48 +1,85 @@
 //! The `convert` command: parse a source's HTML documents into a single `.htmlarc` archive.
 //!
-//! A [`Source`](crate::source::Source) supplies bundle-sized runs; [`drive_runs_parallel`]
-//! parses them on a worker pool and hands each completed run back in rank order, where the
-//! coordinator writes its entries and seals it as one bundle. Per-document parse failures are
-//! skipped and tallied (the strictness gap), never fatal.
+//! A [`Source`](crate::source::Source) supplies bundle-sized runs. Conversion is **two-phase**
+//! (ADR 0005): a single-threaded *warm-up* parses the first runs and trains one archive-wide
+//! string-compression dictionary from their text, then the rest stream through
+//! [`drive_runs_parallel`] where each worker parses, serializes, and **compresses** its run's text
+//! against the shared dictionary ("a bundle per core") before the coordinator writes it in rank
+//! order and seals it as one bundle. Per-document parse/serialize failures are skipped and tallied
+//! (the strictness gap), never fatal.
 
 use std::fmt::{self, Display};
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use htmlarc_archive::{ArchiveWriter, HtmlEntry, SerializedEntry};
+use htmlarc_archive::{
+    ArchiveWriter, HtmlEntry, SerializedEntry, StringCompressor, StringEncoder, train_string_dict,
+};
 use htmlarc_dom::prelude::HtmlDoc;
 
 use crate::args::Convert;
 use crate::source::{DocSink, drive_runs_parallel, load_wordlist, open_source};
 
+/// Documents to gather before training the dictionary. The harness study (ADR 0005) found the
+/// ratio plateaus by ~500 documents; ~1–2 bundles is comfortably past the knee while keeping the
+/// warm-up buffer (compact serialized entries, the live DOMs already dropped) small.
+const DICT_SAMPLE_DOCS: usize = 2_000;
+
 /// Builds one run's serialized archive entries, counting documents that fail to parse or
 /// serialize. Serialization happens here, on the worker, so the heavy `DomInner` is dropped
-/// the instant its bytes exist — a worker holds one live DOM, never a whole bundle's worth —
-/// and the coordinator only ever appends already-compact bytes.
-#[derive(Default)]
-struct EntrySink {
+/// the instant its bytes exist — a worker holds one live DOM, never a whole bundle's worth.
+/// When a `compressor` is present (the streaming phase), each document's relocated text is also
+/// compressed into its frame here, so the coordinator only ever appends already-compact bytes;
+/// the warm-up phase runs with no compressor (the dictionary does not exist yet) and emits raw
+/// text for training, which the coordinator compresses once the dictionary is ready.
+struct EntrySink<'a> {
     docs: Vec<SerializedEntry>,
     failed: u32,
+    compressor: Option<StringCompressor<'a>>,
 }
 
-impl DocSink for EntrySink {
+impl<'a> EntrySink<'a> {
+    fn new(compressor: Option<StringCompressor<'a>>) -> Self {
+        Self {
+            docs: Vec::new(),
+            failed: 0,
+            compressor,
+        }
+    }
+}
+
+impl DocSink for EntrySink<'_> {
     fn accept(&mut self, key: &str, html: &str) {
         // Per-doc: parse, build the DOM (optimal node width + checksum), and serialize it to
         // the on-disk form right away. The live `DomInner` is dropped before the next document.
         hotpath::measure_block!("convert::parse_doc", {
-            match HtmlDoc::parse(html) {
+            let mut ser = match HtmlDoc::parse(html) {
                 Ok(doc) => match HtmlEntry::new(key.to_string(), doc).into_serialized() {
-                    Ok(ser) => self.docs.push(ser),
+                    Ok(ser) => ser,
                     Err(e) => {
                         eprintln!("serialize failed for '{key}': {e}");
                         self.failed += 1;
+                        return;
                     }
                 },
                 Err(e) => {
                     eprintln!("parse failed for '{key}': {e}");
                     self.failed += 1;
+                    return;
+                }
+            };
+            if let Some(compressor) = &mut self.compressor {
+                match compressor.compress(&ser.strings) {
+                    Ok(frame) => ser.strings = frame,
+                    Err(e) => {
+                        eprintln!("compress failed for '{key}': {e}");
+                        self.failed += 1;
+                        return;
+                    }
                 }
             }
+            self.docs.push(ser);
         });
     }
 }
@@ -102,12 +139,61 @@ pub(crate) fn run(args: Convert) -> Result<()> {
         failed: 0,
         start: Instant::now(),
     };
-    let mut write_err: Option<anyhow::Error> = None;
 
+    let run_count = source.run_count();
+
+    // ---- Phase 1: warm-up. Parse the first runs single-threaded, buffering their (raw) entries
+    // until we have enough text to train the dictionary, or the input is exhausted. The buffer
+    // holds compact serialized entries (live DOMs already dropped), so peak memory stays bounded.
+    let mut warmup: Vec<BundleResult> = Vec::new();
+    let mut warmup_doc_count = 0usize;
+    let mut warmup_runs = 0usize;
+    while warmup_runs < run_count && warmup_doc_count < DICT_SAMPLE_DOCS {
+        let mut sink = EntrySink::new(None);
+        let read_failed = source.drive_run(warmup_runs, &mut sink);
+        warmup_doc_count += sink.docs.len();
+        warmup.push(BundleResult {
+            docs: sink.docs,
+            failed: sink.failed + read_failed,
+        });
+        warmup_runs += 1;
+    }
+
+    // ---- Phase 2: train one archive-wide dictionary from the warm-up text (single-threaded).
+    // `None` (too little text) simply means dictionary-less compression — still a valid archive.
+    let samples: Vec<&[u8]> = warmup
+        .iter()
+        .flat_map(|run| run.docs.iter().map(|d| d.strings.as_slice()))
+        .collect();
+    let dict = train_string_dict(&samples);
+    drop(samples);
+    let encoder = Arc::new(StringEncoder::new(dict.as_deref()));
+    writer.set_dictionary(dict);
+
+    // ---- Phase 3: compress + write the buffered warm-up runs (coordinator, one compressor).
+    {
+        let mut compressor = encoder.compressor()?;
+        for mut run in warmup {
+            for doc in &mut run.docs {
+                doc.strings = compressor.compress(&doc.strings)?;
+                writer.push_serialized(doc)?;
+                report.exported += 1;
+            }
+            writer.seal_bundle()?;
+            report.failed += run.failed;
+        }
+    }
+
+    // ---- Phase 4: stream the remaining runs in parallel. Each worker compresses its run's text
+    // against the shared dictionary ("a bundle per core"); the coordinator only writes + seals.
+    let mut write_err: Option<anyhow::Error> = None;
     drive_runs_parallel(
-        source.run_count(),
+        warmup_runs..run_count,
         |rank| {
-            let mut sink = EntrySink::default();
+            let compressor = encoder
+                .compressor()
+                .expect("building a per-worker compressor cannot fail");
+            let mut sink = EntrySink::new(Some(compressor));
             let read_failed = source.drive_run(rank, &mut sink);
             BundleResult {
                 docs: sink.docs,
@@ -115,8 +201,8 @@ pub(crate) fn run(args: Convert) -> Result<()> {
             }
         },
         |result| {
-            // Per-bundle: append every pre-serialized blob and stream it to disk. The heavy
-            // work (parse + serialize) already happened on the worker; this is just writes.
+            // Per-bundle: append every pre-serialized, pre-compressed blob and stream it to disk.
+            // The heavy work (parse + serialize + compress) already happened on the worker.
             hotpath::measure_block!("convert::write_bundle", {
                 if write_err.is_none() {
                     for doc in &result.docs {
