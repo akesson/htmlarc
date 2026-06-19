@@ -37,7 +37,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use htmlarc_archive::{HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive};
 use htmlarc_dom::prelude::*;
-use htmlarc_macros::css;
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/wiktionary");
@@ -124,7 +123,7 @@ fn reduce_clean_head(input: &Path, output: &Path) -> Result<usize> {
         // Triage: Swedish Wiktionary marks "no such entry" pages with this template.
         if dom
             .root()
-            .select(css!("body p.template-inget_uppslag"))
+            .select(parse_css("body p.template-inget_uppslag").unwrap())
             .next()
             .is_some()
         {
@@ -158,7 +157,7 @@ fn clean_head_and_classes(dom: &DomRefCell, word: &str) -> Result<()> {
 
     // Preserve the declared charset before discarding the head's contents.
     let charset = head
-        .select(css!("meta[charset]"))
+        .select(parse_css("meta[charset]").unwrap())
         .first()
         .ok()
         .and_then(|m| m.attribute(HtmlAttr::charset))
@@ -207,7 +206,11 @@ fn extract_main_content(dom: &DomRefCell, word: &str) -> Result<()> {
 
     // Sanity-check this is a CC-licensed Wiktionary page. The exact license URL varies
     // between dumps, so key off the footer `div.license` block rather than an href.
-    if body.select(css!("footer div.license")).next().is_none() {
+    if body
+        .select(parse_css("footer div.license").unwrap())
+        .next()
+        .is_none()
+    {
         return Err(anyhow!(
             "{word}: no license block — not a recognized Wiktionary page"
         ));
@@ -216,7 +219,10 @@ fn extract_main_content(dom: &DomRefCell, word: &str) -> Result<()> {
     // Walk up from the article to <body>, one level per iteration: remove the off-spine
     // siblings at the current level, then `unwrap` the spine node so the article rises
     // into its grandparent. `unwrap_element`/`remove` auto-prune the emptied ancestors.
-    while let Ok(article) = body.select(css!("div.mw-parser-output")).first() {
+    while let Ok(article) = body
+        .select(parse_css("div.mw-parser-output").unwrap())
+        .first()
+    {
         let article_idx = article.index();
         let Ok(parent) = article.parent() else { break };
         if parent.tag() == HtmlTag::body {
@@ -235,7 +241,10 @@ fn extract_main_content(dom: &DomRefCell, word: &str) -> Result<()> {
     // Drop everything left directly under <body> that isn't the article — including the
     // indentation whitespace and stray comments lifted up by the unwraps above (children()
     // skips text/comment nodes unless asked to include them).
-    if let Ok(article) = body.select(css!("div.mw-parser-output")).first() {
+    if let Ok(article) = body
+        .select(parse_css("div.mw-parser-output").unwrap())
+        .first()
+    {
         let keep = article.index();
         let extras: Vec<_> = body
             .children()
