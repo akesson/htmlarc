@@ -66,6 +66,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<NodeIndex> {
         // update the stack for any changes to the current (already visited) element.
 

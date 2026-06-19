@@ -44,6 +44,7 @@ where
 {
     type Item = HtmlElement<'dom, Dom>;
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn next(&mut self) -> Option<Self::Item> {
         let dom = self.iter.dom();
         while let Some((el_index, _)) = self.iter.next_index_and_depth() {

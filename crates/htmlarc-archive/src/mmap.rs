@@ -465,6 +465,7 @@ impl<'a> Doc<'a> {
     /// Run `f` with a query view over this document. The transient [`LazyState`] borrows the
     /// document's owned inflate cache (`self.buf`), so repeated reads inflate the frame only once;
     /// it lives only for the call, keeping [`Doc`] free of a self-referential field.
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
         let state = LazyState {
             buf: &self.buf,
@@ -485,10 +486,12 @@ impl Debug for Doc<'_> {
 }
 
 impl DomRead for Doc<'_> {
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         self.with_dom(|dom| dom.with_view(f))
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
         self.with_dom(|dom| dom.with_nodes(f))
     }
