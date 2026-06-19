@@ -2,6 +2,7 @@ use std::cell::OnceCell;
 use std::fmt::Debug;
 use std::ops::{Index, Range};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use htmlarc_dom::prelude::{
     ArchivedDom, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement, LazyState,
@@ -44,6 +45,15 @@ pub struct MmapArchive {
     /// once at open and shared (by `&`) with every read scope — it owns no per-read state, so the
     /// archive stays immutable and `Sync`.
     decoder: ZstdFrameDecoder,
+    /// Memoizes which bundles' string blocks have already passed full validation. The block is
+    /// faulted in lazily — only when a document in its bundle is first read — at which point
+    /// [`bundle_strings`](Self::bundle_strings) validates it (safe rkyv `access` + offset-table
+    /// walk). Because the mapping is immutable (see the type-level caveat), a once-valid block
+    /// stays valid, so every later fetch skips straight to `access_unchecked`. This turns a sweep
+    /// that touches all ~`BUNDLE_CAP` documents of a bundle — each re-fetching the shared block —
+    /// from one revalidation *per document* (quadratic in bundle size) into one *per bundle*. It is
+    /// pure memoization (observationally immutable), so the archive stays `Sync`.
+    bundles_validated: Box<[AtomicBool]>,
 }
 
 impl MmapArchive {
@@ -127,6 +137,12 @@ impl MmapArchive {
         };
         let decoder = ZstdFrameDecoder::new(dict);
 
+        // One validation flag per bundle (cleared); each bundle's string block is validated on its
+        // first fetch and then read unchecked (see `bundles_validated`).
+        let bundles_validated = (0..bundle_table.len())
+            .map(|_| AtomicBool::new(false))
+            .collect();
+
         Ok(Self {
             mmap,
             doc_table_offset,
@@ -136,6 +152,7 @@ impl MmapArchive {
             sort_index_offset,
             sort_index_len,
             decoder,
+            bundles_validated,
         })
     }
 
@@ -199,8 +216,15 @@ impl MmapArchive {
     }
 
     /// Validate and read bundle `b`'s relocated string block in place (safe `access`, plus an
-    /// offset-table sanity check), the way `blob` does for document blobs — lazily,
-    /// only when a document in that bundle is actually read.
+    /// offset-table sanity check), the way `blob` does for document blobs — lazily, only when a
+    /// document in that bundle is actually read.
+    ///
+    /// The full validation runs **once per bundle**: the first fetch validates the block and records
+    /// it in `bundles_validated`; every later fetch (e.g. a sweep that reads each of the bundle's
+    /// ~`BUNDLE_CAP` documents) skips the bytecheck + offset-table walk and casts in place via
+    /// `access_unchecked` — sound because the mapping is immutable, so a once-valid block stays
+    /// valid. This is what stops a per-document fetch loop from re-validating the shared block
+    /// quadratically. `bundle_strings` stays the single validation gate either way.
     pub fn bundle_strings(&self, b: usize) -> Result<&ArchivedBundleStrings, ArchiveErr> {
         let desc = &self.bundle_table()[b];
         let off = desc.data_offset.to_native();
@@ -211,6 +235,14 @@ impl MmapArchive {
         let slice = self.mmap.get(off as usize..end as usize).ok_or_else(|| {
             ArchiveErr::Validate("bundle string block lies outside the file".into())
         })?;
+
+        // Fast path: this block already passed the checks below on an earlier fetch. The mapping is
+        // immutable, so it is still valid — skip straight to the unchecked cast.
+        if self.bundles_validated[b].load(Ordering::Acquire) {
+            // SAFETY: validated by the slow path before the flag was set; the bytes cannot change.
+            return Ok(unsafe { rkyv::access_unchecked::<ArchivedBundleStrings>(slice) });
+        }
+
         let bs = rkyv::access::<ArchivedBundleStrings, Error>(slice)
             .map_err(|e| ArchiveErr::Validate(e.to_string()))?;
         if !bs.validate() {
@@ -227,6 +259,9 @@ impl MmapArchive {
                 "bundle string block document count disagrees with its bundle descriptor".into(),
             ));
         }
+        // Only a fully validated block sets the flag, so a corrupt block re-runs (and re-rejects)
+        // these checks on every fetch rather than being cached as good.
+        self.bundles_validated[b].store(true, Ordering::Release);
         Ok(bs)
     }
 
@@ -260,10 +295,12 @@ impl MmapArchive {
     /// is corrupt and `Index` cannot return a `Result`. Use [`get`](Self::get)/[`key_at`](Self::key_at) for
     /// metadata-only access that never touches a blob.
     ///
-    /// Each call re-reads and re-validates `i`'s bundle string block, so a loop that sweeps a
-    /// whole bundle through `doc()` revalidates the block once per document. To sweep, read the
-    /// block once with [`bundle_strings`](Self::bundle_strings) over a
-    /// [`bundle_range`](Self::bundle_range) and bind each entry through
+    /// `i`'s bundle string block is validated only on its first fetch and read unchecked
+    /// thereafter (see [`bundle_strings`](Self::bundle_strings)), so a loop that sweeps a whole
+    /// bundle through `doc()` no longer revalidates the block per document. It still resolves the
+    /// bundle (a binary search) and sets up a fresh inflate cache on each call, so for a large
+    /// sweep prefer reading the block once with [`bundle_strings`](Self::bundle_strings) over a
+    /// [`bundle_range`](Self::bundle_range) and binding each entry through
     /// [`lazy_states`](ArchivedBundleStrings::lazy_states) (as `entries_matching` and the `probe`
     /// sweep do).
     pub fn doc(&self, i: usize) -> Doc<'_> {
@@ -413,8 +450,9 @@ impl crate::Archive for MmapArchive {
 /// archived document (`doc.root()`, `doc.to_html(..)`, `filter.keep(key, &doc)`).
 ///
 /// For sweeping a whole bundle, prefer reading the block once via
-/// [`MmapArchive::bundle_strings`] + [`ArchivedBundleStrings::lazy_states`]; `doc()` re-reads and
-/// re-validates the block on every call.
+/// [`MmapArchive::bundle_strings`] + [`ArchivedBundleStrings::lazy_states`]; `doc()` re-resolves the
+/// bundle and sets up a fresh inflate cache on every call (though it no longer re-validates the
+/// block — that happens once per bundle).
 pub struct Doc<'a> {
     entry: &'a ArchivedHtmlEntry,
     frame: &'a [u8],
