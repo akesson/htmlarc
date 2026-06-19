@@ -19,7 +19,8 @@ thousands of small files.
 - **No HTML parsing at query time.** Documents are parsed once into a compact, flat binary DOM
   and stored with [rkyv]. A packed `.htmlarc` is queried **zero-copy** straight from a
   memory-map — no HTML parse, and no per-node deserialization — so repeated CSS queries over the
-  whole corpus are fast.
+  whole corpus are fast. (Per-document **text** payloads are zstd-compressed and inflate lazily on
+  read; topology and selector matching stay zero-copy, so a pure selector sweep never decompresses.)
 - **A real CSS3 selector engine** runs over that DOM (compound/complex/relative selectors,
   `:has()`, `nth-*`, attribute operators), at speeds comparable to a pointer-tree DOM.
 
@@ -86,8 +87,9 @@ Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc 
 - Document keys are the ZIM title (URL slug if the title is empty), the WARC `WARC-Target-URI`,
   or the file path relative to the directory root. `extract` matches a key **exactly**.
 - The WARC reader currently loads selected documents into memory; for very large crawls use
-  `--limit`. (Converting general web HTML still skips documents the pragmatic parser rejects —
-  see *Honest limitations* — until parser tolerance lands.)
+  `--limit`. (Parser error-recovery has since landed — see *Honest limitations* — so converting
+  general web HTML now drops only ~0.0005% of documents, all genuine capacity overflow rather than
+  malformed markup.)
 
 [`zim`]: https://github.com/akesson/zim
 
@@ -101,9 +103,12 @@ the `u16` ceiling. The whole thing derives `rkyv::Archive`, so it serializes to 
 back **without pointer fix-ups or per-node allocation** — traversal is array indexing into hot,
 contiguous memory rather than chasing heap pointers.
 
-An archive (`htmlarc-archive`) is just a sorted `Vec` of `(key, dom)` entries written with rkyv;
-`get` binary-searches by key, and `MmapArchive` reads the archived bytes **zero-copy** from a
-memory-map (no deserialization).
+An archive (`htmlarc-archive`) is a **bundle-segmented, footer-indexed** container: documents are
+grouped into bundles (up to 1,000) and written with rkyv, with a sorted key index in the footer.
+`get` binary-searches that index by key, and `MmapArchive` reads the archived topology **zero-copy**
+from a memory-map. Each document's text/comment payload is relocated into a per-bundle block and
+stored as an independent zstd frame, inflated lazily per document on first text read — so
+selector/topology queries, which touch none of it, stay fully zero-copy.
 
 ## Honest limitations
 
@@ -111,9 +116,12 @@ memory-map (no deserialization).
   `u32`), so the per-document ceiling is `2^24 − 1` nodes. The design still targets many *small*
   documents (dictionary entries, etc.); documents that fit are stored at half the link width
   (`u16`).
-- **The parser is pragmatic, not spec-compliant.** It is a stack-based builder validated
-  against real-world (messy) Wiktionary HTML — it is *not* the WHATWG tree-construction
-  algorithm and will not handle every adversarial/malformed input the way `html5ever` does.
+- **Spec-compliant tokenizer, pragmatic tree builder.** Tokenization uses [html5gum] (a WHATWG
+  spec-compliant tokenizer); the tree builder is an in-house stack-based builder with HTML5 **error
+  recovery** (stray/mismatched end tags, foreign SVG/MathML, optional tags) rather than the full
+  WHATWG tree-construction algorithm (no adoption-agency / foster-parenting). On a 2.04M-document
+  Common Crawl corpus it parses **99.9995%** of `text/html` documents; the ~0.0005% dropped are
+  genuine capacity overflow (the node ceiling above), not malformed markup.
 
 ## Workspace layout
 
@@ -181,3 +189,4 @@ real Wikimedia (Wiktionary) pages, licensed CC BY-SA — see [NOTICE](NOTICE).
 
 [rkyv]: https://rkyv.org
 [cargo-nextest]: https://nexte.st
+[html5gum]: https://github.com/untitaker/html5gum

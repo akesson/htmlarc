@@ -1,6 +1,9 @@
 # 0002 — Unified symbol stores, extended names, and adaptive ref widths
 
-- **Status:** Accepted (pending implementation)
+- **Status:** Accepted — implemented (PRs 1–5, formats v5–v8). **PRs 6 (mutable⇒wide / u24 refs)
+  & 7 (per-bundle Lane A shared dictionary) deferred** — measured unnecessary at corpus scale
+  (per-doc u16 widths never overflow except a handful of `RunVec` arenas; the shared dict saves
+  only ~4.3% of the compressed general-web archive). See *Measured* below.
 - **Date:** 2026-06-10
 - **Scope:** `htmlarc-dom` (stores, node format, parser, formatter, query layer),
   `htmlarc-archive` (bundle footer), `cli/htmlarc-convert`
