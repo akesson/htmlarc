@@ -486,6 +486,8 @@ impl Debug for Doc<'_> {
 }
 
 impl DomRead for Doc<'_> {
+    const IS_IMMUTABLE: bool = true;
+
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         self.with_dom(|dom| dom.with_view(f))
