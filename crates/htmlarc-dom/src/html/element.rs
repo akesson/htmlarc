@@ -172,6 +172,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         }
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn tag(&self) -> HtmlTag {
         self.with_nodes(|nodes| nodes.tag(self.index()))
     }
@@ -217,6 +218,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         RevElementIter::reverse(self)
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn has_attributes(&self, attrs: &[AttributeSelector]) -> bool {
         self.with_view(|view| view.has_attributes(self.index(), attrs))
     }
@@ -249,6 +251,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     /// The resolve-aware `#id` check used by the compound selector matcher: the resolved
     /// entry id matches by integer compare (or string fallback when unresolved).
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(crate) fn has_id_selector(&self, id: &IdSelector) -> bool {
         self.with_view(|view| view.has_id_selector(self.index(), id))
     }
@@ -256,6 +259,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// The resolve-aware extended-tag check used by the compound selector matcher: the
     /// resolved vocab byte / overflow symbol matches by integer compare (or a tag-name string
     /// compare when unresolved). See [`DomView::matches_ext_tag`](crate::dom::DomView).
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(crate) fn matches_ext_tag(&self, sel: &ExtTagSelector) -> bool {
         self.with_view(|view| view.matches_ext_tag(self.index(), sel))
     }
@@ -269,6 +273,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     /// The resolve-aware class check used by the compound selector matcher: each selector
     /// matches via its resolved [`Sym`] (or string fallback when unresolved).
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(crate) fn has_class_selectors(&self, sels: &[ClassSelector]) -> bool {
         self.with_view(move |view| view.has_class_selectors(self.index(), sels))
     }

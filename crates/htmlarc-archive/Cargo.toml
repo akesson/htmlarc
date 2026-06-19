@@ -9,6 +9,8 @@ repository.workspace = true
 [dependencies]
 fs-err = { workspace = true }
 htmlarc-dom = { workspace = true }
+# Optional, profiling-only: enabled via the `hotpath` feature for the `profile_walk` example.
+hotpath = { workspace = true, optional = true }
 memmap2 = "0.9"
 rkyv = { workspace = true }
 seahash = { workspace = true }
@@ -16,13 +18,23 @@ thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
 zstd = { workspace = true }
 
+[features]
+# Instruments the mmap read path (`Doc::with_dom`, codec `decode`) and turns on the dom crate's
+# select-walk instrumentation too. Used by the `profile_walk` example; zero cost when off.
+hotpath = ["dep:hotpath", "hotpath/hotpath", "htmlarc-dom/hotpath"]
+
 [dev-dependencies]
 anyhow = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
+scraper = { workspace = true }
 
 [[bench]]
 harness = false
 name = "mmap_read"
+
+[[bench]]
+harness = false
+name = "select_vs_scraper"
 
 [[bench]]
 harness = false

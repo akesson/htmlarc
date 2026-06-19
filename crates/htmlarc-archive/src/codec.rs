@@ -129,6 +129,7 @@ impl ZstdFrameDecoder {
 }
 
 impl FrameDecoder for ZstdFrameDecoder {
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn decode(&self, frame: &[u8], raw_len: usize) -> Vec<u8> {
         // A zero-length frame is a text-free document — never a real zstd frame.
         if frame.is_empty() {
