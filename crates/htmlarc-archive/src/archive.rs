@@ -5,6 +5,7 @@ use crate::{
     builder::HtmlArchiveBuilder,
     bundle::{BUNDLE_CAP, BundleDesc, DocBundle},
     bundle_strings::ArchivedBundleStrings,
+    codec::ZstdFrameDecoder,
     doc_table::{self, DocEntry},
     entry::HtmlEntry,
     error::ArchiveErr,
@@ -12,7 +13,7 @@ use crate::{
     writer::ArchiveWriter,
 };
 use fs_err as fs;
-use htmlarc_dom::prelude::HtmlDoc;
+use htmlarc_dom::prelude::{FrameDecoder, HtmlDoc};
 use rkyv::rancor::Error;
 
 /// An in-memory archive of pre-parsed HTML documents, grouped into [`DocBundle`]s of at most
@@ -141,6 +142,15 @@ impl HtmlArchive {
         let bundle_descs = rkyv::from_bytes::<Vec<BundleDesc>, Error>(bt_slice)
             .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
 
+        // The archive-wide string-compression dictionary (ADR 0005), if any: inflates each
+        // relocated frame back into its document's owned pool.
+        let dict = if trailer.dict_len > 0 {
+            Some(bounded(&data, trailer.dict_offset, trailer.dict_len, "dictionary")?.to_vec())
+        } else {
+            None
+        };
+        let decoder = ZstdFrameDecoder::new(dict);
+
         // Walk the bundle table in order; each bundle's documents are a contiguous doc-table
         // range, and its relocated text is read from the bundle's string block and re-attached to
         // each document's owned `DomInner` — so the in-memory archive is fully self-contained
@@ -178,7 +188,9 @@ impl HtmlArchive {
                 let blob = bounded(&data, d.offset, d.len, "document blob")?;
                 let mut entry = rkyv::from_bytes::<HtmlEntry, Error>(blob)
                     .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
-                entry.html.set_string_pool(strings.segment(slot).to_vec());
+                entry.html.set_string_pool(
+                    decoder.decode(strings.frame(slot), strings.raw_len(slot) as usize),
+                );
                 bundle_entries.push(entry);
             }
             next_doc += count;

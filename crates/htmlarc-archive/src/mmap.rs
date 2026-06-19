@@ -1,13 +1,19 @@
+use std::cell::OnceCell;
+use std::fmt::Debug;
 use std::ops::{Index, Range};
 use std::path::Path;
 
-use htmlarc_dom::prelude::ArchivedDom;
+use htmlarc_dom::prelude::{
+    ArchivedDom, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement, LazyState,
+    StringSource,
+};
 use memmap2::Mmap;
 use rkyv::rancor::Error;
 
 use crate::Filter;
 use crate::bundle::ArchivedBundleTable;
 use crate::bundle_strings::ArchivedBundleStrings;
+use crate::codec::ZstdFrameDecoder;
 use crate::doc_table::{self, ArchivedDocTable, ArchivedSortIndex};
 use crate::entry::ArchivedHtmlEntry;
 use crate::error::ArchiveErr;
@@ -34,6 +40,10 @@ pub struct MmapArchive {
     bundle_table_len: usize,
     sort_index_offset: usize,
     sort_index_len: usize,
+    /// Inflates per-document string frames, holding the archive-wide dictionary (if any). Built
+    /// once at open and shared (by `&`) with every read scope — it owns no per-read state, so the
+    /// archive stays immutable and `Sync`.
+    decoder: ZstdFrameDecoder,
 }
 
 impl MmapArchive {
@@ -102,6 +112,21 @@ impl MmapArchive {
             ));
         }
 
+        // The archive-wide string-compression dictionary (ADR 0005), if one was trained. A
+        // zero-length region means the per-document frames were compressed dictionary-less.
+        let dict = if trailer.dict_len > 0 {
+            let s = slice(
+                &mmap,
+                trailer.dict_offset as usize,
+                trailer.dict_len as usize,
+                "dictionary",
+            )?;
+            Some(s.to_vec())
+        } else {
+            None
+        };
+        let decoder = ZstdFrameDecoder::new(dict);
+
         Ok(Self {
             mmap,
             doc_table_offset,
@@ -110,6 +135,7 @@ impl MmapArchive {
             bundle_table_len,
             sort_index_offset,
             sort_index_len,
+            decoder,
         })
     }
 
@@ -193,9 +219,9 @@ impl MmapArchive {
             ));
         }
         // Cross-check the block against the bundle descriptor (the owned load path does the same):
-        // if the two disagree, a later `source_for(slot)` could index past the offset table and
-        // panic, so surface the mismatch as `Err` here instead — keeping `bundle_strings` the one
-        // validation gate for the block.
+        // if the two disagree, a later `frame(slot)`/`lazy_states` could index past the offset
+        // table and panic, so surface the mismatch as `Err` here instead — keeping
+        // `bundle_strings` the one validation gate for the block.
         if bs.doc_count() != desc.doc_count.to_native() as usize {
             return Err(ArchiveErr::Validate(
                 "bundle string block document count disagrees with its bundle descriptor".into(),
@@ -204,19 +230,32 @@ impl MmapArchive {
         Ok(bs)
     }
 
-    /// Validate and bind the document at flat position `i` to its bundle's relocated text, ready
-    /// to query/render. `Err` if either the document blob or the bundle's string block fails
-    /// validation.
-    fn try_doc(&self, i: usize) -> Result<ArchivedDom<'_>, ArchiveErr> {
+    /// The [`FrameDecoder`] for this archive's string frames (holds the archive-wide dictionary,
+    /// if any). Sweeps pass it to [`ArchivedBundleStrings::lazy_states`].
+    pub fn decoder(&self) -> &dyn FrameDecoder {
+        &self.decoder
+    }
+
+    /// Validate the document at flat position `i` and pair it with its bundle's relocated text,
+    /// ready to query/render. `Err` if either the document blob or the bundle's string block fails
+    /// validation. The returned [`Doc`] holds the document's compressed frame and inflates it
+    /// lazily, so a query that never reads text never decompresses.
+    fn try_doc(&self, i: usize) -> Result<Doc<'_>, ArchiveErr> {
         let b = self.bundle_of(i);
         let slot = i - self.bundle_table()[b].doc_start.to_native() as usize;
         let d = &self.doc_table()[i];
         let entry = self.blob(d.offset.to_native(), d.len.to_native())?;
         let strings = self.bundle_strings(b)?;
-        Ok(entry.bind(strings.source_for(slot)))
+        Ok(Doc {
+            entry,
+            frame: strings.frame(slot),
+            raw_len: strings.raw_len(slot),
+            decoder: &self.decoder,
+            buf: OnceCell::new(),
+        })
     }
 
-    /// The queryable document at flat (bundle→doc) position `i`, bound to its bundle's text.
+    /// The queryable document at flat (bundle→doc) position `i`, paired with its bundle's text.
     /// Panics on a corrupt blob — like [`Index`], a bad blob at a valid index means the archive
     /// is corrupt and `Index` cannot return a `Result`. Use [`get`](Self::get)/[`key_at`](Self::key_at) for
     /// metadata-only access that never touches a blob.
@@ -224,15 +263,16 @@ impl MmapArchive {
     /// Each call re-reads and re-validates `i`'s bundle string block, so a loop that sweeps a
     /// whole bundle through `doc()` revalidates the block once per document. To sweep, read the
     /// block once with [`bundle_strings`](Self::bundle_strings) over a
-    /// [`bundle_range`](Self::bundle_range) and `bind` each entry to `source_for(slot)` (as
-    /// `entries_matching` and the `probe` sweep do).
-    pub fn doc(&self, i: usize) -> ArchivedDom<'_> {
+    /// [`bundle_range`](Self::bundle_range) and bind each entry through
+    /// [`lazy_states`](ArchivedBundleStrings::lazy_states) (as `entries_matching` and the `probe`
+    /// sweep do).
+    pub fn doc(&self, i: usize) -> Doc<'_> {
         self.try_doc(i).expect("corrupt document or bundle blob")
     }
 
-    /// Look a document up by key and bind it to its text. `Ok(None)` = absent; `Err` = the
+    /// Look a document up by key and pair it with its text. `Ok(None)` = absent; `Err` = the
     /// matching blob (document or bundle strings) failed validation.
-    pub fn doc_by_key(&self, key: &str) -> Result<Option<ArchivedDom<'_>>, ArchiveErr> {
+    pub fn doc_by_key(&self, key: &str) -> Result<Option<Doc<'_>>, ArchiveErr> {
         match doc_table::find_index(self.doc_table(), self.sort_index(), key) {
             Some(i) => Ok(Some(self.try_doc(i)?)),
             None => Ok(None),
@@ -330,18 +370,30 @@ impl crate::Archive for MmapArchive {
         let mut keys = Vec::new();
         for b in 0..self.bundle_count() {
             let range = self.bundle_range(b);
-            // Only touched if some document in the bundle needs the DOM inspected.
-            let mut strings = None;
+            // Build the bundle's lazy text bindings only if some document needs the DOM inspected
+            // (a key-only filter short-circuits every key). `bufs` and `states` are two separate
+            // locals so `states` can borrow `bufs` without a self-referential struct; binding stays
+            // lazy, so a document whose CSS rules never read text never inflates its frame.
+            let needs_body = range
+                .clone()
+                .any(|i| filter.keep_key(self.key_at(i)).is_none());
+            let arena = needs_body.then(|| {
+                let block = self.bundle_strings(b).expect("corrupt bundle string block");
+                let bufs: Vec<OnceCell<Vec<u8>>> =
+                    (0..range.len()).map(|_| OnceCell::new()).collect();
+                (block, bufs)
+            });
+            let states = arena
+                .as_ref()
+                .map(|(block, bufs)| block.lazy_states(self.decoder(), bufs));
             for i in range.clone() {
                 let key = self.key_at(i);
                 let keep = match filter.keep_key(key) {
                     Some(k) => k,
                     None => {
-                        let bs = *strings.get_or_insert_with(|| {
-                            self.bundle_strings(b).expect("corrupt bundle string block")
-                        });
-                        let entry = &self[i];
-                        filter.keep(key, &entry.bind(bs.source_for(i - range.start)))
+                        let state = &states.as_ref().expect("arena built when a body is needed")
+                            [i - range.start];
+                        filter.keep(key, &self[i].bind(StringSource::lazy(state)))
                     }
                 };
                 if keep {
@@ -350,5 +402,73 @@ impl crate::Archive for MmapArchive {
             }
         }
         keys
+    }
+}
+
+/// A single memory-mapped document paired with its bundle's relocated text, returned by
+/// [`MmapArchive::doc`]/[`doc_by_key`](MmapArchive::doc_by_key). It owns one inflate cache and
+/// holds the document's *compressed* frame, decompressing it at most once — and only if the
+/// document's text is actually read — so a topology- or selector-only query over a single document
+/// pays nothing for compression. Implements [`DomRead`], so it queries exactly like the underlying
+/// archived document (`doc.root()`, `doc.to_html(..)`, `filter.keep(key, &doc)`).
+///
+/// For sweeping a whole bundle, prefer reading the block once via
+/// [`MmapArchive::bundle_strings`] + [`ArchivedBundleStrings::lazy_states`]; `doc()` re-reads and
+/// re-validates the block on every call.
+pub struct Doc<'a> {
+    entry: &'a ArchivedHtmlEntry,
+    frame: &'a [u8],
+    raw_len: u32,
+    decoder: &'a dyn FrameDecoder,
+    buf: OnceCell<Vec<u8>>,
+}
+
+impl<'a> Doc<'a> {
+    /// Run `f` with a query view over this document. The transient [`LazyState`] borrows the
+    /// document's owned inflate cache (`self.buf`), so repeated reads inflate the frame only once;
+    /// it lives only for the call, keeping [`Doc`] free of a self-referential field.
+    fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
+        let state = LazyState {
+            buf: &self.buf,
+            frame: self.frame,
+            base: 0,
+            len: self.raw_len,
+            decoder: self.decoder,
+        };
+        let dom = self.entry.bind(StringSource::lazy(&state));
+        f(&dom)
+    }
+}
+
+impl Debug for Doc<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Doc").finish_non_exhaustive()
+    }
+}
+
+impl DomRead for Doc<'_> {
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        self.with_dom(|dom| dom.with_view(f))
+    }
+
+    fn root(&self) -> HtmlElement<'_, Self> {
+        HtmlElement::root(self)
+    }
+
+    fn repackage(&self) -> DomInner {
+        self.with_dom(|dom| dom.repackage())
+    }
+}
+
+impl DomRef for Doc<'_> {
+    /// A view bound to the full `&self` borrow (what text accessors that return borrowed `&str`,
+    /// and the probe's node analysis, need). Unlike the lazy [`with_view`](DomRead::with_view)
+    /// path, this materialises the document's text once into the owned [`OnceCell`] (a borrowed
+    /// view cannot hand back a transient inflate buffer), then reads it zero-copy via `Plain`.
+    fn dom_view(&self) -> DomView<'_> {
+        let text = self
+            .buf
+            .get_or_init(|| self.decoder.decode(self.frame, self.raw_len as usize));
+        self.entry.bind(StringSource::plain(text)).view()
     }
 }

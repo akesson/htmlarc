@@ -5,6 +5,7 @@ mod node_counter;
 mod tests;
 
 use std::{
+    cell::OnceCell,
     collections::HashSet,
     mem,
     sync::{
@@ -21,7 +22,7 @@ use node_counter::CountedNodes;
 use crate::MmapArchive;
 use crate::args::Probe;
 use anyhow::{Context, Result, anyhow};
-use htmlarc_dom::prelude::DomRead;
+use htmlarc_dom::prelude::{DomRead, StringSource};
 
 /// Run the `probe` subcommand: open the source, parse probe expressions, count matches
 /// across all documents, and print the aggregated tree.
@@ -207,16 +208,21 @@ impl ProbeArchive for MmapArchive {
         expressions: &[ProbeExpression<'a>],
         filters: &Filter,
     ) -> CountedNodes {
-        // Read this bundle's relocated string block once, then bind each document to its segment.
+        // Read this bundle's relocated string block once, then bind each document to its (lazily
+        // inflated) frame. `bufs` and `states` are two locals so `states` can borrow `bufs`
+        // without a self-referential struct; each document inflates its text at most once, only
+        // when the analysis actually reads it.
         let range = self.bundle_range(bundle);
-        let strings = self
+        let block = self
             .bundle_strings(bundle)
             .expect("corrupt bundle string block");
+        let bufs: Vec<OnceCell<Vec<u8>>> = (0..range.len()).map(|_| OnceCell::new()).collect();
+        let states = block.lazy_states(self.decoder(), &bufs);
         let mut counter = CountedNodes::default();
         for i in range.clone() {
             let entry = &self[i];
             let key = entry.key();
-            let doc = entry.bind(strings.source_for(i - range.start));
+            let doc = entry.bind(StringSource::lazy(&states[i - range.start]));
             if filters.keep(key, &doc) {
                 counter.analyze_html(key, &doc.root(), expressions);
             } else {

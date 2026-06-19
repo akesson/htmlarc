@@ -2,26 +2,31 @@
 //!
 //! Each document's text/comment pool used to live inline in its own rkyv blob. Relocating every
 //! pool in a bundle into one [`BundleStrings`] block (written into the bundle's reserved data
-//! region, see [`crate::writer`]) is what lets a whole bundle share one storage decision: today
-//! the block is stored *uncompressed*, so a reader borrows each document's segment zero-copy
-//! ([`StringSource::Plain`]); a later step can compress the block and hand out a lazily-inflated
-//! source without the document knowing.
+//! region, see [`crate::writer`]) is what lets a whole bundle share one storage decision: each
+//! pool is compressed into its own independent zstd frame (ADR 0005, [`crate::codec`]), so a
+//! reader borrows the *compressed* frame zero-copy and inflates exactly the documents it reads,
+//! lazily, through [`StringSource::Lazy`].
 
-use htmlarc_dom::prelude::StringSource;
+use std::cell::OnceCell;
+
+use htmlarc_dom::prelude::{FrameDecoder, LazyState};
 use rkyv::{Archive, Deserialize, Serialize};
 
-/// The text/comment pools of every document in a bundle, concatenated into one byte block with a
-/// per-document offset table. `doc_offsets` has `doc_count + 1` entries (cumulative byte lengths);
-/// document `slot` owns `bytes[doc_offsets[slot]..doc_offsets[slot + 1]]`, and its node text
-/// ranges — which stay document-local — index directly into that segment.
+/// The text/comment pools of every document in a bundle, each compressed into its own zstd frame
+/// and concatenated into one byte block with two per-document offset tables. Both tables have
+/// `doc_count + 1` cumulative entries: document `slot` owns the frame
+/// `frames[frame_offsets[slot]..frame_offsets[slot + 1]]`, which inflates to a segment of
+/// `raw_offsets[slot + 1] - raw_offsets[slot]` bytes (its node text ranges — document-local —
+/// index into that inflated segment). A text-free document is a zero-length frame.
 #[derive(Archive, Serialize, Deserialize, Clone)]
 pub struct BundleStrings {
-    bytes: Vec<u8>,
-    doc_offsets: Vec<u32>,
+    frames: Vec<u8>,
+    frame_offsets: Vec<u32>,
+    raw_offsets: Vec<u32>,
 }
 
-/// An empty store with a valid (sentinel-`0`) offset table, so `push_doc` and `std::mem::take`
-/// are always sound — never a bare `Vec::new()` that would underflow `doc_count`.
+/// An empty store with valid (sentinel-`0`) offset tables, so `push_doc_frame` and
+/// `std::mem::take` are always sound — never bare `Vec::new()`s that would underflow `doc_count`.
 impl Default for BundleStrings {
     fn default() -> Self {
         Self::with_doc_capacity(0)
@@ -31,86 +36,144 @@ impl Default for BundleStrings {
 impl BundleStrings {
     /// An empty store sized for `docs` documents.
     pub fn with_doc_capacity(docs: usize) -> Self {
-        let mut doc_offsets = Vec::with_capacity(docs + 1);
-        doc_offsets.push(0);
+        let mut frame_offsets = Vec::with_capacity(docs + 1);
+        frame_offsets.push(0);
+        let mut raw_offsets = Vec::with_capacity(docs + 1);
+        raw_offsets.push(0);
         Self {
-            bytes: Vec::new(),
-            doc_offsets,
+            frames: Vec::new(),
+            frame_offsets,
+            raw_offsets,
         }
     }
 
-    /// Append one document's text segment (its former inline pool), returning its slot.
-    pub fn push_doc(&mut self, segment: &[u8]) -> usize {
-        let slot = self.doc_offsets.len() - 1;
-        self.bytes.extend_from_slice(segment);
-        self.doc_offsets.push(self.bytes.len() as u32);
+    /// Append one document's compressed `frame` (which inflates to `raw_len` bytes), returning its
+    /// slot. The caller has already run the segment through [`crate::codec::compress_segment`].
+    pub fn push_doc_frame(&mut self, frame: &[u8], raw_len: u32) -> usize {
+        let slot = self.frame_offsets.len() - 1;
+        self.frames.extend_from_slice(frame);
+        self.frame_offsets.push(self.frames.len() as u32);
+        let prev_raw = *self
+            .raw_offsets
+            .last()
+            .expect("sentinel keeps this non-empty");
+        self.raw_offsets.push(prev_raw + raw_len);
         slot
     }
 
     pub fn doc_count(&self) -> usize {
-        self.doc_offsets.len() - 1
+        self.frame_offsets.len() - 1
     }
 
     pub fn is_empty(&self) -> bool {
         self.doc_count() == 0
     }
 
-    /// Total stored byte length (the concatenated pools).
+    /// Total stored (compressed) byte length — the concatenated frames.
     pub fn byte_len(&self) -> usize {
-        self.bytes.len()
+        self.frames.len()
     }
 }
 
 impl ArchivedBundleStrings {
     /// The number of documents this block covers.
     pub fn doc_count(&self) -> usize {
-        self.doc_offsets.len() - 1
+        self.frame_offsets.len() - 1
     }
 
-    /// Document `slot`'s raw text segment.
-    pub fn segment(&self, slot: usize) -> &[u8] {
-        let start = self.doc_offsets[slot].to_native() as usize;
-        let end = self.doc_offsets[slot + 1].to_native() as usize;
-        &self.bytes[start..end]
+    /// Document `slot`'s compressed frame.
+    pub fn frame(&self, slot: usize) -> &[u8] {
+        let start = self.frame_offsets[slot].to_native() as usize;
+        let end = self.frame_offsets[slot + 1].to_native() as usize;
+        &self.frames[start..end]
     }
 
-    /// A [`StringSource`] over document `slot`'s segment — zero-copy (`Plain`) while the block is
-    /// stored uncompressed. Panics on a `slot` past the table (callers index within a validated
-    /// bundle range).
-    pub fn source_for(&self, slot: usize) -> StringSource<'_> {
-        StringSource::plain(self.segment(slot))
+    /// Document `slot`'s decompressed (raw) length — the inflated segment size, and the exact
+    /// buffer capacity its frame decodes into.
+    pub fn raw_len(&self, slot: usize) -> u32 {
+        self.raw_offsets[slot + 1].to_native() - self.raw_offsets[slot].to_native()
     }
 
-    /// Validate the offset table against the byte block: monotonic, in-bounds, and ending exactly
-    /// at the block length. A corrupt table would otherwise panic (or slice out of range) at read
-    /// time; surfacing it here keeps `MmapArchive::open` the single validation gate.
+    /// Build a per-document [`LazyState`] for every slot, each pairing this block's frame with a
+    /// caller-owned inflate cache (`bufs[slot]`) and the archive's `decoder`. The caller owns
+    /// `bufs` and the returned `Vec` as two separate values in its read scope, so nothing here is
+    /// self-referential; a bound document inflates its frame at most once, only when its text is
+    /// actually read. `bufs.len()` must be `doc_count()`.
+    pub fn lazy_states<'s>(
+        &'s self,
+        decoder: &'s dyn FrameDecoder,
+        bufs: &'s [OnceCell<Vec<u8>>],
+    ) -> Vec<LazyState<'s>> {
+        debug_assert_eq!(
+            bufs.len(),
+            self.doc_count(),
+            "one inflate cache per document"
+        );
+        (0..self.doc_count())
+            .map(|slot| LazyState {
+                buf: &bufs[slot],
+                frame: self.frame(slot),
+                base: 0,
+                len: self.raw_len(slot),
+                decoder,
+            })
+            .collect()
+    }
+
+    /// Validate the offset tables against the frame block: both cumulative, monotonic, starting at
+    /// `0`, with equal lengths (one entry per document plus a sentinel), and the frame table ending
+    /// exactly at the block length. A corrupt table would otherwise panic (or slice out of range)
+    /// at read time; surfacing it here keeps `MmapArchive::open` the single validation gate. (Frame
+    /// *contents* are checked lazily — a bad frame panics on inflate, like a bad document blob.)
     pub fn validate(&self) -> bool {
-        if self.doc_offsets.is_empty() || self.doc_offsets[0].to_native() != 0 {
+        if self.frame_offsets.len() != self.raw_offsets.len() {
             return false;
         }
-        let mut prev = 0u32;
-        for off in self.doc_offsets.iter() {
-            let v = off.to_native();
-            if v < prev {
-                return false;
-            }
-            prev = v;
+        if self.frame_offsets.is_empty()
+            || self.frame_offsets[0].to_native() != 0
+            || self.raw_offsets[0].to_native() != 0
+        {
+            return false;
         }
-        prev as usize == self.bytes.len()
+        let frame_mono = monotonic(self.frame_offsets.iter().map(|o| o.to_native()));
+        let raw_mono = monotonic(self.raw_offsets.iter().map(|o| o.to_native()));
+        if !frame_mono || !raw_mono {
+            return false;
+        }
+        self.frame_offsets[self.frame_offsets.len() - 1].to_native() as usize == self.frames.len()
     }
+}
+
+/// A cumulative offset table is monotonic non-decreasing.
+fn monotonic(offsets: impl Iterator<Item = u32>) -> bool {
+    let mut prev = 0u32;
+    for v in offsets {
+        if v < prev {
+            return false;
+        }
+        prev = v;
+    }
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::{ZstdFrameDecoder, build_compressor, compress_segment};
     use rkyv::rancor::Error;
 
+    /// Round-trip three documents (including an empty middle one) through compression + the
+    /// archived offset tables + the decoder, recovering each segment exactly.
     #[test]
     fn round_trip_segments_across_docs() {
+        let docs: [&[u8]; 3] = [b"alpha alpha alpha", b"", b"gamma! gamma! gamma!"];
+        let mut c = build_compressor().unwrap();
+
         let mut bs = BundleStrings::with_doc_capacity(3);
-        assert_eq!(bs.push_doc(b"alpha"), 0);
-        assert_eq!(bs.push_doc(b""), 1); // an empty (text-free) document
-        assert_eq!(bs.push_doc(b"gamma!"), 2);
+        for (slot, raw) in docs.iter().enumerate() {
+            let frame = compress_segment(&mut c, raw).unwrap();
+            assert_eq!(bs.push_doc_frame(&frame, raw.len() as u32), slot);
+        }
         assert_eq!(bs.doc_count(), 3);
 
         let bytes = rkyv::to_bytes::<Error>(&bs).unwrap();
@@ -118,9 +181,15 @@ mod tests {
         assert!(arch.validate());
         assert_eq!(arch.doc_count(), 3);
 
-        // Each document's segment is recovered exactly, including the empty middle one.
-        assert_eq!(arch.segment(0), b"alpha");
-        assert_eq!(arch.segment(1), b"");
-        assert_eq!(arch.segment(2), b"gamma!");
+        let decoder = ZstdFrameDecoder::new(None);
+        for (slot, raw) in docs.iter().enumerate() {
+            assert_eq!(arch.raw_len(slot) as usize, raw.len());
+            assert_eq!(
+                decoder.decode(arch.frame(slot), arch.raw_len(slot) as usize),
+                *raw
+            );
+        }
+        // The empty middle document is a zero-length frame.
+        assert!(arch.frame(1).is_empty());
     }
 }

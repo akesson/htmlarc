@@ -12,15 +12,16 @@
 //! | 24..32 | bundle-table blob length                  |
 //! | 32..40 | sort-index blob offset                    |
 //! | 40..48 | sort-index blob length                    |
-//! | 48..56 | data-region offset (vestigial)             |
-//! | 56..64 | data-region length (vestigial — always 0)  |
+//! | 48..56 | dictionary-region offset                  |
+//! | 56..64 | dictionary-region length (0 = no dict)    |
 //! | 64..72 | document count                            |
 //! | 72..80 | bundle count                              |
 //! | 80..88 | magic `b"HARCFOOT"`                       |
 //!
 //! The per-bundle string blocks are interleaved with the document blobs and located via the
-//! bundle table (each [`BundleDesc`](crate::bundle::BundleDesc) carries its own offset/length), so
-//! the old single contiguous "data region" slot is now vestigial (offset valid, length 0).
+//! bundle table (each [`BundleDesc`](crate::bundle::BundleDesc) carries its own offset/length).
+//! The old single contiguous "data region" slot now holds the archive-wide string-compression
+//! dictionary (ADR 0005); `dict_len == 0` means the strings were compressed dictionary-less.
 
 use crate::error::ArchiveErr;
 use crate::header::HEADER_LEN;
@@ -36,8 +37,8 @@ pub(crate) struct Trailer {
     pub bundle_table_len: u64,
     pub sort_index_offset: u64,
     pub sort_index_len: u64,
-    pub data_offset: u64,
-    pub data_len: u64,
+    pub dict_offset: u64,
+    pub dict_len: u64,
     pub doc_count: u64,
     pub bundle_count: u64,
 }
@@ -51,8 +52,8 @@ impl Trailer {
         b[24..32].copy_from_slice(&self.bundle_table_len.to_le_bytes());
         b[32..40].copy_from_slice(&self.sort_index_offset.to_le_bytes());
         b[40..48].copy_from_slice(&self.sort_index_len.to_le_bytes());
-        b[48..56].copy_from_slice(&self.data_offset.to_le_bytes());
-        b[56..64].copy_from_slice(&self.data_len.to_le_bytes());
+        b[48..56].copy_from_slice(&self.dict_offset.to_le_bytes());
+        b[56..64].copy_from_slice(&self.dict_len.to_le_bytes());
         b[64..72].copy_from_slice(&self.doc_count.to_le_bytes());
         b[72..80].copy_from_slice(&self.bundle_count.to_le_bytes());
         b[80..88].copy_from_slice(TRAILER_MAGIC);
@@ -85,8 +86,8 @@ impl Trailer {
             bundle_table_len: rd(24..32),
             sort_index_offset: rd(32..40),
             sort_index_len: rd(40..48),
-            data_offset: rd(48..56),
-            data_len: rd(56..64),
+            dict_offset: rd(48..56),
+            dict_len: rd(56..64),
             doc_count: rd(64..72),
             bundle_count: rd(72..80),
         };
@@ -97,7 +98,7 @@ impl Trailer {
             (t.doc_table_offset, t.doc_table_len, "doc table"),
             (t.bundle_table_offset, t.bundle_table_len, "bundle table"),
             (t.sort_index_offset, t.sort_index_len, "sort index"),
-            (t.data_offset, t.data_len, "data region"),
+            (t.dict_offset, t.dict_len, "dictionary region"),
         ] {
             let end = off
                 .checked_add(len)
