@@ -21,9 +21,7 @@ pub struct TagIter {
 impl TagIter {
     pub fn new<Dom: DomRead>(dom: &Dom) -> Self {
         let mut stack = TinyVec::new();
-        if let Some(root_child) =
-            dom.with_view(|view| view.nodes.first_child_index(NodeIndex::ROOT))
-        {
+        if let Some(root_child) = dom.with_nodes(|nodes| nodes.first_child_index(NodeIndex::ROOT)) {
             // We never include the root node, so we start with the first child
             // but since we need to iterate through the child siblings, which is
             // not done for the last element in the stack, we need to include
@@ -38,8 +36,7 @@ impl TagIter {
         match stage {
             Tag::Open(index) => {
                 self.stack.push(Tag::Close(index));
-                if let Some(child_index) = dom.with_view(|view| view.nodes.first_child_index(index))
-                {
+                if let Some(child_index) = dom.with_nodes(|nodes| nodes.first_child_index(index)) {
                     self.stack.push(Tag::Open(child_index));
                 }
             }
@@ -48,7 +45,7 @@ impl TagIter {
             // we don't iterate through the last element's siblings
             Tag::Close(_) if self.stack.is_empty() => {}
             Tag::Close(index) => {
-                if let Some(sibling) = dom.with_view(|view| view.nodes.next_sibling_index(index)) {
+                if let Some(sibling) = dom.with_nodes(|nodes| nodes.next_sibling_index(index)) {
                     self.stack.push(Tag::Open(sibling));
                 }
             }

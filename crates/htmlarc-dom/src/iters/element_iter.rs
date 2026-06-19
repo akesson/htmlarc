@@ -27,7 +27,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
     /// Iterates through all the descendants of the given element
     pub(crate) fn descendants<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_view(|view| VisitedStack::from_element(view.nodes, *index));
+        let stack = dom.with_nodes(|nodes| VisitedStack::from_element(nodes, *index));
         Self {
             dom,
             stack: stack.into(),
@@ -40,7 +40,7 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
     /// the document, which means it will also include the parent's siblings.
     pub(crate) fn forwards<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_view(|view| VisitedStack::from_root_to_element(view.nodes, *index));
+        let stack = dom.with_nodes(|nodes| VisitedStack::from_root_to_element(nodes, *index));
         Self {
             dom,
             stack: stack.into(),
@@ -139,7 +139,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for ElementIter<'dom, Dom> {
     }
 
     fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
-        let vals = self.dom.with_view(|view| self.find_next(view.nodes, true));
+        let vals = self.dom.with_nodes(|nodes| self.find_next(nodes, true));
         let depth = self.stack.borrow().len() as i16;
         vals.map(|v| (v, depth))
     }
