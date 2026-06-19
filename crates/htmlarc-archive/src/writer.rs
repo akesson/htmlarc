@@ -28,8 +28,11 @@ use fs_err::File;
 use htmlarc_dom::prelude::HtmlDoc;
 use rkyv::rancor::Error;
 
+use zstd::bulk::Compressor;
+
 use crate::bundle::BundleDesc;
 use crate::bundle_strings::BundleStrings;
+use crate::codec;
 use crate::doc_table::{self, DocEntry};
 use crate::entry::{HtmlEntry, SerializedEntry};
 use crate::error::ArchiveErr;
@@ -49,9 +52,17 @@ pub struct ArchiveWriter {
     /// One descriptor per sealed bundle, in order — built incrementally as each bundle is sealed
     /// (its string block is flushed at the same moment, so its `data_offset`/`data_len` are known).
     bundles: Vec<BundleDesc>,
-    /// The current (not-yet-sealed) bundle's relocated text — one segment per document since the
-    /// last seal. Flushed and reset by [`seal_bundle`](Self::seal_bundle).
+    /// The current (not-yet-sealed) bundle's relocated text — one compressed frame per document
+    /// since the last seal. Flushed and reset by [`seal_bundle`](Self::seal_bundle).
     cur_strings: BundleStrings,
+    /// Reused zstd context that compresses each document's text into its frame on the raw
+    /// [`push_entry`](Self::push_entry) path (the streaming convert path supplies frames already
+    /// compressed off-thread). Dictionary-less (ADR 0005).
+    compressor: Compressor<'static>,
+    /// The archive-wide string dictionary to record in the trailer, set by the two-phase convert
+    /// path via [`set_dictionary`](Self::set_dictionary). `None` ⇒ frames were compressed
+    /// dictionary-less, so an empty region (length 0) is written.
+    dict: Option<Vec<u8>>,
     /// Doc-table index at which the current bundle started.
     bundle_start_doc: usize,
     seen: HashSet<String>,
@@ -80,6 +91,8 @@ impl ArchiveWriter {
             docs: Vec::new(),
             bundles: Vec::new(),
             cur_strings: BundleStrings::default(),
+            compressor: codec::build_compressor()?,
+            dict: None,
             bundle_start_doc: 0,
             seen: HashSet::new(),
             collapsed: 0,
@@ -117,25 +130,26 @@ impl ArchiveWriter {
 
     /// Append a document that was already serialized off-thread (the parallel `convert` path
     /// serializes each entry on its worker so the coordinator never holds the live `DomInner`).
-    /// Its text pool was already relocated into [`SerializedEntry::strings`]. Same first-wins
-    /// dedup as [`push_entry`](Self::push_entry).
+    /// Its text pool was relocated into [`SerializedEntry::strings`] **and already compressed into
+    /// its frame** by the worker / two-phase coordinator (ADR 0005), so the writer stores it
+    /// verbatim. Same first-wins dedup as [`push_entry`](Self::push_entry).
     pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<(), ArchiveErr> {
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
             return Ok(());
         }
-        self.write_doc(
+        self.write_doc_frame(
             &entry.key,
             entry.key_len,
             entry.checksum,
             &entry.bytes,
             &entry.strings,
+            entry.raw_len,
         )
     }
 
-    /// Append one document's (string-less) blob, record its doc-table row, and accumulate its
-    /// relocated text into the current bundle's string block. The caller has already performed
-    /// the dedup `seen` insert. The single source of byte offsets is `self.pos`.
+    /// The raw-text append path (the in-memory builder's [`push_entry`](Self::push_entry)):
+    /// compress the pool here, dictionary-less, then store it like any frame.
     fn write_doc(
         &mut self,
         key: &str,
@@ -144,13 +158,30 @@ impl ArchiveWriter {
         bytes: &[u8],
         strings: &[u8],
     ) -> Result<(), ArchiveErr> {
+        let frame = codec::compress_segment(&mut self.compressor, strings)?;
+        self.write_doc_frame(key, key_len, checksum, bytes, &frame, strings.len() as u32)
+    }
+
+    /// Append one document's (string-less) blob, record its doc-table row, and accumulate its
+    /// already-compressed text `frame` (inflating to `raw_len` bytes) into the current bundle's
+    /// string block. The caller has already performed the dedup `seen` insert. The single source
+    /// of byte offsets is `self.pos`.
+    fn write_doc_frame(
+        &mut self,
+        key: &str,
+        key_len: u16,
+        checksum: u64,
+        bytes: &[u8],
+        frame: &[u8],
+        raw_len: u32,
+    ) -> Result<(), ArchiveErr> {
         let offset = self.pos;
         let len = bytes.len() as u64;
         self.out.write_all(bytes).map_err(ArchiveErr::FileWrite)?;
         self.pos += len;
         self.pad_to_align()?;
 
-        self.cur_strings.push_doc(strings);
+        self.cur_strings.push_doc_frame(frame, raw_len);
         self.docs.push(DocEntry {
             key: key.to_string(),
             key_len,
@@ -159,6 +190,13 @@ impl ArchiveWriter {
             len,
         });
         Ok(())
+    }
+
+    /// Record the archive-wide string dictionary, written into the trailer's dictionary region by
+    /// [`finish`](Self::finish). The two-phase convert path calls this once, after training; the
+    /// frames it then streams must have been compressed against this same dictionary.
+    pub fn set_dictionary(&mut self, dict: Option<Vec<u8>>) {
+        self.dict = dict;
     }
 
     /// Write zero padding so the next write starts on an 8-byte boundary.
@@ -235,12 +273,19 @@ impl ArchiveWriter {
 
         let sort_index = self.build_sort_index();
 
-        // The per-bundle string blocks are interleaved with the document blobs (each `BundleDesc`
-        // records its own `data_offset`/`data_len`), so the trailer's data-region slot is
-        // vestigial: record an empty region at the current position to keep its bounds valid.
+        // The string-compression dictionary region (ADR 0005): the trained dictionary if the
+        // two-phase convert path supplied one, else an empty region (length 0) — every frame was
+        // then compressed dictionary-less. Either way the bounds stay valid.
         self.pad_to_align()?;
-        let data_offset = self.pos;
-        let data_len = 0u64;
+        let dict_offset = self.pos;
+        let dict_len = match self.dict.take() {
+            Some(dict) => {
+                let (off, len) = self.write_blob(&dict)?;
+                debug_assert_eq!(off, dict_offset);
+                len
+            }
+            None => 0,
+        };
 
         // The doc table is already in arrival (== bundle→doc) order.
         let doc_bytes = rkyv::to_bytes::<Error>(&self.docs)
@@ -260,8 +305,8 @@ impl ArchiveWriter {
             bundle_table_len,
             sort_index_offset,
             sort_index_len,
-            data_offset,
-            data_len,
+            dict_offset,
+            dict_len,
             doc_count: self.docs.len() as u64,
             bundle_count: self.bundles.len() as u64,
         };

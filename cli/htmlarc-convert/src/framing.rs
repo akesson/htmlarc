@@ -59,10 +59,13 @@ pub(crate) fn run(args: Framing) -> Result<()> {
     let mut bundles: Bundles = Vec::new();
     for path in &input {
         let mmap = MmapArchive::open(path)?;
+        let decoder = mmap.decoder();
         for b in 0..mmap.bundle_count() {
             let bs = mmap.bundle_strings(b)?;
+            // The block now stores compressed per-document frames (format v10); inflate each back
+            // to its raw text so the framing experiments run on the same bytes as before.
             let docs = (0..bs.doc_count())
-                .map(|slot| bs.segment(slot).to_vec())
+                .map(|slot| decoder.decode(bs.frame(slot), bs.raw_len(slot) as usize))
                 .collect();
             bundles.push(docs);
         }

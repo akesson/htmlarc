@@ -199,25 +199,27 @@ pub(crate) fn thread_count() -> usize {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |p| p.get()))
 }
 
-/// Run `process(rank)` for every run in parallel, then call `emit` with each result on the
-/// coordinator thread in ascending rank order. A permit semaphore caps runs in flight so peak
-/// memory is bounded; the deterministic rank order makes the emitted sequence independent of
-/// the thread count.
-pub(crate) fn drive_runs_parallel<R, P, E>(run_count: usize, process: P, mut emit: E)
+/// Run `process(rank)` for every run in `ranks` in parallel, then call `emit` with each result on
+/// the coordinator thread in ascending rank order. A permit semaphore caps runs in flight so peak
+/// memory is bounded; the deterministic rank order makes the emitted sequence independent of the
+/// thread count. The range lets the two-phase convert (ADR 0005) process a warm-up prefix
+/// separately and then stream `warmup_runs..run_count` here once the dictionary is trained.
+pub(crate) fn drive_runs_parallel<R, P, E>(ranks: std::ops::Range<usize>, process: P, mut emit: E)
 where
     R: Send,
     P: Fn(usize) -> R + Sync,
     E: FnMut(R),
 {
-    if run_count == 0 {
+    if ranks.is_empty() {
         return;
     }
+    let run_end = ranks.end;
     let threads = thread_count();
     // >= threads keeps every worker busy; the slack absorbs out-of-order completion so the
     // reorder buffer (and thus peak memory) stays bounded.
     let in_flight_cap = (threads * 2).max(threads + 4);
 
-    let next_rank = AtomicUsize::new(0);
+    let next_rank = AtomicUsize::new(ranks.start);
     let permits = Semaphore::new(in_flight_cap);
     let (tx, rx) = mpsc::channel::<(usize, R)>();
     let process = &process;
@@ -240,7 +242,7 @@ where
                         // are resident at once.
                         permits.acquire();
                         let rank = next_rank.fetch_add(1, Ordering::SeqCst);
-                        if rank >= run_count {
+                        if rank >= run_end {
                             permits.release();
                             break;
                         }
@@ -258,7 +260,7 @@ where
         // Coordinator: reassemble in ascending rank order; release a permit only as a run is
         // emitted, keeping memory bounded.
         let mut buffer: BTreeMap<usize, R> = BTreeMap::new();
-        let mut next_emit = 0usize;
+        let mut next_emit = ranks.start;
         for (rank, result) in rx {
             buffer.insert(rank, result);
             while let Some(result) = buffer.remove(&next_emit) {

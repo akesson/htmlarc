@@ -17,7 +17,7 @@ pub(crate) use ext_tags::{EXT_BASE, EXT_OVERFLOW, ExtTags, ExtTagsView};
 // Class and attribute lists are contiguous runs of bare ids, so `dom`/`accessors` reach the
 // run arena directly rather than through a list-specific store.
 pub(crate) use runs::{RunIndex, RunRebuilder, RunValues, RunVec, RunVecView};
-pub use string_source::StringSource;
+pub use string_source::{FrameDecoder, LazyState, StringSource};
 pub use stringstack::StringStack;
 pub use symbols::Class;
 pub(crate) use symbols::{Sym, SymbolTable, SymbolTableBuilder, SymbolTableView};
