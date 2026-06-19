@@ -1,6 +1,6 @@
 pub(crate) use super::nodes::Nodes;
 use super::nodes::TopologyReport;
-use super::{DomRead, DomRef, DomView, NodeIndex};
+use super::{DomRead, DomRef, DomView, NodeIndex, NodesView};
 use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
@@ -440,6 +440,10 @@ impl Debug for ArchivedDom<'_> {
 impl DomRead for ArchivedDom<'_> {
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
+    }
+
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.inner.nodes.view())
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {

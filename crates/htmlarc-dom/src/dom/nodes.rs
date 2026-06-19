@@ -172,7 +172,7 @@ pub(crate) struct Nodes {
 /// byte-identical `&[u8]`). This is what makes zero-copy querying of an mmap'd
 /// archive possible without re-parsing or deserializing — at either width.
 #[derive(Clone, Copy)]
-pub(crate) struct NodesView<'a> {
+pub struct NodesView<'a> {
     width: NodeWidth,
     bytes: &'a [u8],
 }
@@ -187,24 +187,24 @@ impl<'a> NodesView<'a> {
         index.as_usize() * self.width.node_size()
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.bytes.len() / self.width.node_size()
     }
 
-    pub fn is_string_node(&self, index: NodeIndex) -> bool {
+    pub(crate) fn is_string_node(&self, index: NodeIndex) -> bool {
         let tag = self.tag(index);
         tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment
     }
 
-    pub fn is_inline_element(&self, index: NodeIndex) -> bool {
+    pub(crate) fn is_inline_element(&self, index: NodeIndex) -> bool {
         self.tag(index).is_inline_element()
     }
 
-    pub fn is_block_element(&self, index: NodeIndex) -> bool {
+    pub(crate) fn is_block_element(&self, index: NodeIndex) -> bool {
         self.tag(index).is_block_element()
     }
 
-    pub fn tag(&self, index: NodeIndex) -> HtmlTag {
+    pub(crate) fn tag(&self, index: NodeIndex) -> HtmlTag {
         let byte = self.tag_byte(index);
         if byte >= EXT_BASE {
             // A vocab index or the overflow sentinel — an extended (custom/unknown) tag.
@@ -222,7 +222,7 @@ impl<'a> NodesView<'a> {
         self.bytes[self.base(index)]
     }
 
-    pub fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn parent_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         read_node_slot(
             self.bytes,
             self.base(index) + self.width.parent(),
@@ -230,15 +230,15 @@ impl<'a> NodesView<'a> {
         )
     }
 
-    pub fn prev_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn prev_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         read_node_slot(self.bytes, self.base(index) + self.width.prev(), self.width)
     }
 
-    pub fn next_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn next_sibling_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         read_node_slot(self.bytes, self.base(index) + self.width.next(), self.width)
     }
 
-    pub fn first_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn first_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         match self.is_string_node(index) {
             true => None,
             false => read_node_slot(
@@ -249,14 +249,14 @@ impl<'a> NodesView<'a> {
         }
     }
 
-    pub fn last_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
+    pub(crate) fn last_child_index(&self, index: NodeIndex) -> Option<NodeIndex> {
         match self.is_string_node(index) {
             true => None,
             false => read_node_slot(self.bytes, self.base(index) + self.width.last(), self.width),
         }
     }
 
-    pub fn text_range(&self, index: NodeIndex) -> Range<u32> {
+    pub(crate) fn text_range(&self, index: NodeIndex) -> Range<u32> {
         debug_assert!(self.is_string_node(index));
         let base = self.base(index);
         let start = read_u32_slot(self.bytes, base + self.width.text_start());
@@ -264,7 +264,7 @@ impl<'a> NodesView<'a> {
         start..end
     }
 
-    pub fn class_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
+    pub(crate) fn class_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         if self.is_string_node(index) {
             None
         } else {
@@ -272,7 +272,7 @@ impl<'a> NodesView<'a> {
         }
     }
 
-    pub fn attr_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
+    pub(crate) fn attr_list_index(&self, index: NodeIndex) -> Option<RunIndex> {
         if self.is_string_node(index) {
             None
         } else {
