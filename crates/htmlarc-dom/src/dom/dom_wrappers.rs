@@ -17,6 +17,12 @@ pub trait DomRead
 where
     Self: Sized + Debug,
 {
+    /// `true` ⇒ the backing cannot change while a walk over it is live, so iterators may skip
+    /// the per-step mutation-recovery in [`VisitedStack::last_updated`](crate::iters). Every
+    /// backing is immutable during a `&self` read except [`DomRefCell`], which leaves this
+    /// `false` (the conservative default) so mutate-while-iterating stays correct.
+    const IS_IMMUTABLE: bool = false;
+
     /// Run `f` with a borrowed [`DomView`]. The closure form (rather than returning
     /// the view) is what lets [`DomRefCell`] scope its `RefCell` borrow guard.
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R;
@@ -51,6 +57,8 @@ pub trait DomRef: DomRead {
 }
 
 impl DomRead for DomInner {
+    const IS_IMMUTABLE: bool = true;
+
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
     }

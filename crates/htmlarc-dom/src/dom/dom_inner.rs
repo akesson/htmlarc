@@ -439,6 +439,8 @@ impl Debug for ArchivedDom<'_> {
 }
 
 impl DomRead for ArchivedDom<'_> {
+    const IS_IMMUTABLE: bool = true;
+
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
     }
