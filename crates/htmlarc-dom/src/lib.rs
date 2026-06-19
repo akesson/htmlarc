@@ -42,7 +42,7 @@ pub mod prelude {
         CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
         RevElementIter, Tag, TagIter,
     };
-    pub use crate::stores::{AttrName, Attribute, Class, StringSource};
+    pub use crate::stores::{AttrName, Attribute, Class, FrameDecoder, LazyState, StringSource};
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

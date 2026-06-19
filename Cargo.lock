@@ -810,6 +810,7 @@ dependencies = [
  "seahash",
  "thiserror 2.0.18",
  "unicode-segmentation",
+ "zstd 0.13.3",
 ]
 
 [[package]]
