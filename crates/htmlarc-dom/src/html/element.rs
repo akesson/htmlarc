@@ -40,12 +40,12 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     fn with_nodes<R, F: Fn(NodesView) -> R>(&self, f: F) -> R {
-        self.dom.with_view(|view| f(view.nodes))
+        self.dom.with_nodes(f)
     }
 
     fn with_nodes_new<F: Fn(NodesView) -> Option<NodeIndex>>(&self, f: F) -> Option<Self> {
         self.dom
-            .with_view(|view| f(view.nodes).map(|index| self.new_with_index(index)))
+            .with_nodes(|nodes| f(nodes).map(|index| self.new_with_index(index)))
     }
 
     fn with_view<R, F: Fn(DomView) -> R>(&self, f: F) -> R {

@@ -31,6 +31,7 @@ pub mod prelude {
     pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
         ArchivedDom, ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
+        NodesView,
     };
     pub use crate::error::{
         ElementError, HtmlParseError, HtmlParseResult, IterationError, Locatable, LocatedError,
@@ -96,7 +97,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:98 fn location_test"
+        "htmlarc-dom::lib.rs:99 fn location_test"
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

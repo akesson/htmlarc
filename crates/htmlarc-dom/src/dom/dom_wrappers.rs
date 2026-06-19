@@ -2,7 +2,7 @@ use std::cell::{RefCell, RefMut};
 use std::fmt::Debug;
 
 use crate::{
-    dom::{DomInner, DomView, NodeIndex},
+    dom::{DomInner, DomView, NodeIndex, NodesView},
     fmt::HtmlFormat,
 };
 
@@ -20,6 +20,16 @@ where
     /// Run `f` with a borrowed [`DomView`]. The closure form (rather than returning
     /// the view) is what lets [`DomRefCell`] scope its `RefCell` borrow guard.
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R;
+
+    /// Run `f` with just the topology sub-view ([`NodesView`]). Backings override this to build
+    /// *only* the nodes view (a width enum + a borrowed slice), skipping the five other sub-views
+    /// that [`Self::with_view`] assembles. The hot traversal path — sibling/child walks and the
+    /// tag reads that drive text/comment skipping — needs topology alone, so this avoids rebuilding
+    /// the full [`DomView`] ~2-3× per element. The default delegates to [`with_view`](Self::with_view)
+    /// so a backing is correct without overriding, just unoptimized.
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        self.with_view(|view| f(view.nodes))
+    }
 
     fn root(&self) -> HtmlElement<'_, Self>;
 
@@ -43,6 +53,10 @@ pub trait DomRef: DomRead {
 impl DomRead for DomInner {
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
+    }
+
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.nodes.view())
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {
@@ -82,6 +96,10 @@ impl DomRefCell {
 impl DomRead for DomRefCell {
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.dom.borrow().view())
+    }
+
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        f(self.dom.borrow().nodes.view())
     }
 
     fn root(&self) -> HtmlElement<'_, DomRefCell> {

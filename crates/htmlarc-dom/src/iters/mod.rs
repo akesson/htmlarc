@@ -35,14 +35,14 @@ pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'d
     fn include_text(&self) -> bool;
     fn next_element(&self) -> Option<HtmlElement<'dom, Dom>> {
         loop {
-            let el = self
-                .next_index_and_depth()
-                .map(|(index, _)| HtmlElement::new(self.dom(), index))?;
+            let (index, _) = self.next_index_and_depth()?;
+            let el = HtmlElement::new(self.dom(), index);
+            let tag = el.tag();
 
-            if el.tag() == HtmlTag::sys_text && !self.include_text() {
+            if tag == HtmlTag::sys_text && !self.include_text() {
                 continue;
             }
-            if el.tag() == HtmlTag::sys_comment && !self.include_comment() {
+            if tag == HtmlTag::sys_comment && !self.include_comment() {
                 continue;
             }
 
