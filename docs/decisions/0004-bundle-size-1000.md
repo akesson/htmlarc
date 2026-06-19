@@ -4,8 +4,11 @@
 - **Date:** 2026-06-17
 - **Scope:** `crates/htmlarc-archive` (`BUNDLE_CAP`), `cli/htmlarc-convert` (convert peak memory)
 - **Companion:** sizes the bundle that [0001](0001-string-storage-lanes.md) compresses and
-  [0002](0002-unified-symbol-stores-extended-names.md) shares symbols within; the
-  per-bundle data region those lanes will populate is still reserved (empty) on disk.
+  [0002](0002-unified-symbol-stores-extended-names.md) shares symbols within. The per-bundle data
+  region was reserved-but-empty when this ADR shipped; it is **now populated** by the Lane B text
+  block ([0006](0006-per-bundle-string-relocation.md) format v9, compressed by
+  [0005](0005-per-document-string-compression.md) format v10). The measurements below predate that
+  and modelled the cost as a bet — borne out at ~+0.4% on general web.
 
 ## Context
 
@@ -141,4 +144,7 @@ would be a bigger archive share; the window-saturation argument predicts a small
 but it is unmeasured (the 8.5 GB `wiktionary_en` was out of scope for this pass). If such a corpus
 ever becomes size-critical, re-measure and prefer the decoupling path over a larger `BUNDLE_CAP`.
 The harness (`SPIKE_INPUT`/`SPIKE_LANE`/`SPIKE_LEVEL`, ignored test) is kept for that and for
-re-measuring once Lane B lands.
+re-measuring.
+
+**Update (Lane B landed):** Lane B text relocation+compression shipped ([0006] v9 + [0005] v10).
+On `cc_000` the measured whole-archive cost of `BUNDLE_CAP = 1,000` held — the 1k decision stands.

@@ -6,9 +6,9 @@
   `crates/htmlarc-dom` (`StringSource`/`FrameDecoder` seam), `cli/htmlarc-convert` (two-phase
   convert)
 - **Companion:** compresses the Lane B text block that [0001](0001-string-storage-lanes.md)
-  reserved and [0009 format v9] relocated into the per-bundle
-  [`BundleStrings`](../../crates/htmlarc-archive/src/bundle_strings.rs) region; sized against the
-  bundle of [0004](0004-bundle-size-1000.md).
+  reserved and [0006](0006-per-bundle-string-relocation.md) (format v9) relocated into the
+  per-bundle [`BundleStrings`](../../crates/htmlarc-archive/src/bundle_strings.rs) region; sized
+  against the bundle of [0004](0004-bundle-size-1000.md).
 
 ## Context
 

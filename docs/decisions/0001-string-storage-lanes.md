@@ -1,6 +1,11 @@
 # 0001 — Two-lane, per-bundle string storage
 
-- **Status:** Accepted (pending implementation)
+- **Status:** Accepted — partially implemented. **Lane B compression shipped** (relocation in
+  [0006](0006-per-bundle-string-relocation.md) format v9; compression in
+  [0005](0005-per-document-string-compression.md) format v10). **Lane A index-comparison search +
+  per-bundle shared dictionary deferred** ([0002](0002-unified-symbol-stores-extended-names.md)
+  PR 7 — only ~4.3% of the compressed general-web archive; the query path resolves doc-local
+  anyway). Lane A storage (per-doc dedup via the unified `SymbolTable`) did ship in 0002.
 - **Date:** 2026-06-10
 - **Scope:** `htmlarc-archive` (on-disk format) and `htmlarc-dom` (`DomInner` stores, query layer)
 - **Supersedes:** the per-bundle shared-string-pool sketch reserved by the v4 `BundleDesc { data_offset, data_len }` slot
@@ -155,8 +160,12 @@ shared mutable state across workers.
 
 ## Open questions (tuning, not blocking)
 
-- Lane B framing: per-bundle frame vs. per-document-with-per-bundle-dictionary — decided by
-  whether the dominant workload is bundle-sequential (`probe`) or single-document (serving).
+- ~~Lane B framing: per-bundle frame vs. per-document-with-per-bundle-dictionary.~~ **Resolved by
+  [0005]:** per-**document** frames against one **archive-wide** dictionary — *diverging* from this
+  ADR's per-bundle leaning. Per-document framing keeps single-document random access ≈ sequential
+  (a per-bundle frame must inflate the whole bundle to read one document); a single global
+  dictionary trains once instead of per bundle and is a safe floor on multilingual data. See [0005]
+  for the measurements that forced the divergence.
 - Reserved Lane A range size (1000 is a reasonable start for classes; per-name spaces).
 - The cardinality threshold for routing non-searched attributes to Lane B.
 - Attribute substring operators (`[href^=…]`, `*=`, `$=`) cannot use the index; they
