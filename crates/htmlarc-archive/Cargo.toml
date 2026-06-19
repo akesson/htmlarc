@@ -17,8 +17,6 @@ unicode-segmentation = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
-# `css!(...)` (compile-time-checked selectors) for the `wiktionary` example.
-htmlarc-macros = { workspace = true }
 anyhow = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 

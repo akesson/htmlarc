@@ -804,7 +804,6 @@ dependencies = [
  "criterion",
  "fs-err",
  "htmlarc-dom",
- "htmlarc-macros",
  "memmap2",
  "rkyv",
  "seahash",
@@ -848,13 +847,6 @@ dependencies = [
  "strum_macros",
  "thiserror 2.0.18",
  "tinyvec",
-]
-
-[[package]]
-name = "htmlarc-macros"
-version = "0.1.0"
-dependencies = [
- "htmlarc-dom",
 ]
 
 [[package]]
