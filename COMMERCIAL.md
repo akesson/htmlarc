@@ -24,8 +24,8 @@ under the AGPL.
 ## What it covers
 
 A commercial license covers the **whole project** — the core crates (`htmlarc-dom`,
-`htmlarc-archive`, `htmlarc-macros`), the `htmlarc` and `htmlarc-convert` CLIs, and any future
-official Python or MCP-server bindings.
+`htmlarc-archive`), the `htmlarc` and `htmlarc-convert` CLIs, and any future official Python or
+MCP-server bindings.
 
 ## Pricing & contact
 
