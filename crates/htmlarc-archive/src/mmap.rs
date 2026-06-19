@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use htmlarc_dom::prelude::{
     ArchivedDom, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement, LazyState,
-    StringSource,
+    NodesView, StringSource,
 };
 use memmap2::Mmap;
 use rkyv::rancor::Error;
@@ -487,6 +487,10 @@ impl Debug for Doc<'_> {
 impl DomRead for Doc<'_> {
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         self.with_dom(|dom| dom.with_view(f))
+    }
+
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        self.with_dom(|dom| dom.with_nodes(f))
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {

@@ -27,7 +27,7 @@ pub struct RevElementIter<'dom, Dom> {
 impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
     pub(crate) fn reverse(element: &HtmlElement<'dom, Dom>) -> Self {
         let HtmlElement { dom, index } = element;
-        let stack = dom.with_view(|view| SimpleStack::from_root_to_element(view.nodes, *index));
+        let stack = dom.with_nodes(|nodes| SimpleStack::from_root_to_element(nodes, *index));
 
         Self {
             dom: *dom,
@@ -128,7 +128,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RevElementIter<'dom, Dom> {
     }
 
     fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
-        self.dom().with_view(|view| self.next_dom_inner(view.nodes))
+        self.dom().with_nodes(|nodes| self.next_dom_inner(nodes))
     }
 
     fn set_include_comment(mut self) -> Self {
