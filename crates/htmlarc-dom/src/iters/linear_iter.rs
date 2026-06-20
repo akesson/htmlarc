@@ -207,8 +207,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::css::parse_css;
-    use crate::dom::{DomRead, NodeIndex};
-    use crate::html::{HtmlDoc, HtmlElement, HtmlTag};
+    use crate::dom::DomRead;
+    use crate::html::{HtmlDoc, HtmlTag};
     use crate::iters::DomIterator;
 
     // Same shape as the ElementIter/RevElementIter fixtures: nested elements, text, comments.
@@ -433,6 +433,11 @@ mod tests {
     #[cfg(debug_assertions)]
     #[should_panic(expected = "non-contiguous blob")]
     fn linear_sweep_over_dirty_dominner_panics() {
+        // Imported here, not at module scope: this test is the only user, and it is compiled out in
+        // the bench profile (debug_assertions off), where a module-level import would be unused.
+        use crate::dom::NodeIndex;
+        use crate::html::HtmlElement;
+
         let dom = HtmlDoc::parse("<body><div>x</div><span>y</span></body>")
             .unwrap()
             .dom_ref_cell();
