@@ -53,17 +53,33 @@ impl<'dom, Dom> Clone for LinearSweep<'dom, Dom> {
     }
 }
 
-/// Cheap smoke-test of the [`ContiguousDfs`] contract at the range's front boundary. A full
-/// [`NodesView::is_contiguous_dfs`] scan would be O(n) per construction and turn nested descendant
-/// walks O(n²) in debug builds, so we only spot-check the first node we will emit.
+/// Debug-only guard on the [`ContiguousDfs`] contract at `LinearSweep` construction (compiled out
+/// in release). On normal-size blobs it runs the full [`NodesView::is_contiguous_dfs`] scan, which
+/// catches a dead slot *anywhere* in the range — the tripwire for any future internal code that
+/// builds a linear walk over a mid-mutation `DomInner` instead of using `forwards_walk`/
+/// `descendants_walk`. Above `FULL_SCAN_LIMIT` it falls back to a front-boundary spot-check so a
+/// `:has` query (one construction per candidate) can't go quadratic on a large document; every real
+/// fixture is far below the cap, so they get the full check.
 #[inline]
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
 fn debug_check_contiguous(nodes: NodesView, front: u32, back: u32) {
     debug_assert!(front <= back, "LinearSweep front {front} past back {back}");
-    if front < back && front > 0 {
-        debug_assert!(
-            matches!(nodes.parent_index(NodeIndex::new(front)), Some(p) if p.as_u32() < front),
-            "LinearSweep over a non-contiguous blob (dead slot at index {front}?)"
-        );
+    #[cfg(debug_assertions)]
+    {
+        const FULL_SCAN_LIMIT: usize = 8192;
+        if nodes.len() <= FULL_SCAN_LIMIT {
+            assert!(
+                nodes.is_contiguous_dfs(),
+                "LinearSweep over a non-contiguous blob (dead slot present) — a dirty DomInner \
+                 must iterate via forwards_walk/descendants_walk, not the dispatched forwards/\
+                 descendants"
+            );
+        } else if front < back && front > 0 {
+            assert!(
+                matches!(nodes.parent_index(NodeIndex::new(front)), Some(p) if p.as_u32() < front),
+                "LinearSweep over a non-contiguous blob (dead slot at index {front}?)"
+            );
+        }
     }
 }
 
@@ -191,8 +207,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::css::parse_css;
-    use crate::dom::DomRead;
-    use crate::html::{HtmlDoc, HtmlTag};
+    use crate::dom::{DomRead, NodeIndex};
+    use crate::html::{HtmlDoc, HtmlElement, HtmlTag};
     use crate::iters::DomIterator;
 
     // Same shape as the ElementIter/RevElementIter fixtures: nested elements, text, comments.
@@ -408,5 +424,28 @@ mod tests {
             !contiguous,
             "a removed-but-not-rebuilt DomInner must fail the check"
         );
+    }
+
+    /// The construction guard fires: building a `LinearSweep` over a dirty (dead-slotted) `DomInner`
+    /// panics in debug builds. This is the tripwire for future internal code that forgets `*_walk`
+    /// on a mid-mutation blob. (Debug-only: the guard is compiled out of release.)
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "non-contiguous blob")]
+    fn linear_sweep_over_dirty_dominner_panics() {
+        let dom = HtmlDoc::parse("<body><div>x</div><span>y</span></body>")
+            .unwrap()
+            .dom_ref_cell();
+        let div = dom
+            .root()
+            .forwards()
+            .find(|e| e.tag() == HtmlTag::div)
+            .unwrap();
+        div.remove(); // leaves a dead slot
+        dom.with_mut(|inner| {
+            // Forcing the dispatched (linear) walk over the dirty bare &DomInner is the bug the
+            // guard catches — constructing it runs `debug_check_contiguous`, which panics here.
+            let _ = HtmlElement::new(&*inner, NodeIndex::ROOT).forwards();
+        });
     }
 }

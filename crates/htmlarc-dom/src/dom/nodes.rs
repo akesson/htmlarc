@@ -213,8 +213,9 @@ impl<'a> NodesView<'a> {
     /// parent that precedes it in index order. A freshly parsed/rebuilt/archived blob satisfies
     /// this; a `DomInner` with removed-but-not-rebuilt nodes does not (a dead slot's parent is
     /// `None`). This is why a linear (index-order) walk is gated on the *blob*, not on
-    /// `DomRead::IS_IMMUTABLE`. O(n) — test-only (the hot path spot-checks only the range boundary).
-    #[cfg(test)]
+    /// `DomRead::IS_IMMUTABLE`. O(n) — used by `LinearSweep`'s debug-build construction guard and by
+    /// tests; compiled out of release.
+    #[cfg(any(debug_assertions, test))]
     pub(crate) fn is_contiguous_dfs(&self) -> bool {
         (1..self.len()).all(
             |i| matches!(self.parent_index(NodeIndex::new(i as u32)), Some(p) if p.as_usize() < i),
