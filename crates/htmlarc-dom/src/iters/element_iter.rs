@@ -66,13 +66,21 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<NodeIndex> {
-        // update the stack for any changes to the current (already visited) element.
-
-        let index = match self.stack.borrow_mut().last_updated(nodes) {
-            VisitedStatus::StackEmpty => return None,
-            VisitedStatus::Changed(i) => return Some(i),
-            VisitedStatus::Same(i) => i,
+        // Resolve the current (already visited) stack-top. An immutable backing cannot change
+        // between steps, so the top is always still valid — we skip `last_updated`'s per-step
+        // `parent_index` re-read and ordinal recovery (`Dom::IS_IMMUTABLE` is a compile-time
+        // const, so the dead branch is removed per monomorphization). Mutable backings
+        // (`DomRefCell`) keep the full mutation-recovery path.
+        let index = if Dom::IS_IMMUTABLE {
+            self.stack.borrow().last()?
+        } else {
+            match self.stack.borrow_mut().last_updated(nodes) {
+                VisitedStatus::StackEmpty => return None,
+                VisitedStatus::Changed(i) => return Some(i),
+                VisitedStatus::Same(i) => i,
+            }
         };
 
         if go_deeper && let Some(child) = nodes.first_child_index(index) {
@@ -138,10 +146,8 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for ElementIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
-        let vals = self.dom.with_nodes(|nodes| self.find_next(nodes, true));
-        let depth = self.stack.borrow().len() as i16;
-        vals.map(|v| (v, depth))
+    fn next_index(&self) -> Option<NodeIndex> {
+        self.dom.with_nodes(|nodes| self.find_next(nodes, true))
     }
 
     fn set_include_comment(mut self) -> Self {

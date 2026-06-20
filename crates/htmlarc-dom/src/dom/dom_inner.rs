@@ -370,6 +370,7 @@ impl ArchivedDomInner {
     /// sub-views borrow directly from the (mmap'd) archived bytes; the *text* pool is supplied
     /// separately as a [`StringSource`] because a relocated document's strings live in its bundle,
     /// not in its own blob. [`ArchivedDom`] pairs the two.
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(crate) fn view_with<'a>(&'a self, strings: StringSource<'a>) -> DomView<'a> {
         DomView::new(
             self.nodes.view(),
@@ -438,6 +439,8 @@ impl Debug for ArchivedDom<'_> {
 }
 
 impl DomRead for ArchivedDom<'_> {
+    const IS_IMMUTABLE: bool = true;
+
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
     }
