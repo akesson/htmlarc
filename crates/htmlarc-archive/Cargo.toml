@@ -39,3 +39,7 @@ name = "select_vs_scraper"
 [[bench]]
 harness = false
 name = "string_access"
+
+[[bench]]
+harness = false
+name = "select_linear_vs_stack"

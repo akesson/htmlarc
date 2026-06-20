@@ -2,11 +2,14 @@ mod chars_iter;
 mod element_iter;
 mod element_iter_rev;
 mod exactly_iter;
+mod linear_iter;
 mod match_iter;
 mod node_chars;
 mod relative_iter;
 mod stack;
 mod tag_iter;
+
+use std::ops::RangeBounds;
 
 use crate::{
     css::SelectorList,
@@ -17,6 +20,8 @@ use crate::{
 pub use chars_iter::CharsIter;
 pub use element_iter::ElementIter;
 pub use element_iter_rev::RevElementIter;
+use exactly_iter::Exactly;
+pub use linear_iter::LinearSweep;
 pub use match_iter::MatchIter;
 pub use relative_iter::RelativeIter;
 use stack::{VisitedStack, VisitedStatus};
@@ -72,6 +77,15 @@ pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'d
         Self: Sized,
     {
         MatchIter::new(self, selectors)
+    }
+    /// Wrap this walk in an [`Exactly`] cardinality check over `range`. Provided on the trait so
+    /// every `DomIterator` (tree-walk or [`LinearSweep`]) shares one implementation. (`MatchIter`
+    /// is `Iterator`-only, not a `DomIterator`, so it keeps its own inherent `exactly`.)
+    fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self>
+    where
+        Self: Sized,
+    {
+        Exactly::new(self, range)
     }
 }
 

@@ -206,12 +206,39 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         HtmlElement::new(dom, self.index())
     }
 
-    pub fn descendants(&self) -> ElementIter<'dom, Dom> {
-        ElementIter::descendants(self)
+    /// Iterates this element's descendants in document order. The iterator is the backing's choice
+    /// ([`DomRead::Descendants`]): the layout-exploiting [`LinearSweep`](crate::iters::LinearSweep)
+    /// for immutable/contiguous backings (mmap, fresh-parsed `DomInner`), the tree-walking
+    /// [`ElementIter`] for the mutable `DomRefCell`. Same element stream either way.
+    pub fn descendants(&self) -> Dom::Descendants<'dom> {
+        self.dom.descendants_from(self.index)
     }
 
-    pub fn forwards(&self) -> ElementIter<'dom, Dom> {
-        ElementIter::forwards(self)
+    /// Iterates from this element to the end of the document in document order (so it also yields
+    /// the element's later siblings, its parent's later siblings, etc.). Backing-chosen iterator —
+    /// see [`descendants`](Self::descendants).
+    pub fn forwards(&self) -> Dom::Forward<'dom> {
+        self.dom.forward_from(self.index)
+    }
+
+    /// Like [`descendants`](Self::descendants) but always the tree-walking [`ElementIter`], even on
+    /// a contiguous backing. The mutation-safe, dead-slot-skipping walk — used by `rebuild` (whose
+    /// input may contain dead slots) and as the A/B counterpart in the iterator benchmark.
+    ///
+    /// Not part of the advertised API (`#[doc(hidden)]`): on an immutable backing
+    /// [`descendants`](Self::descendants) is already correct *and* faster, and on `DomRefCell` it is
+    /// already the tree-walk — so normal callers never need this. It stays `pub` only so the
+    /// out-of-crate benchmark can force the tree-walk to isolate the iterator cost.
+    #[doc(hidden)]
+    pub fn descendants_walk(&self) -> ElementIter<'dom, Dom> {
+        ElementIter::descendants_at(self.dom, self.index)
+    }
+
+    /// Like [`forwards`](Self::forwards) but always the tree-walking [`ElementIter`] — see
+    /// [`descendants_walk`](Self::descendants_walk) for why this is `#[doc(hidden)]`.
+    #[doc(hidden)]
+    pub fn forwards_walk(&self) -> ElementIter<'dom, Dom> {
+        ElementIter::forwards_at(self.dom, self.index)
     }
 
     pub fn reverse(&self) -> RevElementIter<'dom, Dom> {
@@ -330,11 +357,21 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         )
     }
 
-    pub fn select(
+    /// Selects matching descendants in document order, driven by the backing's forward iterator
+    /// (so `select` over an immutable backing automatically uses the fast linear walk).
+    pub fn select(&self, selector: SelectorList<'dom>) -> MatchIter<'dom, Dom, Dom::Forward<'dom>> {
+        MatchIter::new(self.forwards(), selector)
+    }
+
+    /// [`select`](Self::select) forced onto the tree-walking [`ElementIter`] — the A/B counterpart
+    /// for benchmarking the linear `select`. Not advertised API; see
+    /// [`forwards_walk`](Self::forwards_walk).
+    #[doc(hidden)]
+    pub fn select_walk(
         &self,
         selector: SelectorList<'dom>,
     ) -> MatchIter<'dom, Dom, ElementIter<'dom, Dom>> {
-        MatchIter::new(self.forwards(), selector)
+        MatchIter::new(self.forwards_walk(), selector)
     }
 
     pub fn select_child(
@@ -347,7 +384,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     pub fn select_css(
         &self,
         selector: &'dom str,
-    ) -> Result<MatchIter<'dom, Dom, ElementIter<'dom, Dom>>, ParseError> {
+    ) -> Result<MatchIter<'dom, Dom, Dom::Forward<'dom>>, ParseError> {
         let selector = css::parse_css(selector)?;
         Ok(MatchIter::new(self.forwards(), selector))
     }

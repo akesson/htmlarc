@@ -1,9 +1,9 @@
-use std::{cell::Cell, ops::RangeBounds};
+use std::cell::Cell;
 
 use crate::dom::NodesView;
 use crate::prelude::*;
 
-use super::{CharsIter, DomIterator, exactly_iter::Exactly, stack::SimpleStack};
+use super::{CharsIter, DomIterator, stack::SimpleStack};
 
 #[derive(Clone, Copy, PartialEq)]
 enum NodeOperation {
@@ -42,10 +42,6 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
     pub fn include_start(self) -> Self {
         self.operation.set(NodeOperation::IncludeStart);
         self
-    }
-
-    pub fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self> {
-        Exactly::new(self, range)
     }
 
     fn next_dom_inner(&self, nodes: NodesView) -> Option<NodeIndex> {
