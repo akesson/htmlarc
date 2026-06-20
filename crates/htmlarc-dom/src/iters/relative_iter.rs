@@ -17,7 +17,6 @@ enum Relatives {
 pub struct RelativeIter<'dom, Dom> {
     dom: &'dom Dom,
     relatives: Relatives,
-    depth: Cell<i16>,
     cursor: Cell<NodeIndex>,
     first: Cell<bool>,
     include_text: bool,
@@ -42,7 +41,6 @@ impl<'dom, Dom: DomRead> RelativeIter<'dom, Dom> {
         Self {
             dom: el.dom,
             relatives,
-            depth: 0.into(),
             cursor: el.index().into(),
             first: true.into(),
             include_text: false,
@@ -71,18 +69,11 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RelativeIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
+    fn next_index(&self) -> Option<NodeIndex> {
         let current = HtmlElement::new(self.dom, self.cursor.get());
 
         if let Some(next) = match self.relatives {
-            Relatives::Ancestors => {
-                if let Ok(parent) = current.parent() {
-                    self.depth.set(self.depth.get() - 1);
-                    Some(parent)
-                } else {
-                    None
-                }
-            }
+            Relatives::Ancestors => current.parent().ok(),
             Relatives::Children => {
                 if self.first.get() {
                     self.first.set(false);
@@ -96,7 +87,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RelativeIter<'dom, Dom> {
         } {
             self.cursor.set(next.index());
 
-            Some((next.index(), self.depth.get()))
+            Some(next.index())
         } else {
             None
         }

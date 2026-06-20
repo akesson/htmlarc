@@ -252,6 +252,7 @@ impl<'s> CompoundSelector<'s> {
         Ok(Some(compound))
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn matches(&self, el: &HtmlElement<impl DomRead>) -> bool {
         debug!(
             "Matching compound selector {} to element {}",

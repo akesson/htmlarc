@@ -44,9 +44,10 @@ where
 {
     type Item = HtmlElement<'dom, Dom>;
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn next(&mut self) -> Option<Self::Item> {
         let dom = self.iter.dom();
-        while let Some((el_index, _)) = self.iter.next_index_and_depth() {
+        while let Some(el_index) = self.iter.next_index() {
             let element = HtmlElement::new(dom, el_index);
             if element.tag() == HtmlTag::sys_text {
                 continue;

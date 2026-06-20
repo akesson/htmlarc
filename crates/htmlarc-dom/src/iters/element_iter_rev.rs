@@ -48,7 +48,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
         Exactly::new(self, range)
     }
 
-    fn next_dom_inner(&self, nodes: NodesView) -> Option<(NodeIndex, i16)> {
+    fn next_dom_inner(&self, nodes: NodesView) -> Option<NodeIndex> {
         if self.operation.get() == NodeOperation::ExcludeStart {
             // we remove the excluded item
             let Some(index) = self.stack.pop() else {
@@ -104,7 +104,7 @@ impl<'dom, Dom: DomRead> RevElementIter<'dom, Dom> {
 
         self.current_index.set(Some(index));
 
-        Some((index, self.stack.len() as i16))
+        Some(index)
     }
 
     #[cfg(test)]
@@ -127,7 +127,7 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for RevElementIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
+    fn next_index(&self) -> Option<NodeIndex> {
         self.dom().with_nodes(|nodes| self.next_dom_inner(nodes))
     }
 

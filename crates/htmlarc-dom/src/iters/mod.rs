@@ -27,15 +27,15 @@ const MAX_DEPTH: usize = 32;
 
 pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'dom, Dom>> {
     fn dom(&self) -> &'dom Dom;
-    /// returns the next element index and the depth if any
-    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)>;
+    /// returns the next element index if any
+    fn next_index(&self) -> Option<NodeIndex>;
     fn set_include_comment(self) -> Self;
     fn include_comment(&self) -> bool;
     fn set_include_text(self) -> Self;
     fn include_text(&self) -> bool;
     fn next_element(&self) -> Option<HtmlElement<'dom, Dom>> {
         loop {
-            let (index, _) = self.next_index_and_depth()?;
+            let index = self.next_index()?;
             let el = HtmlElement::new(self.dom(), index);
             let tag = el.tag();
 

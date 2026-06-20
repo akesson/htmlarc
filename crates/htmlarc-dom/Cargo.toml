@@ -11,6 +11,8 @@ function_name.workspace = true
 hashbrown.workspace = true
 html-escape.workspace = true
 html5gum.workspace = true
+# Optional, profiling-only: enabled via the `hotpath` feature for the `profile_walk` example.
+hotpath = { workspace = true, optional = true }
 indexmap.workspace = true
 log.workspace = true
 rkyv = { workspace = true }
@@ -19,9 +21,14 @@ strum_macros = { workspace = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 
+[features]
+# Instruments the per-node select-walk hot path with `#[hotpath::measure]` (zero cost when off).
+hotpath = ["dep:hotpath", "hotpath/hotpath"]
+
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports"] }
 insta = { workspace = true, features = ["glob"] }
+scraper = { workspace = true }
 
 [[bench]]
 harness = false
@@ -34,6 +41,10 @@ name = "repackaging"
 [[bench]]
 harness = false
 name = "selectors"
+
+[[bench]]
+harness = false
+name = "selectors_vs_scraper"
 
 [[bench]]
 harness = false
