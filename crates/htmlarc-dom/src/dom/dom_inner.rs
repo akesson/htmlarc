@@ -481,6 +481,13 @@ impl DomRead for ArchivedDom<'_> {
         f(self.inner.nodes.view())
     }
 
+    fn walk_view(&self) -> Option<DomView<'_>> {
+        // `view()` is tied to the archive lifetime `'a` (which outlives `&self`), so the bound
+        // view is reused across the whole walk instead of rebuilt per accessor (ADR 0007). It
+        // carries this `ArchivedDom`'s own string source, so it is correct for text selectors too.
+        Some(self.view())
+    }
+
     fn root(&self) -> HtmlElement<'_, Self> {
         HtmlElement::new(self, NodeIndex::ROOT)
     }

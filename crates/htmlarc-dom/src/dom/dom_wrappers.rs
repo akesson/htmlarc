@@ -59,6 +59,19 @@ where
         self.with_view(|view| f(view.nodes))
     }
 
+    /// A [`DomView`] bound to the *full* `&self` borrow — reused across every node of a `select`
+    /// walk so per-node matching does not rebuild the (rkyv) sub-views per accessor (ADR 0007).
+    /// Returns `None` for a backing whose view is a transient borrow that cannot be held across
+    /// the walk: [`DomRefCell`] scopes its `RefCell` guard to each call, so it keeps the per-call
+    /// [`with_view`](Self::with_view) path (the conservative default). Immutable backings override
+    /// this to hand out the bound view. It is used only for the integer-only topology/attribute
+    /// matching that runs after the selector list is `resolve`d (which reads the blob's own
+    /// nodes/symbols/attr-value stores, never the relocated text pool), so it needs no live text
+    /// source — text selectors fall back to the per-call path.
+    fn walk_view(&self) -> Option<DomView<'_>> {
+        None
+    }
+
     fn root(&self) -> HtmlElement<'_, Self>;
 
     /// Materialise an owned, compacted [`DomInner`]. Owned backings rebuild in place;
@@ -117,6 +130,10 @@ impl DomRead for DomInner {
 
     fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.nodes.view())
+    }
+
+    fn walk_view(&self) -> Option<DomView<'_>> {
+        Some(self.view())
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {

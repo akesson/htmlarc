@@ -517,6 +517,16 @@ impl DomRead for Doc<'_> {
         self.with_dom(|dom| dom.with_nodes(f))
     }
 
+    fn walk_view(&self) -> Option<DomView<'_>> {
+        // A view bound to the archive lifetime (which outlives `&self`), reused across the whole
+        // select walk instead of rebinding per accessor (ADR 0007). The text source is empty:
+        // resolved topology/attribute matching is integer-only and reads the blob's own stores
+        // (nodes, symbols, attr values), never the relocated text pool, so no frame is inflated.
+        // Text selectors (`[text]`/`[text*=]`) fall back to the per-call `with_view` path, which
+        // still resolves text through the lazy source.
+        Some(self.entry.bind(StringSource::plain(&[])).view())
+    }
+
     fn root(&self) -> HtmlElement<'_, Self> {
         HtmlElement::root(self)
     }

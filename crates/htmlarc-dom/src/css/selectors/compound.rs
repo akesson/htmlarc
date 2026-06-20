@@ -323,6 +323,52 @@ impl<'s> CompoundSelector<'s> {
 
         true
     }
+
+    /// View-based counterpart of [`matches`](Self::matches) (ADR 0007): the integer topology/
+    /// attribute checks read the bound [`DomView`] directly, skipping the per-accessor view
+    /// rebuild on the mmap path. A compound carrying a `text` pattern or pseudo-classes falls
+    /// back to the element matcher — `text` reads the (text-empty) bound view's strings and
+    /// pseudo-classes navigate via elements, both of which need the real per-call view. The
+    /// integer checks themselves read only the blob (node bytes, symbols, attr-value store), so
+    /// they are correct against a view bound with an empty text source.
+    pub(crate) fn matches_in_view(&self, view: &DomView, el: &HtmlElement<impl DomRead>) -> bool {
+        if self.text.is_some() || !self.pseudo_classes.is_empty() {
+            return self.matches(el);
+        }
+        let index = el.index();
+
+        if let Some(tag) = self.element
+            && tag != view.nodes.tag(index)
+        {
+            return false;
+        }
+
+        if let Some(ext) = &self.ext_element
+            && !view.matches_ext_tag(index, ext)
+        {
+            return false;
+        }
+
+        if let Some(id) = &self.id
+            && !view.has_id_selector(index, id)
+        {
+            return false;
+        }
+
+        if !self.attributes.is_empty() && !view.has_attributes(index, &self.attributes) {
+            return false;
+        }
+
+        if !self.classes.is_empty() && !view.has_class_selectors(index, &self.classes) {
+            return false;
+        }
+
+        if !self.class_attributes.is_empty() && !view.has_classes(index, &self.class_attributes) {
+            return false;
+        }
+
+        true
+    }
 }
 
 #[test]
