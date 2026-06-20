@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use htmlarc_dom::prelude::{
-    ArchivedDom, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement, LazyState,
-    NodesView, StringSource,
+    ArchivedDom, ContiguousDfs, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement,
+    LazyState, LinearSweep, NodeIndex, NodesView, StringSource,
 };
 use memmap2::Mmap;
 use rkyv::rancor::Error;
@@ -488,6 +488,25 @@ impl Debug for Doc<'_> {
 impl DomRead for Doc<'_> {
     const IS_IMMUTABLE: bool = true;
 
+    // The mmap'd archive blob is always contiguous DFS (stored as `into_optimal_width()` of parse
+    // order, never mutated), so the mmap read path uses the layout-exploiting linear sweep.
+    type Forward<'a>
+        = LinearSweep<'a, Self>
+    where
+        Self: 'a;
+    type Descendants<'a>
+        = LinearSweep<'a, Self>
+    where
+        Self: 'a;
+
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_> {
+        LinearSweep::forwards_at(self, start)
+    }
+
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_> {
+        LinearSweep::descendants_at(self, start)
+    }
+
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         self.with_dom(|dom| dom.with_view(f))
@@ -519,3 +538,5 @@ impl DomRef for Doc<'_> {
         self.entry.bind(StringSource::plain(text)).view()
     }
 }
+
+impl ContiguousDfs for Doc<'_> {}

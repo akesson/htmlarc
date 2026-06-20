@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use crate::{
     dom::{DomInner, DomView, NodeIndex, NodesView},
     fmt::HtmlFormat,
+    iters::{DomIterator, ElementIter, LinearSweep},
 };
 
 use crate::html::HtmlElement;
@@ -22,6 +23,27 @@ where
     /// backing is immutable during a `&self` read except [`DomRefCell`], which leaves this
     /// `false` (the conservative default) so mutate-while-iterating stays correct.
     const IS_IMMUTABLE: bool = false;
+
+    /// The iterator type [`HtmlElement::forwards`](crate::html::HtmlElement::forwards) yields for
+    /// this backing: the layout-exploiting [`LinearSweep`] for contiguous backings, the
+    /// tree-walking [`ElementIter`] for the mutable `DomRefCell`. Per-backing dispatch through an
+    /// associated type means the public iteration API is uniform while each backing gets the
+    /// fastest correct implementation — no runtime branch, no `dyn`.
+    type Forward<'a>: DomIterator<'a, Self>
+    where
+        Self: 'a;
+    /// The iterator type [`HtmlElement::descendants`](crate::html::HtmlElement::descendants) yields
+    /// for this backing — see [`Forward`](Self::Forward).
+    type Descendants<'a>: DomIterator<'a, Self>
+    where
+        Self: 'a;
+
+    /// Build the document-order forward walk from `start` (its tail to end of document). Called by
+    /// `HtmlElement::forwards`; the choice of [`LinearSweep`] vs [`ElementIter`] is the backing's.
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_>;
+
+    /// Build the descendant (subtree) walk from `start`. Called by `HtmlElement::descendants`.
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_>;
 
     /// Run `f` with a borrowed [`DomView`]. The closure form (rather than returning
     /// the view) is what lets [`DomRefCell`] scope its `RefCell` borrow guard.
@@ -56,8 +78,38 @@ pub trait DomRef: DomRead {
     fn dom_view(&self) -> DomView<'_>;
 }
 
+/// Marker promising that a backing's node blob is contiguous DFS pre-order with no dead slots, so a
+/// node's `NodeIndex` is its document-order position and forward/descendant walks reduce to integer
+/// index ranges ([`LinearSweep`]). This is the bound that gates `LinearSweep`'s constructors, so a
+/// backing opts into the fast linear walk by implementing it.
+///
+/// Strictly stronger than [`DomRead::IS_IMMUTABLE`]: a [`DomInner`] is immutable yet may carry dead
+/// slots before a rebuild (see `rebuilder`), so it is contiguous *by contract* — every way to
+/// obtain a bare `DomInner` (parse, rebuild, deserialize) yields a contiguous blob, and the only
+/// dead-slot state lives behind a [`DomRefCell`] (which is *not* `ContiguousDfs`, so it tree-walks)
+/// or is consumed by `rebuild` itself (which tree-walks explicitly via `*_walk`).
+///
+/// # Contract
+///
+/// Implement this only for a backing whose blob is *always* contiguous when read (mmap archives,
+/// freshly parsed/rebuilt owned docs). Implementing it for a backing that can expose dead slots
+/// makes a linear walk emit them — a logic error, debug-asserted at iterator construction. Query
+/// users never name this trait; only backing implementors do.
+pub trait ContiguousDfs: DomRead {}
+
 impl DomRead for DomInner {
     const IS_IMMUTABLE: bool = true;
+
+    type Forward<'a> = LinearSweep<'a, DomInner>;
+    type Descendants<'a> = LinearSweep<'a, DomInner>;
+
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_> {
+        LinearSweep::forwards_at(self, start)
+    }
+
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_> {
+        LinearSweep::descendants_at(self, start)
+    }
 
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
@@ -80,6 +132,7 @@ impl DomRef for DomInner {
         self.view()
     }
 }
+impl ContiguousDfs for DomInner {}
 
 #[derive(Debug)]
 pub struct DomRefCell {
@@ -102,6 +155,20 @@ impl DomRefCell {
 }
 
 impl DomRead for DomRefCell {
+    // The mutable backing keeps the tree-walking iterator: it skips dead slots and recovers from
+    // mutate-while-iterating. It is deliberately NOT `ContiguousDfs`, so `LinearSweep` can never be
+    // built for it.
+    type Forward<'a> = ElementIter<'a, DomRefCell>;
+    type Descendants<'a> = ElementIter<'a, DomRefCell>;
+
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_> {
+        ElementIter::forwards_at(self, start)
+    }
+
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_> {
+        ElementIter::descendants_at(self, start)
+    }
+
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.dom.borrow().view())
     }

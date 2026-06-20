@@ -1,10 +1,8 @@
 use std::cell::RefCell;
-use std::ops::RangeBounds;
 
 use crate::dom::NodesView;
 use crate::prelude::*;
 
-use super::exactly_iter::Exactly;
 use super::{DomIterator, VisitedStack, VisitedStatus};
 
 /// The element iterator goes through the html elements in the same order
@@ -24,10 +22,11 @@ pub struct ElementIter<'dom, Dom> {
 }
 
 impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
-    /// Iterates through all the descendants of the given element
-    pub(crate) fn descendants<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
-        let HtmlElement { dom, index } = element;
-        let stack = dom.with_nodes(|nodes| VisitedStack::from_element(nodes, *index));
+    /// Iterates through all the descendants of the node at `index`. The tree-walk form (mutation-
+    /// safe, dead-slot-skipping); the per-backing default `descendants()` dispatches here only for
+    /// the mutable `DomRefCell` (immutable backings use [`LinearSweep`](super::LinearSweep)).
+    pub(crate) fn descendants_at(dom: &'dom Dom, index: NodeIndex) -> Self {
+        let stack = dom.with_nodes(|nodes| VisitedStack::from_element(nodes, index));
         Self {
             dom,
             stack: stack.into(),
@@ -36,11 +35,11 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
         }
     }
 
-    /// Starts at the current element and goes through all nodes until the end of
-    /// the document, which means it will also include the parent's siblings.
-    pub(crate) fn forwards<'a>(element: &'a HtmlElement<'dom, Dom>) -> Self {
-        let HtmlElement { dom, index } = element;
-        let stack = dom.with_nodes(|nodes| VisitedStack::from_root_to_element(nodes, *index));
+    /// Starts at the node at `index` and goes through all nodes until the end of the document, which
+    /// means it will also include the parent's siblings. The tree-walk form — see
+    /// [`descendants_at`](Self::descendants_at).
+    pub(crate) fn forwards_at(dom: &'dom Dom, index: NodeIndex) -> Self {
+        let stack = dom.with_nodes(|nodes| VisitedStack::from_root_to_element(nodes, index));
         Self {
             dom,
             stack: stack.into(),
@@ -61,10 +60,6 @@ impl<'dom, Dom: DomRead> ElementIter<'dom, Dom> {
     // pub fn rev(self) -> RevElementIter<'dom> {
     //     RevElementIter::reverse(&self.current().unwrap_or(Element::new(self.dom, 0)))
     // }
-
-    pub fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self> {
-        Exactly::new(self, range)
-    }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub(super) fn find_next(&self, nodes: NodesView, go_deeper: bool) -> Option<NodeIndex> {
