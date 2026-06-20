@@ -191,6 +191,37 @@ impl<'a> NodesView<'a> {
         self.bytes.len() / self.width.node_size()
     }
 
+    /// The (exclusive) end of the subtree rooted at `index` in a contiguous DFS-pre-order blob:
+    /// the document-order index of the first node that is **not** a descendant of `index`. That is
+    /// the nearest ancestor-or-self with a next sibling — its sibling's index — or [`len`](Self::len)
+    /// if no ancestor has one (the subtree runs to the end of the document). O(depth); a
+    /// [`LinearSweep`](crate::iters::LinearSweep) computes it once so a descendant walk becomes the
+    /// contiguous range `[index+1, subtree_end(index))`. Only meaningful on a contiguous backing
+    /// (see [`is_contiguous_dfs`](Self::is_contiguous_dfs)).
+    pub(crate) fn subtree_end(&self, index: NodeIndex) -> usize {
+        let mut node = Some(index);
+        while let Some(n) = node {
+            if let Some(sibling) = self.next_sibling_index(n) {
+                return sibling.as_usize();
+            }
+            node = self.parent_index(n);
+        }
+        self.len()
+    }
+
+    /// Whether the blob is contiguous DFS pre-order with no dead slots: every non-root node has a
+    /// parent that precedes it in index order. A freshly parsed/rebuilt/archived blob satisfies
+    /// this; a `DomInner` with removed-but-not-rebuilt nodes does not (a dead slot's parent is
+    /// `None`). This is why a linear (index-order) walk is gated on the *blob*, not on
+    /// `DomRead::IS_IMMUTABLE`. O(n) — used by `LinearSweep`'s debug-build construction guard and by
+    /// tests; compiled out of release.
+    #[cfg(any(debug_assertions, test))]
+    pub(crate) fn is_contiguous_dfs(&self) -> bool {
+        (1..self.len()).all(
+            |i| matches!(self.parent_index(NodeIndex::new(i as u32)), Some(p) if p.as_usize() < i),
+        )
+    }
+
     pub(crate) fn is_string_node(&self, index: NodeIndex) -> bool {
         let tag = self.tag(index);
         tag == HtmlTag::sys_text || tag == HtmlTag::sys_comment
