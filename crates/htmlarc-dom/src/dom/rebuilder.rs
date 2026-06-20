@@ -23,8 +23,10 @@ impl DomInner {
             RunRebuilder::new(self.attrs.lists.len(), self.attrs.entries.len());
         let mut strings = StringStack::with_capacity(self.strings.size());
 
+        // Tree-walk (not the linear sweep): the pre-rebuild blob may contain dead slots (removed
+        // nodes), which a contiguous index scan would wrongly emit. `forwards_walk` skips them.
         let iter = HtmlElement::new(self, NodeIndex::ROOT)
-            .forwards()
+            .forwards_walk()
             .set_include_text()
             .set_include_comment();
 

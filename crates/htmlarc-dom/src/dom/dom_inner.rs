@@ -1,10 +1,10 @@
 pub(crate) use super::nodes::Nodes;
 use super::nodes::TopologyReport;
-use super::{DomRead, DomRef, DomView, NodeIndex, NodesView};
+use super::{ContiguousDfs, DomRead, DomRef, DomView, NodeIndex, NodesView};
 use crate::debug;
 use crate::fmt::HtmlFormat;
 use crate::html::HtmlElement;
-use crate::iters::{DomIterator, RelativeIter, Tag, TagIter};
+use crate::iters::{DomIterator, LinearSweep, RelativeIter, Tag, TagIter};
 use crate::stores::{AttrStore, ExtTags, RunVec, StringSource, StringStack, SymbolTable};
 use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
@@ -91,13 +91,15 @@ impl DomInner {
     }
 
     pub(crate) fn starts_with_space(&self, index: NodeIndex) -> bool {
+        // Tree-walk: this runs during mutation, when the blob may hold dead slots (a linear sweep
+        // would include removed text nodes). See `descendants_walk`/`forwards_walk`.
         let el = HtmlElement::new(self, index);
         debug!(
             "start (rev) {index}: '{}' {}",
-            el.forwards().text_chars().collect::<String>(),
+            el.forwards_walk().text_chars().collect::<String>(),
             self.nodes.tag(index)
         );
-        if let Some(first_char) = el.forwards().text_chars().next() {
+        if let Some(first_char) = el.forwards_walk().text_chars().next() {
             first_char == ' '
         } else {
             false
@@ -225,7 +227,8 @@ impl DomInner {
 
         if tag == HtmlTag::body {
             let body = HtmlElement::new(self, index);
-            let mut chars = body.descendants().text_chars();
+            // Tree-walk: prune runs during mutation, so the blob may hold dead slots.
+            let mut chars = body.descendants_walk().text_chars();
 
             if chars.all(|c| c.is_whitespace()) || is_childless {
                 // prune body element containing only whitespace or has no children
@@ -239,7 +242,8 @@ impl DomInner {
             }
         } else if is_block {
             let el = HtmlElement::new(self, index);
-            let mut chars = el.descendants().text_chars();
+            // Tree-walk: prune runs during mutation, so the blob may hold dead slots.
+            let mut chars = el.descendants_walk().text_chars();
 
             if chars.all(|c| c.is_whitespace()) || is_childless {
                 // prune the element
@@ -363,6 +367,15 @@ impl DomInner {
     pub fn topology_report(&self) -> TopologyReport {
         self.nodes.view().topology_report()
     }
+
+    /// Whether the node blob is contiguous DFS pre-order with no dead slots (see
+    /// [`NodesView::is_contiguous_dfs`]). A freshly parsed/rebuilt/deserialized `DomInner` is; one
+    /// with removed-but-not-rebuilt nodes is not. Test-only — the linear walk relies on this
+    /// invariant being upheld by `ContiguousDfs`'s contract.
+    #[cfg(test)]
+    pub(crate) fn is_contiguous_dfs(&self) -> bool {
+        self.nodes.view().is_contiguous_dfs()
+    }
 }
 
 impl ArchivedDomInner {
@@ -441,6 +454,25 @@ impl Debug for ArchivedDom<'_> {
 impl DomRead for ArchivedDom<'_> {
     const IS_IMMUTABLE: bool = true;
 
+    // The mmap'd archive is always contiguous DFS (it stores `dom().into_optimal_width()` of parse
+    // order and is never mutated), so the layout-exploiting linear sweep is always correct here.
+    type Forward<'a>
+        = LinearSweep<'a, Self>
+    where
+        Self: 'a;
+    type Descendants<'a>
+        = LinearSweep<'a, Self>
+    where
+        Self: 'a;
+
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_> {
+        LinearSweep::forwards_at(self, start)
+    }
+
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_> {
+        LinearSweep::descendants_at(self, start)
+    }
+
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
         f(self.view())
     }
@@ -468,6 +500,8 @@ impl DomRef for ArchivedDom<'_> {
         self.view()
     }
 }
+
+impl ContiguousDfs for ArchivedDom<'_> {}
 
 fn reposition_cursor(
     prev_sibling: Option<NodeIndex>,

@@ -30,8 +30,8 @@ pub mod prelude {
     pub use crate::accessors::{Attributes, AttributesMut, Classes, ClassesMut};
     pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
     pub use crate::dom::{
-        ArchivedDom, ArchivedDomInner, DomInner, DomRead, DomRef, DomRefCell, DomView, NodeIndex,
-        NodesView,
+        ArchivedDom, ArchivedDomInner, ContiguousDfs, DomInner, DomRead, DomRef, DomRefCell,
+        DomView, NodeIndex, NodesView,
     };
     pub use crate::error::{
         ElementError, HtmlParseError, HtmlParseResult, IterationError, Locatable, LocatedError,
@@ -40,8 +40,8 @@ pub mod prelude {
     pub use crate::here;
     pub use crate::html::{HtmlAttr, HtmlDoc, HtmlElement, HtmlTag};
     pub use crate::iters::{
-        CharsIter, DomIterator, ElementIter, ElementIteration, MatchIter, RelativeIter,
-        RevElementIter, Tag, TagIter,
+        CharsIter, DomIterator, ElementIter, ElementIteration, LinearSweep, MatchIter,
+        RelativeIter, RevElementIter, Tag, TagIter,
     };
     pub use crate::stores::{AttrName, Attribute, Class, FrameDecoder, LazyState, StringSource};
 }
