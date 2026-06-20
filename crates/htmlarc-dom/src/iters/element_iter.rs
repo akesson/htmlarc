@@ -146,10 +146,8 @@ impl<'dom, Dom: DomRead> DomIterator<'dom, Dom> for ElementIter<'dom, Dom> {
         self.dom
     }
 
-    fn next_index_and_depth(&self) -> Option<(NodeIndex, i16)> {
-        let vals = self.dom.with_nodes(|nodes| self.find_next(nodes, true));
-        let depth = self.stack.borrow().len() as i16;
-        vals.map(|v| (v, depth))
+    fn next_index(&self) -> Option<NodeIndex> {
+        self.dom.with_nodes(|nodes| self.find_next(nodes, true))
     }
 
     fn set_include_comment(mut self) -> Self {
