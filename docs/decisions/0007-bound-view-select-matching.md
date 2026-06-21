@@ -179,7 +179,10 @@ reads no link bytes. All doc borrows are shared `&`, so holding the view across 
   (which also made the element/`DomRefCell`/combinator path bind one view per match instead of per
   check). Three now-dead `HtmlElement` accessors were removed. A naive merge regressed the owned
   hot path ~3–8% (inlining the allocating `[text]` code bloated `matches_in_view`); fixed by
-  factoring the text check into a `#[cold] #[inline(never)] matches_text`. **Re-measured: the
+  factoring the text check into a `#[cold] matches_text`. (Isolated each attribute by A/B:
+  `#[cold]` is load-bearing — it discounts the call in `matches_in_view`'s inline cost so that hot
+  body inlines into the walk; `#[inline(never)]` gave no measurable gain on top of it and was
+  dropped.) **Re-measured: the
   unified+cold matcher is ~2–4% *faster* than the two-body version (owned A/B), and the headline
   improved slightly — mmap now beats scraper on all 8 queries (~0.88× avg), owned on 7/8 (~0.93×,
   `#id` ~1.05×). The `after×` column above is the first-cut measurement; treat it as a conservative
