@@ -170,6 +170,20 @@ reads no link bytes. All doc borrows are shared `&`, so holding the view across 
   per-node-per-check rebuild to **2 calls per `select`** (the one-time `resolve` view + iterator
   setup), 0.23% of self-time (was ~30% across `with_dom`/`view_with`/`ArchivedVec::len`).
   `match_iter::next` now holds ~93% — the matching work itself, as intended.
+- **One matching body (review follow-up).** The first cut left two parallel
+  `CompoundSelector` matchers — `matches` (element path) and `matches_in_view` (view path) — that
+  could silently diverge if a future selector field were added to one and not the other. They were
+  never two algorithms: `el.has_id_selector(id)` *is* `el.with_view(|v| v.has_id_selector(
+  el.index(), id))`, the same view methods rebuilding the view per check. Collapsed to a single
+  `matches_in_view` body; `matches` is now a thin wrapper that binds the view once and delegates
+  (which also made the element/`DomRefCell`/combinator path bind one view per match instead of per
+  check). Three now-dead `HtmlElement` accessors were removed. A naive merge regressed the owned
+  hot path ~3–8% (inlining the allocating `[text]` code bloated `matches_in_view`); fixed by
+  factoring the text check into a `#[cold] #[inline(never)] matches_text`. **Re-measured: the
+  unified+cold matcher is ~2–4% *faster* than the two-body version (owned A/B), and the headline
+  improved slightly — mmap now beats scraper on all 8 queries (~0.88× avg), owned on 7/8 (~0.93×,
+  `#id` ~1.05×). The `after×` column above is the first-cut measurement; treat it as a conservative
+  floor.**
 - **No format/API-surface change.** `walk_view` is an internal provided method; `matches_in_view`
   is `pub(crate)`. The public `.select()` signature and behaviour are unchanged.
 - **Correctness model.** The fast path runs only when the bound view is present (immutable backing)
