@@ -138,6 +138,19 @@ impl<'s> ComplexSelector<'s> {
         Self::verify(&mut selectors, &self.first, el, &None, false)
     }
 
+    /// View-based counterpart of [`matches`](Self::matches) (ADR 0007): the combinator-free
+    /// common case matches the node against the bound [`DomView`] directly (the PR #38 fast path,
+    /// now view-based, so no per-accessor view rebuild). With combinators we navigate
+    /// ancestors/parents/siblings via elements, so fall back to the unchanged element `verify`
+    /// path — combinators are rare and off the hot path.
+    pub(crate) fn matches_in_view(&self, view: &DomView, el: &HtmlElement<impl DomRead>) -> bool {
+        if self.selectors.is_empty() {
+            self.first.matches_in_view(view, el)
+        } else {
+            self.matches(el)
+        }
+    }
+
     fn verify<'a, I>(
         selectors: &mut I,
         first: &'a CompoundSelector<'a>,

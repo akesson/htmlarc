@@ -1,9 +1,6 @@
 use crate::{
     accessors::{Attributes, AttributesMut, Classes, ClassesMut},
-    css::{
-        self, AttributeSelector, ClassSelector, ExtTagSelector, IdSelector, ParseError, Selector,
-        SelectorList,
-    },
+    css::{self, AttributeSelector, ParseError, Selector, SelectorList},
     dom::{DomRead, DomRef, DomRefCell, DomView, NodeIndex, Nodes, NodesView},
     error::ElementError,
     fmt::HtmlFormat,
@@ -276,33 +273,11 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.with_view(|view| view.has_id(self.index(), id))
     }
 
-    /// The resolve-aware `#id` check used by the compound selector matcher: the resolved
-    /// entry id matches by integer compare (or string fallback when unresolved).
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub(crate) fn has_id_selector(&self, id: &IdSelector) -> bool {
-        self.with_view(|view| view.has_id_selector(self.index(), id))
-    }
-
-    /// The resolve-aware extended-tag check used by the compound selector matcher: the
-    /// resolved vocab byte / overflow symbol matches by integer compare (or a tag-name string
-    /// compare when unresolved). See [`DomView::matches_ext_tag`](crate::dom::DomView).
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub(crate) fn matches_ext_tag(&self, sel: &ExtTagSelector) -> bool {
-        self.with_view(|view| view.matches_ext_tag(self.index(), sel))
-    }
-
     pub fn has_classes<P>(&self, classes: &[P]) -> bool
     where
         P: for<'a> PartialEq<Class<'a>>,
     {
         self.with_view(move |view| view.has_classes(self.index(), classes))
-    }
-
-    /// The resolve-aware class check used by the compound selector matcher: each selector
-    /// matches via its resolved [`Sym`] (or string fallback when unresolved).
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub(crate) fn has_class_selectors(&self, sels: &[ClassSelector]) -> bool {
-        self.with_view(move |view| view.has_class_selectors(self.index(), sels))
     }
 
     pub fn is_root(&self) -> bool {

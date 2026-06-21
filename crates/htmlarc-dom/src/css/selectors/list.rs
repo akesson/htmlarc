@@ -23,6 +23,14 @@ impl SelectorList<'_> {
             selector.resolve(view);
         }
     }
+
+    /// View-based counterpart of [`Selector::matches`] used by the bound-view `select` walk
+    /// (ADR 0007): match against a [`DomView`] bound once for the whole walk instead of
+    /// rebuilding it per accessor. `el` carries the node index and is the fallback path for the
+    /// parts that cannot read the (text-empty) bound view — combinators, text, pseudo-classes.
+    pub(crate) fn matches_in_view(&self, view: &DomView, el: &HtmlElement<impl DomRead>) -> bool {
+        self.selectors.iter().any(|s| s.matches_in_view(view, el))
+    }
 }
 
 #[derive(Debug, Error)]
