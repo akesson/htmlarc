@@ -317,13 +317,16 @@ impl<'s> CompoundSelector<'s> {
         true
     }
 
-    /// The `[text]` / `[text*="…"]` content check. `#[cold]` + out-of-line: it descends the node's
-    /// subtree and allocates (collect + optional case-fold), and is the rare branch, so keeping it
-    /// out of [`matches_in_view`](Self::matches_in_view) keeps that hot body small enough to inline
-    /// into the select walk. Reads the document's strings via `el` (the walk-bound view may carry
-    /// an empty text source). Returns whether the text constraint is satisfied.
+    /// The `[text]` / `[text*="…"]` content check — the rare, allocating branch (subtree text
+    /// collect + optional case-fold), reading the document's strings via `el` (the walk-bound view
+    /// may carry an empty text source). Returns whether the text constraint is satisfied.
+    ///
+    /// `#[cold]` is load-bearing, not decoration (measured): it discounts this call in
+    /// [`matches_in_view`](Self::matches_in_view)'s inline cost, so that hot body stays cheap enough
+    /// to inline into the select walk and lays the text branch out off the hot path. Without it the
+    /// `tag` select regresses ~8–10%. (`#[inline(never)]` was tried and dropped — it gave no
+    /// measurable gain on top of `#[cold]`, which already keeps a function this size out of line.)
     #[cold]
-    #[inline(never)]
     fn matches_text(
         &self,
         text_pattern: &AttributePattern,
