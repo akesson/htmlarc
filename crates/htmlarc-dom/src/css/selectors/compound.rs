@@ -252,89 +252,24 @@ impl<'s> CompoundSelector<'s> {
         Ok(Some(compound))
     }
 
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
+    /// Whether this compound matches `el`. Binds the node's [`DomView`] once and delegates to the
+    /// single [`matches_in_view`](Self::matches_in_view) body. The element accessors
+    /// (`el.has_classes`, …) are each just `el.with_view(|v| v.<check>(el.index(), …))`, so matching
+    /// *through them* would rebuild the view per check; binding it once here avoids that. This is
+    /// the entry point for direct matches (`matches_css`) and the combinator `verify` path; the
+    /// bound-walk hot path skips it and calls `matches_in_view` with a view bound for the walk.
     fn matches(&self, el: &HtmlElement<impl DomRead>) -> bool {
-        debug!(
-            "Matching compound selector {} to element {}",
-            self,
-            el.tag()
-        );
-
-        if let Some(tag) = self.element
-            && tag != el.tag()
-        {
-            debug!("Tag mismatch: {} != {}", tag, el.tag());
-            return false;
-        }
-
-        if let Some(ext) = &self.ext_element
-            && !el.matches_ext_tag(ext)
-        {
-            debug!("Extended tag mismatch: {}", ext);
-            return false;
-        }
-
-        if let Some(id) = &self.id
-            && !el.has_id_selector(id)
-        {
-            debug!("Id mismatch: {} ", id.name);
-            return false;
-        }
-
-        if let Some(text_pattern) = &self.text {
-            let mut text_iter = el.descendants().text_chars();
-            if let Some(value) = &text_pattern.value {
-                let (search, other) = if let Some(CaseIndicator::Insensitive) = &value.case {
-                    let search = value.value.0.to_lowercase();
-                    let other: String = text_iter.collect();
-                    (search, other)
-                } else {
-                    (value.value.0.to_string(), text_iter.collect())
-                };
-                if !value.operator.matches(&search, &other) {
-                    return false;
-                }
-            } else if text_iter.next().is_none() {
-                debug!("Has no text content");
-                return false;
-            }
-        }
-
-        for pseudo_class in &self.pseudo_classes {
-            if !pseudo_class.matches(el) {
-                return false;
-            }
-        }
-
-        if !self.attributes.is_empty() && !el.has_attributes(&self.attributes) {
-            debug!("Attributes mismatch");
-            return false;
-        }
-
-        if !self.classes.is_empty() && !el.has_class_selectors(&self.classes) {
-            debug!("Classes mismatch");
-            return false;
-        }
-
-        if !self.class_attributes.is_empty() && !el.has_classes(&self.class_attributes) {
-            debug!("Class attributes mismatch");
-            return false;
-        }
-
-        true
+        el.dom().with_view(|view| self.matches_in_view(&view, el))
     }
 
-    /// View-based counterpart of [`matches`](Self::matches) (ADR 0007): the integer topology/
-    /// attribute checks read the bound [`DomView`] directly, skipping the per-accessor view
-    /// rebuild on the mmap path. A compound carrying a `text` pattern or pseudo-classes falls
-    /// back to the element matcher — `text` reads the (text-empty) bound view's strings and
-    /// pseudo-classes navigate via elements, both of which need the real per-call view. The
-    /// integer checks themselves read only the blob (node bytes, symbols, attr-value store), so
-    /// they are correct against a view bound with an empty text source.
+    /// The single compound-matching body (ADR 0007). Integer topology/attribute checks read
+    /// `view`; `text`/pseudo-class checks read `el` — `text` descends this node's subtree for its
+    /// strings (factored into the `#[cold]` [`matches_text`](Self::matches_text)) and
+    /// pseudo-classes navigate siblings, neither of which the (possibly text-empty) walk-bound view
+    /// can serve. The integer checks read only the blob (node bytes, symbols, attr-value store),
+    /// never the relocated text pool, so they are correct even against a view bound with an empty
+    /// text source. `el.index()` locates the node within `view`.
     pub(crate) fn matches_in_view(&self, view: &DomView, el: &HtmlElement<impl DomRead>) -> bool {
-        if self.text.is_some() || !self.pseudo_classes.is_empty() {
-            return self.matches(el);
-        }
         let index = el.index();
 
         if let Some(tag) = self.element
@@ -355,6 +290,18 @@ impl<'s> CompoundSelector<'s> {
             return false;
         }
 
+        if let Some(text_pattern) = &self.text
+            && !self.matches_text(text_pattern, el)
+        {
+            return false;
+        }
+
+        for pseudo_class in &self.pseudo_classes {
+            if !pseudo_class.matches(el) {
+                return false;
+            }
+        }
+
         if !self.attributes.is_empty() && !view.has_attributes(index, &self.attributes) {
             return false;
         }
@@ -368,6 +315,33 @@ impl<'s> CompoundSelector<'s> {
         }
 
         true
+    }
+
+    /// The `[text]` / `[text*="…"]` content check. `#[cold]` + out-of-line: it descends the node's
+    /// subtree and allocates (collect + optional case-fold), and is the rare branch, so keeping it
+    /// out of [`matches_in_view`](Self::matches_in_view) keeps that hot body small enough to inline
+    /// into the select walk. Reads the document's strings via `el` (the walk-bound view may carry
+    /// an empty text source). Returns whether the text constraint is satisfied.
+    #[cold]
+    #[inline(never)]
+    fn matches_text(
+        &self,
+        text_pattern: &AttributePattern,
+        el: &HtmlElement<impl DomRead>,
+    ) -> bool {
+        let mut text_iter = el.descendants().text_chars();
+        if let Some(value) = &text_pattern.value {
+            let (search, other) = if let Some(CaseIndicator::Insensitive) = &value.case {
+                let search = value.value.0.to_lowercase();
+                let other: String = text_iter.collect();
+                (search, other)
+            } else {
+                (value.value.0.to_string(), text_iter.collect())
+            };
+            value.operator.matches(&search, &other)
+        } else {
+            text_iter.next().is_some()
+        }
     }
 }
 
