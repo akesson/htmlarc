@@ -14,6 +14,10 @@ where
 {
     iter: I,
     selectors: SelectorList<'dom>,
+    /// A [`DomView`] bound once for the whole walk on immutable backings (ADR 0007), so per-node
+    /// matching reads it directly instead of rebuilding the (rkyv) sub-views per accessor. `None`
+    /// for `DomRefCell`, which keeps the per-call element path.
+    bound: Option<DomView<'dom>>,
 }
 
 impl<'dom, Dom, I> MatchIter<'dom, Dom, I>
@@ -28,7 +32,14 @@ where
         // is integer compares (ADR 0002 §3). filter.rs clones the list per document, so this
         // only ever mutates a per-document copy.
         iter.dom().with_view(|view| selectors.resolve(view));
-        Self { iter, selectors }
+        // Bind one view for the whole walk on immutable backings (ADR 0007); `None` on
+        // `DomRefCell`, whose view is a scoped `RefCell` borrow — it stays on the element path.
+        let bound = iter.dom().walk_view();
+        Self {
+            iter,
+            selectors,
+            bound,
+        }
     }
 
     pub fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self> {
@@ -47,16 +58,34 @@ where
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn next(&mut self) -> Option<Self::Item> {
         let dom = self.iter.dom();
-        while let Some(el_index) = self.iter.next_index() {
-            let element = HtmlElement::new(dom, el_index);
-            if element.tag() == HtmlTag::sys_text {
-                continue;
+        if let Some(view) = &self.bound {
+            // Immutable backing (`DomInner`, `Doc`, `ArchivedDom`): match every node against the
+            // one bound view — no per-accessor rebuild. The skip-text check reads the view's
+            // topology directly, so a text node never even builds an element.
+            while let Some(el_index) = self.iter.next_index() {
+                if view.nodes.tag(el_index) == HtmlTag::sys_text {
+                    continue;
+                }
+                let element = HtmlElement::new(dom, el_index);
+                if self.selectors.matches_in_view(view, &element) {
+                    return Some(element);
+                }
             }
-            if self.selectors.matches(&element) {
-                return Some(element);
+            None
+        } else {
+            // `DomRefCell`: its view is a scoped `RefCell` borrow that cannot be held across the
+            // walk, so keep the per-call element path.
+            while let Some(el_index) = self.iter.next_index() {
+                let element = HtmlElement::new(dom, el_index);
+                if element.tag() == HtmlTag::sys_text {
+                    continue;
+                }
+                if self.selectors.matches(&element) {
+                    return Some(element);
+                }
             }
+            None
         }
-        None
     }
 }
 
