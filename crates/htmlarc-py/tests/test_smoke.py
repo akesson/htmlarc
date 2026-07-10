@@ -135,6 +135,38 @@ def test_archive_scan(tmp_path):
     assert archive.scan_attr("h1.t", "href") == [(k, [None]) for k in hits]
 
 
+def test_filter(tmp_path):
+    """Filter combines css/key includes and excludes; matching() accepts it."""
+    path = tmp_path / "filter.htmlarc"
+    builder = htmlarc.ArchiveBuilder()
+    for i in range(10):
+        table = "<table class='data'><tr><td>x</td></tr></table>" if i % 2 == 0 else ""
+        builder.add(f"k,{i}", f"<body><h1>Doc {i}</h1>{table}</body>")  # commas in keys
+    builder.write(path)
+    archive = htmlarc.open(path)
+    evens = [f"k,{i}" for i in range(10) if i % 2 == 0]
+
+    assert archive.matching(htmlarc.Filter()) == archive.keys()  # empty filter keeps all
+    assert archive.matching(htmlarc.Filter(include_css="table.data")) == evens
+    assert archive.matching(htmlarc.Filter(exclude_css="table.data")) == [
+        f"k,{i}" for i in range(10) if i % 2 == 1
+    ]
+    # Multiple selectors AND; a comma inside one selector string is OR.
+    assert archive.matching(htmlarc.Filter(include_css=["h1", "table.data"])) == evens
+    assert archive.matching(htmlarc.Filter(include_css="h1, table.data")) == archive.keys()
+
+    # Keys containing commas work (the CLI rule syntax can't express these).
+    f = htmlarc.Filter(include_keys=["k,1", "k,4", "absent"], exclude_keys=["k,1"])
+    assert archive.matching(f) == ["k,4"]
+    assert archive.matching(
+        htmlarc.Filter(include_css="table.data", exclude_keys=["k,0"])
+    ) == evens[1:]
+
+    assert "table.data" in repr(htmlarc.Filter(include_css="table.data"))
+    with pytest.raises(ValueError):
+        htmlarc.Filter(include_css="!!!")
+
+
 def test_archive_roundtrip(tmp_path):
     path = tmp_path / "corpus.htmlarc"
     builder = htmlarc.ArchiveBuilder()
