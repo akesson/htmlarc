@@ -7,3 +7,5 @@
 # Local-only WARC crawl segments for the corpus probe (not redistributable).
 *.warc
 *.warc.gz
+# Python bytecode caches (crates/htmlarc-py tests)
+__pycache__/

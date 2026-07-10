@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "htmlarc"
+description = "Query pre-parsed HTML document archives (.htmlarc) with CSS selectors"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/akesson/htmlarc"
