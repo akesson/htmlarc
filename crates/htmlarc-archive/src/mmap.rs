@@ -1,8 +1,8 @@
-use std::cell::OnceCell;
 use std::fmt::Debug;
 use std::ops::{Index, Range};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use htmlarc_dom::prelude::{
     ArchivedDom, ContiguousDfs, DomInner, DomRead, DomRef, DomView, FrameDecoder, HtmlElement,
@@ -286,7 +286,7 @@ impl MmapArchive {
             frame: strings.frame(slot),
             raw_len: strings.raw_len(slot),
             decoder: &self.decoder,
-            buf: OnceCell::new(),
+            buf: OnceLock::new(),
         })
     }
 
@@ -416,8 +416,8 @@ impl crate::Archive for MmapArchive {
                 .any(|i| filter.keep_key(self.key_at(i)).is_none());
             let arena = needs_body.then(|| {
                 let block = self.bundle_strings(b).expect("corrupt bundle string block");
-                let bufs: Vec<OnceCell<Vec<u8>>> =
-                    (0..range.len()).map(|_| OnceCell::new()).collect();
+                let bufs: Vec<OnceLock<Vec<u8>>> =
+                    (0..range.len()).map(|_| OnceLock::new()).collect();
                 (block, bufs)
             });
             let states = arena
@@ -458,7 +458,7 @@ pub struct Doc<'a> {
     frame: &'a [u8],
     raw_len: u32,
     decoder: &'a dyn FrameDecoder,
-    buf: OnceCell<Vec<u8>>,
+    buf: OnceLock<Vec<u8>>,
 }
 
 impl<'a> Doc<'a> {
@@ -539,7 +539,7 @@ impl DomRead for Doc<'_> {
 impl DomRef for Doc<'_> {
     /// A view bound to the full `&self` borrow (what text accessors that return borrowed `&str`,
     /// and the probe's node analysis, need). Unlike the lazy [`with_view`](DomRead::with_view)
-    /// path, this materialises the document's text once into the owned [`OnceCell`] (a borrowed
+    /// path, this materialises the document's text once into the owned [`OnceLock`] (a borrowed
     /// view cannot hand back a transient inflate buffer), then reads it zero-copy via `Plain`.
     fn dom_view(&self) -> DomView<'_> {
         let text = self
@@ -550,3 +550,170 @@ impl DomRef for Doc<'_> {
 }
 
 impl ContiguousDfs for Doc<'_> {}
+
+/// An owned, `'static` counterpart of [`Doc`]: the same lazily-inflated, queryable document, but
+/// holding its archive by [`Arc`] instead of by borrow — so it can be stored in structs, moved
+/// across threads, and handed to bindings that cannot carry lifetimes (Python, async servers).
+///
+/// Construction resolves the document's bundle and validates its blob and the bundle's string
+/// block once (safe rkyv `access`); every later read casts in place unchecked — sound because the
+/// mapping is immutable (see the [`MmapArchive`] caveat). The inflate cache lives on the handle,
+/// so however many text reads the handle serves, its string frame decompresses at most once — the
+/// two costs a per-call `archive.doc(i)` loop would otherwise re-pay per call.
+pub struct OwnedDoc {
+    archive: Arc<MmapArchive>,
+    /// Flat (bundle→doc) position in the doc table.
+    pos: usize,
+    /// `pos`'s owning bundle, and the document's slot within it, resolved once.
+    bundle: usize,
+    slot: usize,
+    /// The document blob's byte range, bytecheck-validated at construction.
+    offset: usize,
+    len: usize,
+    /// Decompressed length of the document's string frame.
+    raw_len: u32,
+    /// Handle-lifetime inflate cache (see [`LazyState`]).
+    buf: OnceLock<Vec<u8>>,
+}
+
+impl OwnedDoc {
+    /// The document at flat (bundle→doc) position `pos`, validated and ready to query. `Err` if
+    /// the document blob or its bundle's string block fails validation. Panics if `pos` is out of
+    /// range, like every positional accessor ([`MmapArchive::doc`], [`MmapArchive::key_at`]).
+    pub fn new(archive: Arc<MmapArchive>, pos: usize) -> Result<Self, ArchiveErr> {
+        let bundle = archive.bundle_of(pos);
+        let slot = pos - archive.bundle_table()[bundle].doc_start.to_native() as usize;
+        let d = &archive.doc_table()[pos];
+        let (offset, len) = (d.offset.to_native(), d.len.to_native());
+        // Validate the blob and the bundle's string block up front; the per-read accessors
+        // ([`entry`](Self::entry), [`frame`](Self::frame)) rely on it to go unchecked.
+        archive.blob(offset, len)?;
+        let raw_len = archive.bundle_strings(bundle)?.raw_len(slot);
+        Ok(Self {
+            pos,
+            bundle,
+            slot,
+            offset: offset as usize,
+            len: len as usize,
+            raw_len,
+            buf: OnceLock::new(),
+            archive,
+        })
+    }
+
+    /// Look the document up by key. `Ok(None)` = absent; `Err` = the matching blob (document or
+    /// bundle strings) failed validation. The owned sibling of [`MmapArchive::doc_by_key`].
+    pub fn by_key(archive: Arc<MmapArchive>, key: &str) -> Result<Option<Self>, ArchiveErr> {
+        match doc_table::find_index(archive.doc_table(), archive.sort_index(), key) {
+            Some(pos) => Self::new(archive, pos).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The entry key (e.g. the source file name).
+    pub fn key(&self) -> &str {
+        self.entry().key()
+    }
+
+    /// Checksum of the stored DOM, for fast archive diffing.
+    pub fn checksum(&self) -> u64 {
+        self.entry().checksum()
+    }
+
+    /// This document's flat (bundle→doc) position in the archive.
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
+    /// The archive this handle keeps alive.
+    pub fn archive(&self) -> &Arc<MmapArchive> {
+        &self.archive
+    }
+
+    fn entry(&self) -> &ArchivedHtmlEntry {
+        let s = &self.archive.mmap[self.offset..self.offset + self.len];
+        // SAFETY: `new` bytecheck-validated this exact slice, and the mapping is immutable.
+        unsafe { rkyv::access_unchecked::<ArchivedHtmlEntry>(s) }
+    }
+
+    fn frame(&self) -> &[u8] {
+        self.archive
+            .bundle_strings(self.bundle)
+            .expect("validated at construction; the mapping is immutable")
+            .frame(self.slot)
+    }
+
+    /// Run `f` with a query view over this document — [`Doc::with_dom`], but the [`LazyState`]
+    /// borrows the handle's own inflate cache, so the frame decompresses at most once per handle.
+    fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
+        let state = LazyState {
+            buf: &self.buf,
+            frame: self.frame(),
+            base: 0,
+            len: self.raw_len,
+            decoder: &self.archive.decoder,
+        };
+        let dom = self.entry().bind(StringSource::lazy(&state));
+        f(&dom)
+    }
+}
+
+impl Debug for OwnedDoc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnedDoc")
+            .field("pos", &self.pos)
+            .finish_non_exhaustive()
+    }
+}
+
+impl DomRead for OwnedDoc {
+    const IS_IMMUTABLE: bool = true;
+
+    // Same contiguous-DFS blob as `Doc`, so the same layout-exploiting linear sweep.
+    type Forward<'a> = LinearSweep<'a, Self>;
+    type Descendants<'a> = LinearSweep<'a, Self>;
+
+    fn forward_from(&self, start: NodeIndex) -> Self::Forward<'_> {
+        LinearSweep::forwards_at(self, start)
+    }
+
+    fn descendants_from(&self, start: NodeIndex) -> Self::Descendants<'_> {
+        LinearSweep::descendants_at(self, start)
+    }
+
+    fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
+        self.with_dom(|dom| dom.with_view(f))
+    }
+
+    fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
+        self.with_dom(|dom| dom.with_nodes(f))
+    }
+
+    fn walk_view(&self) -> Option<DomView<'_>> {
+        // Text-less bound view for resolved selector matching — see `Doc::walk_view`.
+        Some(self.entry().bind(StringSource::plain(&[])).view())
+    }
+
+    fn root(&self) -> HtmlElement<'_, Self> {
+        HtmlElement::root(self)
+    }
+
+    fn repackage(&self) -> DomInner {
+        self.with_dom(|dom| dom.repackage())
+    }
+}
+
+impl DomRef for OwnedDoc {
+    /// See [`Doc`]'s `dom_view`: materialise the text once into the handle's cache, then read it
+    /// zero-copy via `Plain`.
+    fn dom_view(&self) -> DomView<'_> {
+        let text = self.buf.get_or_init(|| {
+            self.archive
+                .decoder
+                .decode(self.frame(), self.raw_len as usize)
+        });
+        self.entry().bind(StringSource::plain(text)).view()
+    }
+}
+
+impl ContiguousDfs for OwnedDoc {}

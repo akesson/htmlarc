@@ -7,7 +7,7 @@
 //! reader borrows the *compressed* frame zero-copy and inflates exactly the documents it reads,
 //! lazily, through [`StringSource::Lazy`].
 
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 use htmlarc_dom::prelude::{FrameDecoder, LazyState};
 use rkyv::{Archive, Deserialize, Serialize};
@@ -102,7 +102,7 @@ impl ArchivedBundleStrings {
     pub fn lazy_states<'s>(
         &'s self,
         decoder: &'s dyn FrameDecoder,
-        bufs: &'s [OnceCell<Vec<u8>>],
+        bufs: &'s [OnceLock<Vec<u8>>],
     ) -> Vec<LazyState<'s>> {
         debug_assert_eq!(
             bufs.len(),

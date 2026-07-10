@@ -16,6 +16,7 @@ hotpath = { workspace = true, optional = true }
 indexmap.workspace = true
 log.workspace = true
 rkyv = { workspace = true }
+self_cell = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
