@@ -18,6 +18,23 @@ class Selector:
     @property
     def source(self) -> str: ...
 
+class Filter:
+    """Include/exclude predicate over archive documents, for ``Archive.matching()``.
+
+    A document is kept when it satisfies every include condition (or there are
+    none) and no exclude condition. Multiple selectors in a list AND together;
+    a comma inside one selector string is a CSS selector list, i.e. OR.
+    """
+
+    def __init__(
+        self,
+        *,
+        include_css: str | list[str] | None = None,
+        include_keys: list[str] | None = None,
+        exclude_css: str | list[str] | None = None,
+        exclude_keys: list[str] | None = None,
+    ) -> None: ...
+
 class Document:
     """A parsed HTML document, from ``parse()`` or an ``Archive``."""
 
@@ -90,7 +107,7 @@ class Archive:
     def __getitem__(self, index: int | str) -> Document: ...
     def get(self, key: str) -> Document | None: ...
     def __iter__(self) -> Iterator[Document]: ...
-    def matching(self, selector: str | Selector) -> list[str]: ...
+    def matching(self, selector: str | Selector | Filter) -> list[str]: ...
     def scan_text(self, selector: str | Selector) -> list[tuple[str, list[str]]]: ...
     def scan_attr(
         self, selector: str | Selector, name: str
