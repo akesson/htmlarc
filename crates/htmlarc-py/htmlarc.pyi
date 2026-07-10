@@ -2,7 +2,7 @@
 # Keep in sync with crates/htmlarc-py/src/lib.rs — the pyclass docstrings there
 # are the authoritative behavior reference.
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from os import PathLike
 
 __version__: str
@@ -115,6 +115,23 @@ class Archive:
         self, selector: str | Selector, name: str
     ) -> list[tuple[str, list[str | None]]]: ...
     def scan_count(self, selector: str | Selector, attr: str | None = None) -> int: ...
+    def scan_table(
+        self,
+        selector: str | Selector,
+        *,
+        text: bool = False,
+        attrs: Sequence[str] | None = None,
+    ) -> ArrowResult: ...
+
+class ArrowResult:
+    """A columnar ``scan_table`` result, exported zero-copy over the Arrow PyCapsule
+    stream interface: consume with ``pyarrow.table(r)``, ``polars.DataFrame(r)``,
+    ``pandas.DataFrame.from_arrow(r)``, ``duckdb.sql("... from r")``, or any other
+    ``__arrow_c_stream__`` reader. Re-consumable.
+    """
+
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object: ...
+    def __len__(self) -> int: ...
 
 class ArchiveIter:
     def __iter__(self) -> ArchiveIter: ...

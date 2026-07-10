@@ -180,9 +180,28 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
             .with_view(|view| view.text(self.index()).map(|s| s.to_string()))
     }
 
-    /// Gathers the text content of the element and its descendants
+    /// Gathers the text content of the element and its descendants.
     pub fn text_content(&self) -> String {
-        self.descendants().text_chars().collect()
+        let mut out = String::new();
+        self.for_each_text_chunk(|chunk| out.push_str(chunk));
+        out
+    }
+
+    /// Streams the element's text content to `f` as borrowed per-text-node slices, in document
+    /// order — the zero-allocation counterpart to [`text_content`](Self::text_content).
+    /// Concatenating the slices reproduces `text_content`'s string exactly, but without the
+    /// intermediate `String` per text node or the char-by-char collection. Each slice borrows the
+    /// backing store only for the duration of the call, so `f` must copy whatever it keeps.
+    pub fn for_each_text_chunk(&self, mut f: impl FnMut(&str)) {
+        for el in self.descendants().set_include_text() {
+            if el.tag() == HtmlTag::sys_text {
+                el.dom.with_view(|view| {
+                    if let Some(s) = view.text(el.index()) {
+                        f(s);
+                    }
+                });
+            }
+        }
     }
 
     pub fn count_parents(&self) -> u16 {
@@ -251,10 +270,20 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// [`HtmlAttr`], anything else (`data-*`, custom) matches the extended names. ASCII
     /// case-insensitive on both paths, like HTML attribute names themselves.
     pub fn get_attribute(&self, name: &str) -> Option<String> {
+        self.with_attribute(name, |val| val.map(str::to_string))
+    }
+
+    /// Runs `f` on the borrowed value of the attribute named `name` (`None` when absent) — the
+    /// zero-allocation counterpart to [`get_attribute`](Self::get_attribute), with the identical
+    /// string-name resolution (standard names via [`HtmlAttr`], everything else matched against the
+    /// extended names, ASCII case-insensitive). The value borrows the backing store only for the
+    /// duration of the call.
+    pub fn with_attribute<R>(&self, name: &str, f: impl FnOnce(Option<&str>) -> R) -> R {
         use std::str::FromStr;
         let target = HtmlAttr::from_str(name).map_or(AttrName::Ext(name), AttrName::Std);
-        self.with_view(|view| {
-            view.nodes
+        self.dom.with_view(|view| {
+            let val = view
+                .nodes
                 .attr_list_index(self.index())
                 .and_then(|idx| {
                     view.attr_list_at(idx).find(|a| match (a.name, target) {
@@ -264,7 +293,8 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
                         _ => a.name == target,
                     })
                 })
-                .map(|a| a.val.to_string())
+                .map(|a| a.val);
+            f(val)
         })
     }
 
@@ -597,6 +627,64 @@ fn get_attribute_by_string_name() {
     assert!(a.has_attribute("wonky"));
     assert!(!a.has_attribute("title"));
     assert!(!a.has_attribute("data-missing"));
+}
+
+#[test]
+fn for_each_text_chunk_matches_text_content() {
+    const HTML: &str =
+        r#"<body><article>One <b>two</b><!-- skip --> A&amp;B<p>tail</p></article></body>"#;
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+    let article = dom.root().select_css("article").unwrap().next().unwrap();
+
+    // Concatenating the borrowed chunks reproduces text_content exactly — comments excluded,
+    // entities already decoded — with no intermediate per-node String.
+    let mut chunked = String::new();
+    let mut n_chunks = 0;
+    article.for_each_text_chunk(|s| {
+        chunked.push_str(s);
+        n_chunks += 1;
+    });
+    assert_eq!(chunked, article.text_content());
+    assert!(chunked.contains("A&B"));
+    assert!(!chunked.contains("skip"));
+    // Text arrives as separate node-sized chunks, not one pre-merged string.
+    assert!(n_chunks >= 2);
+
+    // A leaf element with no text descendants yields no chunks (and an empty text_content).
+    let b = dom.root().select_css("p").unwrap().next().unwrap();
+    let mut leaf = String::new();
+    b.for_each_text_chunk(|s| leaf.push_str(s));
+    assert_eq!(leaf, b.text_content());
+}
+
+#[test]
+fn with_attribute_matches_get_attribute() {
+    const HTML: &str = r#"<body><a href="/x" data-k="v" empty="">t</a></body>"#;
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+    let a = dom.root().select_css("a").unwrap().next().unwrap();
+
+    // The borrowing hook agrees with the allocating accessor on every resolution path.
+    for name in [
+        "href",
+        "HREF",
+        "data-k",
+        "DATA-K",
+        "empty",
+        "title",
+        "data-missing",
+    ] {
+        assert_eq!(
+            a.with_attribute(name, |v| v.map(str::to_string)),
+            a.get_attribute(name),
+        );
+    }
+    // Present-but-empty is Some(""), absent is None — the distinction scan_table relies on.
+    assert_eq!(
+        a.with_attribute("empty", |v| v.map(str::to_string))
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(a.with_attribute("title", |v| v.map(str::to_string)), None);
 }
 
 #[test]
