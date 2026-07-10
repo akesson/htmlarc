@@ -2,9 +2,9 @@
 //! memory-mapped archive must answer every query identically to the owned one.
 
 use htmlarc_archive::{
-    BUNDLE_CAP, DocBundle, HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive,
+    BUNDLE_CAP, DocBundle, HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive, OwnedDoc,
 };
-use htmlarc_dom::prelude::{DomRead, HtmlDoc, HtmlFormat, HtmlTag};
+use htmlarc_dom::prelude::{DomIterator, DomRead, HtmlDoc, HtmlFormat, HtmlTag, OwnedSelectorList};
 
 fn sample_archive() -> HtmlArchive {
     let mut b = HtmlArchiveBuilder::default();
@@ -365,6 +365,95 @@ fn rejects_v3_archive() {
 fn mmap_archive_is_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<MmapArchive>();
+}
+
+/// The whole point of [`OwnedDoc`]: a `'static + Send + Sync` handle (what a Python binding or
+/// an async server must hold) that answers every query identically to the borrowed [`Doc`].
+#[test]
+fn owned_doc_matches_borrowed_and_crosses_threads() {
+    use std::sync::Arc;
+
+    let path = temp_path("owned_doc");
+    sample_archive().write_to(&path).unwrap();
+    let archive = Arc::new(MmapArchive::open(&path).unwrap());
+
+    // The handle is what lifetimes forbid `Doc` from being.
+    fn assert_handle<T: Send + Sync + 'static>(_: &T) {}
+
+    // Parity with the borrowed path, for every document and both render modes.
+    for pos in 0..archive.len() {
+        let owned = OwnedDoc::new(archive.clone(), pos).unwrap();
+        assert_handle(&owned);
+        let borrowed = archive.doc(pos);
+        assert_eq!(owned.key(), archive.key_at(pos));
+        assert_eq!(owned.position(), pos);
+        assert_eq!(owned.checksum(), archive.checksum_at(pos));
+        assert_eq!(
+            owned.to_html(HtmlFormat::Raw),
+            borrowed.to_html(HtmlFormat::Raw)
+        );
+        assert_eq!(
+            owned.to_html(HtmlFormat::Pretty),
+            borrowed.to_html(HtmlFormat::Pretty)
+        );
+    }
+
+    // Keyed lookup: present and absent.
+    let doc = OwnedDoc::by_key(archive.clone(), "alpha").unwrap().unwrap();
+    assert!(
+        OwnedDoc::by_key(archive.clone(), "no-such-key")
+            .unwrap()
+            .is_none()
+    );
+
+    // The handle outlives every borrow of the archive: move it (and the last Arc) to another
+    // thread together with a compiled selector — the exact shape a binding holds — and query
+    // there. Selecting, tag reads, and text all resolve.
+    drop(archive);
+    let selector = OwnedSelectorList::parse(".title").unwrap();
+    let from_thread = std::thread::spawn(move || {
+        let tags: Vec<HtmlTag> = doc
+            .root()
+            .select(selector.list().clone())
+            .map(|el| el.tag())
+            .collect();
+        let text: String = doc.root().descendants().text_chars().collect();
+        (tags, text)
+    })
+    .join()
+    .unwrap();
+    assert_eq!(from_thread.0, vec![HtmlTag::h1]);
+    assert_eq!(from_thread.1, "alphanested");
+
+    std::fs::remove_file(&path).ok();
+}
+
+/// An [`OwnedDoc`] in a *later* bundle must resolve its own slot's text (the bundle/slot
+/// arithmetic is the part a single-bundle archive cannot exercise).
+#[test]
+fn owned_doc_resolves_across_bundle_boundaries() {
+    use std::sync::Arc;
+
+    let n = BUNDLE_CAP + 3; // two bundles: one full + a partial tail
+    let mut b = HtmlArchiveBuilder::default();
+    for i in 0..n {
+        let html = format!("<body><p>text {i}</p></body>");
+        b.add_html(format!("key{i:05}"), HtmlDoc::parse(&html).unwrap());
+    }
+    let path = temp_path("owned_doc_bundles");
+    b.write_to(&path).unwrap();
+    let archive = Arc::new(MmapArchive::open(&path).unwrap());
+
+    // One document per bundle, plus the last: each must read its own text, not slot 0's.
+    for pos in [0, 1, BUNDLE_CAP - 1, BUNDLE_CAP, BUNDLE_CAP + 2] {
+        let doc = OwnedDoc::new(archive.clone(), pos).unwrap();
+        let key = doc.key().to_string();
+        let i: usize = key.trim_start_matches("key").parse().unwrap();
+        let text: String = doc.root().descendants().text_chars().collect();
+        assert_eq!(text, format!("text {i}"), "wrong text for {key} at {pos}");
+    }
+
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]

@@ -32,6 +32,9 @@ sanitize-filename = "0.6"
 # engine). Dev-only: used by the `selectors_vs_scraper` comparison bench.
 scraper = "0.27"
 seahash = "4.1"
+# Sound self-referential structs; lets `OwnedSelectorList` own its selector source string
+# while holding the borrowing `SelectorList` parsed from it (a `'static` handle for bindings).
+self_cell = "1.2"
 smallvec = "1.13"
 strum = "0.28"
 strum_macros = "0.28"

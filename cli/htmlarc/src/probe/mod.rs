@@ -5,11 +5,10 @@ mod node_counter;
 mod tests;
 
 use std::{
-    cell::OnceCell,
     collections::HashSet,
     mem,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -216,7 +215,7 @@ impl ProbeArchive for MmapArchive {
         let block = self
             .bundle_strings(bundle)
             .expect("corrupt bundle string block");
-        let bufs: Vec<OnceCell<Vec<u8>>> = (0..range.len()).map(|_| OnceCell::new()).collect();
+        let bufs: Vec<OnceLock<Vec<u8>>> = (0..range.len()).map(|_| OnceLock::new()).collect();
         let states = block.lazy_states(self.decoder(), &bufs);
         let mut counter = CountedNodes::default();
         for i in range.clone() {
