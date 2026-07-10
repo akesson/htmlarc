@@ -2,12 +2,12 @@
 //! `.htmlarc`, to choose the slice granularity and zstd level a future `--compression` flag would
 //! map to — before any on-disk format change.
 //!
-//! Today each bundle's text/comment pool lives in one **uncompressed** `BundleStrings` block,
-//! borrowed zero-copy (`StringSource::Plain`). The plan is to split a bundle's ≤1000 documents into
-//! *slices* of `S` docs, compress each slice as one zstd frame (optionally against a per-bundle
-//! trained dictionary), and read through the dormant `StringSource::Lazy` seam. Slice size trades
-//! compression ratio against random-access cost: a single-doc read must inflate its whole slice
-//! (cost ∝ `S`), while a sequential sweep inflates each slice once.
+//! Today each document's text/comment pool is stored as ~16 KiB zstd blocks cut at text-node
+//! boundaries (format v11, ADR 0008), read through `StringSource::Lazy`. This probe predates
+//! that and models a different axis — *multi-document* slices of `S` docs per frame (optionally
+//! against a per-bundle trained dictionary). Slice size trades compression ratio against
+//! random-access cost: a single-doc read must inflate its whole slice (cost ∝ `S`), while a
+//! sequential sweep inflates each slice once.
 //!
 //! This command measures that trade-off on the **real on-disk bytes**: it opens the archive, reads
 //! every bundle's `BundleStrings` segments (the exact bytes being prepared for compression), and
@@ -62,10 +62,11 @@ pub(crate) fn run(args: Framing) -> Result<()> {
         let decoder = mmap.decoder();
         for b in 0..mmap.bundle_count() {
             let bs = mmap.bundle_strings(b)?;
-            // The block now stores compressed per-document frames (format v10); inflate each back
-            // to its raw text so the framing experiments run on the same bytes as before.
+            // The block now stores compressed per-document block frames (format v11); inflate
+            // each document back to its raw text so the framing experiments run on the same
+            // bytes as before.
             let docs = (0..bs.doc_count())
-                .map(|slot| decoder.decode(bs.frame(slot), bs.raw_len(slot) as usize))
+                .map(|slot| bs.materialize_doc(slot, decoder))
                 .collect();
             bundles.push(docs);
         }
