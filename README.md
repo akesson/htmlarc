@@ -132,6 +132,8 @@ crates/
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
   htmlarc-convert/  converts ZIM / WARC / a directory of HTML into a .htmlarc archive
+benchmarks/
+  python-compare/   BeautifulSoup vs lxml vs htmlarc-py benchmark + writeup
 corpus/             local-only measurement corpus, gitignored (see below)
 ```
 
