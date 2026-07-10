@@ -41,6 +41,14 @@ doc.select_text("p")            # list[str]
 doc.select_attr("a", "href")    # list[str | None]
 doc.select_html(".figure")      # list[str]
 
+# Asking the same documents several questions? Hold the handles. Each document
+# handle caches the text blocks it has decompressed, but the cache lives on the
+# handle — `archive[key]` and iteration hand out fresh ones. Reusing handles makes
+# every text read after the first hit warm caches (~2x on text-heavy sweeps).
+docs = list(archive)
+titles = [d.select_text("h1") for d in docs]   # decompresses matched text blocks
+paras = [d.select_text("p") for d in docs]     # reuses them where they overlap
+
 # matching() also takes a Filter for include/exclude rules; a pure key filter
 # never touches document bodies at all.
 f = htmlarc.Filter(include_css="article .main", exclude_keys=["page-1"])
