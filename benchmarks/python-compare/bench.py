@@ -5,7 +5,12 @@ Phases:
   build_htmlarc                                  ArchiveBuilder over all docs -> .htmlarc
   requery_htmlarc                                open archive + 3-selector extract
                                                  (python loop AND parallel scan_*)
+  requery_lxml_par                               the parallel-lxml counterpart: same
+                                                 re-parse+extract fanned out over all
+                                                 cores (fork Pool AND ThreadPool)
   hot_bs4 | hot_lxml                             parse all -> hold trees -> query hot
+  pipeline_read | pipeline_lxml |                end-to-end from the source cc warc.gz:
+  pipeline_lxml_par | pipeline_bs4               stream+decode (+parse+query), cc only
 Corpora: wikt | cc  (pickles of list[(key, html)] made by extract.py, in data/)
 """
 
@@ -147,6 +152,57 @@ def hot_lxml(corpus):
     emit("hot_lxml", corpus, {"parse": t1 - t0, "query": t2 - t1}, counts, failures)
 
 
+# Parallel lxml: how lxml users actually scale to big corpora. Trees aren't
+# picklable, so parse and extraction must be fused inside each worker and only
+# plain data returned. Fork start method: workers inherit the already-encoded
+# corpus copy-on-write — zero input IPC, the best case for lxml on this box.
+_par_docs = None
+
+
+def _lxml_par_chunk(rng):
+    import lxml.html
+
+    sels = lxml_selectors()  # per chunk: lxml XPath evaluators aren't shareable across threads
+    i0, i1 = rng
+    counts, failures = [0, 0, 0], 0
+    for _key, html in _par_docs[i0:i1]:
+        try:
+            tree = lxml.html.fromstring(html)
+        except Exception:
+            failures += 1
+            continue
+        lxml_query(tree, sels, counts)
+    return counts, failures
+
+
+def requery_lxml_par(corpus):
+    import multiprocessing as mp
+    import os
+    from multiprocessing.pool import ThreadPool
+
+    global _par_docs
+    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
+    workers = os.cpu_count()
+    step = max(1, len(_par_docs) // (workers * 4))  # ~4 chunks/worker for balance
+    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
+
+    def run(pool_cls, **kw):
+        t0 = time.perf_counter()
+        with pool_cls(workers, **kw) as pool:
+            results = pool.map(_lxml_par_chunk, chunks)
+        secs = time.perf_counter() - t0
+        counts = [sum(c[i] for c, _ in results) for i in range(3)]
+        failures = sum(f for _, f in results)
+        return secs, counts, failures
+
+    # includes pool startup + result IPC: that's the real per-question cost
+    t_proc, counts, failures = run(mp.get_context("fork").Pool)
+    t_thread, t_counts, t_failures = run(ThreadPool)
+    assert t_counts == counts and t_failures == failures
+    emit("requery_lxml_par", corpus, {"processes": t_proc, "threads": t_thread},
+         counts, failures, workers=workers)
+
+
 # ---------------------------------------------------------------- htmlarc
 
 def htmlarc_selectors():
@@ -225,6 +281,123 @@ def requery_htmlarc(corpus):
     emit("requery_htmlarc", corpus, {"open": t1 - t0, "loop_query": t2 - t1,
                                      "scan_query": t3 - t2},
          counts, scan_counts=scan_counts, n_docs=len(arc))
+
+
+# ------------------------------------------------- end-to-end source pipeline
+# What analyzing the corpus actually costs without a pre-parsed artifact: every
+# question re-reads the source .warc.gz (gunzip + warcio record scan), decodes,
+# parses, queries. htmlarc's counterpart is requery_htmlarc on the .htmlarc that
+# was converted once. cc only (the wikt analog would stream the .zim).
+
+def _cc_bodies(limit=5000):
+    """Yield (key, raw html bytes) straight off the warc.gz, like extract.py."""
+    import os
+
+    from warcio.archiveiterator import ArchiveIterator
+
+    corpus = Path(os.environ.get("HTMLARC_CORPUS", DIR.parent.parent.parent / "corpus"))
+    n = 0
+    with open(corpus / "cc_000.warc.gz", "rb") as f:
+        for rec in ArchiveIterator(f):
+            if rec.rec_type != "response":
+                continue
+            ct = rec.http_headers.get_header("Content-Type") if rec.http_headers else None
+            if not ct or "text/html" not in ct:
+                continue
+            if rec.http_headers.get_statuscode() != "200":
+                continue
+            body = rec.content_stream().read()
+            if not body:
+                continue
+            yield f"cc#{n}", body
+            n += 1
+            if n >= limit:
+                return
+
+
+def pipeline_read(corpus):
+    assert corpus == "cc"
+    t0 = time.perf_counter()
+    n = bytes_ = 0
+    for _key, body in _cc_bodies():
+        body.decode("utf-8", errors="replace")
+        n, bytes_ = n + 1, bytes_ + len(body)
+    emit("pipeline_read", corpus, {"total": time.perf_counter() - t0},
+         [n, 0, 0], html_mb=round(bytes_ / 1e6, 1))
+
+
+def pipeline_lxml(corpus):
+    import lxml.html
+
+    assert corpus == "cc"
+    sels = lxml_selectors()
+    counts, failures = [0, 0, 0], 0
+    t0 = time.perf_counter()
+    for _key, body in _cc_bodies():
+        try:
+            tree = lxml.html.fromstring(body)  # raw bytes: lxml's native input
+        except Exception:
+            failures += 1
+            continue
+        lxml_query(tree, sels, counts)
+    emit("pipeline_lxml", corpus, {"total": time.perf_counter() - t0}, counts, failures)
+
+
+def _pipeline_chunk(chunk):
+    import lxml.html
+
+    sels = lxml_selectors()
+    counts, failures = [0, 0, 0], 0
+    for _key, body in chunk:
+        try:
+            tree = lxml.html.fromstring(body)
+        except Exception:
+            failures += 1
+            continue
+        lxml_query(tree, sels, counts)
+    return counts, failures
+
+
+def pipeline_lxml_par(corpus):
+    import multiprocessing as mp
+    import os
+
+    assert corpus == "cc"
+    workers = os.cpu_count()
+
+    def chunks(it, size=64):  # batch bodies to amortize IPC
+        buf = []
+        for kv in it:
+            buf.append(kv)
+            if len(buf) == size:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
+
+    t0 = time.perf_counter()
+    with mp.get_context("fork").Pool(workers) as pool:
+        results = list(pool.imap_unordered(_pipeline_chunk, chunks(_cc_bodies())))
+    secs = time.perf_counter() - t0
+    counts = [sum(c[i] for c, _ in results) for i in range(3)]
+    emit("pipeline_lxml_par", corpus, {"total": secs}, counts,
+         sum(f for _, f in results), workers=workers)
+
+
+def pipeline_bs4(corpus):
+    from bs4 import BeautifulSoup
+
+    assert corpus == "cc"
+    counts, failures = [0, 0, 0], 0
+    t0 = time.perf_counter()
+    for _key, body in _cc_bodies():
+        try:
+            soup = BeautifulSoup(body, "lxml")  # raw bytes: bs4 detects charset
+        except Exception:
+            failures += 1
+            continue
+        bs4_query(soup, counts)
+    emit("pipeline_bs4", corpus, {"total": time.perf_counter() - t0}, counts, failures)
 
 
 if __name__ == "__main__":

@@ -85,14 +85,25 @@ Cost of the *next* 3-selector sweep over the whole corpus, fresh process:
 | | wikt | RSS | cc | RSS |
 |---|---|---|---|---|
 | BeautifulSoup (re-parse) | 8.25 s | — | 32.8 s | — |
-| lxml (re-parse) | 0.64 s | — | 3.04 s | — |
+| lxml (re-parse, 1 core) | 0.64 s | — | 3.04 s | — |
+| lxml (re-parse, `multiprocessing`, 14 cores) | 0.15 s | — | 0.52 s | — |
 | **htmlarc, Python loop (1 core)** | **0.09 s** | 110 MB | **0.39 s** | 418 MB |
 | **htmlarc, `scan_*` (all cores, GIL released)** | **0.037 s** | 110 MB | **0.10 s** | 418 MB |
 
 Opening the archive is sub-millisecond (mmap). Per question over the corpus:
 **~7–8× faster than lxml / ~220–330× faster than bs4 single-threaded**, rising to
 **17–30× vs lxml** with the parallel sweeps. The build cost amortizes after roughly one
-re-query even against lxml. Note the sweeps do real work: the text selectors force the
+re-query even against lxml.
+
+The `multiprocessing` row is how lxml users actually scale (trees aren't picklable, so
+parse+extract must be fused inside each worker), measured in its best case: fork-start
+workers inherit the already-encoded corpus copy-on-write, zero input IPC, pool startup
+included (`requery_lxml_par`, 3× medians). Core-for-core the comparison holds:
+**htmlarc's `scan_*` beats 14-core lxml 4–5× on the same cores, and htmlarc's
+single-core loop alone edges out lxml on all fourteen** (0.39 s vs 0.52 s on cc) — while
+each lxml worker re-parses HTML that the archive already stored parsed. A `ThreadPool`
+is not an alternative: lxml releases the GIL during parsing, but the Python-side
+extraction doesn't, and the sweep lands at 2.8 s on cc — no better than one core. Note the sweeps do real work: the text selectors force the
 zstd-compressed text blocks holding matched text to inflate lazily — this is not a
 topology-only cheat (though since format v11 only the ~16 KiB blocks actually touched
 inflate, which is where the cc loop's improvement over earlier versions comes from).
@@ -113,6 +124,34 @@ lxml trees inflate the HTML ~8× in RAM (405 MB → 3.7 GB); bs4 ~14×. htmlarc 
 on-disk archive **1.7–2.5× faster single-threaded than lxml queries its own in-memory
 trees**, and ~4–10× faster with the parallel sweeps, at ~8× lower RSS — and the archive
 survives process exit, is shareable, and scales past RAM.
+
+### Workflow 2c — the bigger-than-memory reality: straight from the source archive
+
+Workflows 2/2b still grant the incumbents a luxury: the HTML pre-extracted, pre-decoded,
+sitting in RAM. On a corpus that doesn't fit in memory nobody has that — a typical
+analyst's per-question cost is the whole pipeline: read the `.warc.gz`, gunzip, scan WARC
+records, decode, parse, query. Measured end-to-end on the same 5,000-doc slice
+(415 MB of HTML inside cc_000.warc.gz), against htmlarc querying the `.htmlarc` it
+converted once:
+
+| per question, from what's on disk | time | notes |
+|---|---|---|
+| bs4 pipeline (warcio → parse → query, 1 core) | 35.0 s | charset detection included |
+| lxml pipeline (1 core) | 3.98 s | raw bytes → `fromstring` |
+| lxml pipeline (14 cores, fork + `imap`) | 0.91 s | serial reader feeds workers |
+| *warcio read + decode only — no parsing at all* | *0.73 s* | *the pipeline's hard floor* |
+| **htmlarc, Python loop (1 core)** | **0.39 s** | |
+| **htmlarc, `scan_*` (all cores)** | **0.10 s** | |
+
+The structural point: on a single compressed stream, **just reading and decoding the
+source costs 7× more than htmlarc needs to answer the whole question** — parallelism
+can't take the incumbents below that serial-read floor (with 14 cores the parse is
+already fully hidden behind the reader: 0.91 s vs the 0.73 s floor). Fanning out across
+*files* (one worker per WARC segment, the standard Common Crawl pattern) does scale the
+incumbents linearly — but it spends a core-hour re-parsing per ~25 GB of HTML, every
+question, forever, while the archive already stored the parse. (Raw-bytes input also
+shifts lxml/bs4 counts ~1% vs the in-RAM tables — per-document charsets get honored —
+and lxml's failures drop to 3; robustness parity holds.)
 
 (Oneshot RSS columns omitted where dominated by the benchmark harness holding all input
 HTML in RAM — identical across libraries, so absolute values aren't meaningful there.
