@@ -17,3 +17,7 @@ crate-type = ["cdylib"]
 pyo3 = { workspace = true }
 htmlarc-dom = { workspace = true }
 htmlarc-archive = { workspace = true }
+# Columnar `Archive.scan_table` output over the Arrow PyCapsule stream interface.
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }

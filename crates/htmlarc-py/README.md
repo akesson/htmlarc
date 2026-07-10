@@ -41,6 +41,18 @@ links = archive.scan_attr("a[href]", "href")
 n_links = archive.scan_count("a[href]", attr="href")   # one int, all cores, GIL released
 n_heads = archive.scan_count("h1, h2, h3")
 
+# Feeding a dataframe? scan_table returns the whole sweep as one flat Arrow table — one row
+# per matched element, a `key` column (the document key), an optional `text` column, and one
+# nullable column per requested attribute (`"class"` synthesized like `.get()`). It builds the
+# columns off-GIL and hands them over zero-copy via the Arrow PyCapsule interface, so nothing is
+# marshalled per match — much faster than scan_text/scan_attr when extracting from everything.
+# htmlarc has no Arrow dependency itself; the consumer (pyarrow/polars/duckdb) provides it.
+import polars, pyarrow
+links = pyarrow.table(archive.scan_table("a[href]", attrs=["href"]))   # columns: key, href
+heads = polars.DataFrame(archive.scan_table("h1, h2, h3", text=True))  # columns: key, text
+# Text and attributes in a single sweep (two scan_* calls would parse-walk twice):
+df = polars.DataFrame(archive.scan_table("a[href]", text=True, attrs=["href"]))
+
 # Batch extraction on a single document avoids per-element FFI calls too:
 doc.select_text("p")            # list[str]
 doc.select_attr("a", "href")    # list[str | None]

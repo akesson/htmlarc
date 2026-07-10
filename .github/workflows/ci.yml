@@ -60,5 +60,6 @@ jobs:
       - run: uvx maturin build -m crates/htmlarc-py/Cargo.toml -o dist
       - run: |
           uv venv .venv
-          uv pip install --python .venv dist/*.whl pytest
+          # pyarrow so the scan_table PyCapsule stream is verified against a real Arrow consumer.
+          uv pip install --python .venv dist/*.whl pytest pyarrow
           .venv/bin/pytest crates/htmlarc-py/tests
