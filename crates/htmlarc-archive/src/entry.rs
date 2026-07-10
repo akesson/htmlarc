@@ -24,13 +24,36 @@ pub struct SerializedEntry {
     /// ranges stay valid against the relocated pool.
     pub bytes: AlignedVec,
     /// The document's text/comment pool, relocated out of `bytes` so the writer can pack a whole
-    /// bundle's pools into the bundle's data region. This is the **raw** pool as produced here; the
-    /// convert worker may replace it in place with its compressed frame (ADR 0005), in which case
-    /// [`raw_len`](Self::raw_len) records the original length.
+    /// bundle's pools into the bundle's data region. This is the **raw** pool as produced here;
+    /// [`compress_blocks`](Self::compress_blocks) replaces it in place with the document's
+    /// concatenated block frames (ADR 0005 + ADR 0008).
     pub strings: Vec<u8>,
-    /// The decompressed length of [`strings`](Self::strings). Equal to `strings.len()` until a
-    /// worker compresses the pool into a frame, after which it is the frame's inflated size.
-    pub raw_len: u32,
+    /// Cumulative raw block ends (doc-relative), cut at text-node boundaries by
+    /// [`crate::bundle_strings::block_cuts`] while the topology was still in scope. One entry per
+    /// block; the last equals the raw pool length; empty for a text-free document.
+    pub raw_ends: Vec<u32>,
+    /// Cumulative frame ends into [`strings`](Self::strings), one per block — empty until
+    /// [`compress_blocks`](Self::compress_blocks) runs. The writer refuses an entry whose pool
+    /// was never compressed.
+    pub frame_ends: Vec<u32>,
+}
+
+impl SerializedEntry {
+    /// Compress the raw pool block by block (per [`raw_ends`](Self::raw_ends)), replacing
+    /// [`strings`](Self::strings) with the concatenated frames and filling
+    /// [`frame_ends`](Self::frame_ends). The single compression helper for both convert phases
+    /// (worker and warm-up coordinator), so the block layout cannot diverge between them.
+    pub fn compress_blocks(
+        &mut self,
+        compressor: &mut crate::codec::StringCompressor<'_>,
+    ) -> Result<(), ArchiveErr> {
+        debug_assert!(self.frame_ends.is_empty(), "pool already compressed");
+        let raw = std::mem::take(&mut self.strings);
+        let (frames, frame_ends) = compressor.compress_pool(&raw, &self.raw_ends)?;
+        self.strings = frames;
+        self.frame_ends = frame_ends;
+        Ok(())
+    }
 }
 
 /// One pre-parsed HTML document in an archive, addressed by `key`.
@@ -92,20 +115,23 @@ impl HtmlEntry {
     /// returned [`SerializedEntry`] is what [`ArchiveWriter::push_serialized`](crate::ArchiveWriter::push_serialized)
     /// appends. Consumes `self` so the heavy DOM is dropped the moment its bytes exist.
     pub fn into_serialized(mut self) -> Result<SerializedEntry, ArchiveErr> {
-        // Relocate the text pool out of the blob first: the bytes go to the bundle's data region
+        // Block boundaries need the node text ranges, so cut before the topology loses its pool.
+        let ranges = self.html.text_ranges();
+        // Relocate the text pool out of the blob: the bytes go to the bundle's data region
         // and the per-document blob is serialized string-less (its node ranges still resolve
         // against the relocated segment).
         let strings = self.html.take_string_pool();
+        let raw_ends = crate::bundle_strings::block_cuts(ranges, strings.len() as u32);
         let bytes =
             rkyv::to_bytes::<Error>(&self).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        let raw_len = strings.len() as u32;
         Ok(SerializedEntry {
             key: self.key,
             key_len: self.key_len,
             checksum: self.checksum,
             bytes,
             strings,
-            raw_len,
+            raw_ends,
+            frame_ends: Vec::new(),
         })
     }
 }

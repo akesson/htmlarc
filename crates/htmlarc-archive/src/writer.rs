@@ -122,34 +122,54 @@ impl ArchiveWriter {
             self.collapsed += 1;
             return Ok(());
         }
+        // Block boundaries need the node text ranges, so cut before the topology loses its pool.
+        let ranges = entry.html.text_ranges();
         let strings = entry.html.take_string_pool();
+        let raw_ends = crate::bundle_strings::block_cuts(ranges, strings.len() as u32);
         let bytes =
             rkyv::to_bytes::<Error>(&entry).map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
-        self.write_doc(&entry.key, entry.key_len, entry.checksum, &bytes, &strings)
+        self.write_doc(
+            &entry.key,
+            entry.key_len,
+            entry.checksum,
+            &bytes,
+            &strings,
+            &raw_ends,
+        )
     }
 
     /// Append a document that was already serialized off-thread (the parallel `convert` path
     /// serializes each entry on its worker so the coordinator never holds the live `DomInner`).
-    /// Its text pool was relocated into [`SerializedEntry::strings`] **and already compressed into
-    /// its frame** by the worker / two-phase coordinator (ADR 0005), so the writer stores it
+    /// Its text pool was relocated into [`SerializedEntry::strings`] **and already compressed
+    /// into its block frames** by the worker / two-phase coordinator
+    /// ([`SerializedEntry::compress_blocks`], ADR 0005 + ADR 0008), so the writer stores it
     /// verbatim. Same first-wins dedup as [`push_entry`](Self::push_entry).
     pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<(), ArchiveErr> {
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
             return Ok(());
         }
-        self.write_doc_frame(
+        // A raw pool reaching this point would be stored verbatim as if it were frames and read
+        // back as garbage — refuse it loudly instead.
+        if entry.frame_ends.len() != entry.raw_ends.len() {
+            return Err(ArchiveErr::Serialize(format!(
+                "entry '{}' was never compressed (compress_blocks not called)",
+                entry.key
+            )));
+        }
+        self.write_doc_blocks(
             &entry.key,
             entry.key_len,
             entry.checksum,
             &entry.bytes,
             &entry.strings,
-            entry.raw_len,
+            &entry.frame_ends,
+            &entry.raw_ends,
         )
     }
 
     /// The raw-text append path (the in-memory builder's [`push_entry`](Self::push_entry)):
-    /// compress the pool here, dictionary-less, then store it like any frame.
+    /// compress the pool's blocks here, dictionary-less, then store them like any frames.
     fn write_doc(
         &mut self,
         key: &str,
@@ -157,23 +177,35 @@ impl ArchiveWriter {
         checksum: u64,
         bytes: &[u8],
         strings: &[u8],
+        raw_ends: &[u32],
     ) -> Result<(), ArchiveErr> {
-        let frame = codec::compress_segment(&mut self.compressor, strings)?;
-        self.write_doc_frame(key, key_len, checksum, bytes, &frame, strings.len() as u32)
+        let (frames, frame_ends) =
+            codec::compress_pool_blocks(&mut self.compressor, strings, raw_ends)?;
+        self.write_doc_blocks(
+            key,
+            key_len,
+            checksum,
+            bytes,
+            &frames,
+            &frame_ends,
+            raw_ends,
+        )
     }
 
     /// Append one document's (string-less) blob, record its doc-table row, and accumulate its
-    /// already-compressed text `frame` (inflating to `raw_len` bytes) into the current bundle's
-    /// string block. The caller has already performed the dedup `seen` insert. The single source
-    /// of byte offsets is `self.pos`.
-    fn write_doc_frame(
+    /// already-compressed block frames into the current bundle's string block. The caller has
+    /// already performed the dedup `seen` insert. The single source of byte offsets is
+    /// `self.pos`.
+    #[allow(clippy::too_many_arguments)]
+    fn write_doc_blocks(
         &mut self,
         key: &str,
         key_len: u16,
         checksum: u64,
         bytes: &[u8],
-        frame: &[u8],
-        raw_len: u32,
+        frames: &[u8],
+        frame_ends: &[u32],
+        raw_ends: &[u32],
     ) -> Result<(), ArchiveErr> {
         let offset = self.pos;
         let len = bytes.len() as u64;
@@ -181,7 +213,8 @@ impl ArchiveWriter {
         self.pos += len;
         self.pad_to_align()?;
 
-        self.cur_strings.push_doc_frame(frame, raw_len);
+        self.cur_strings
+            .push_doc_blocks(frames, frame_ends, raw_ends);
         self.docs.push(DocEntry {
             key: key.to_string(),
             key_len,

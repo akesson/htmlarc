@@ -13,7 +13,7 @@ use rkyv::rancor::Error;
 
 use crate::Filter;
 use crate::bundle::ArchivedBundleTable;
-use crate::bundle_strings::ArchivedBundleStrings;
+use crate::bundle_strings::{ArchivedBundleStrings, DocBlocks};
 use crate::codec::ZstdFrameDecoder;
 use crate::doc_table::{self, ArchivedDocTable, ArchivedSortIndex};
 use crate::entry::ArchivedHtmlEntry;
@@ -273,20 +273,23 @@ impl MmapArchive {
 
     /// Validate the document at flat position `i` and pair it with its bundle's relocated text,
     /// ready to query/render. `Err` if either the document blob or the bundle's string block fails
-    /// validation. The returned [`Doc`] holds the document's compressed frame and inflates it
-    /// lazily, so a query that never reads text never decompresses.
+    /// validation. The returned [`Doc`] holds the document's compressed block frames and inflates
+    /// them lazily, per block, so a query that never reads text never decompresses — and one that
+    /// reads a sliver inflates only the blocks it touches.
     fn try_doc(&self, i: usize) -> Result<Doc<'_>, ArchiveErr> {
         let b = self.bundle_of(i);
         let slot = i - self.bundle_table()[b].doc_start.to_native() as usize;
         let d = &self.doc_table()[i];
         let entry = self.blob(d.offset.to_native(), d.len.to_native())?;
         let strings = self.bundle_strings(b)?;
+        let blocks = strings.doc_blocks(slot);
         Ok(Doc {
             entry,
-            frame: strings.frame(slot),
-            raw_len: strings.raw_len(slot),
+            frames: strings.frames(),
+            bufs: blocks.bufs(),
+            blocks,
             decoder: &self.decoder,
-            buf: OnceLock::new(),
+            full: OnceLock::new(),
         })
     }
 
@@ -408,21 +411,19 @@ impl crate::Archive for MmapArchive {
         for b in 0..self.bundle_count() {
             let range = self.bundle_range(b);
             // Build the bundle's lazy text bindings only if some document needs the DOM inspected
-            // (a key-only filter short-circuits every key). `bufs` and `states` are two separate
-            // locals so `states` can borrow `bufs` without a self-referential struct; binding stays
-            // lazy, so a document whose CSS rules never read text never inflates its frame.
+            // (a key-only filter short-circuits every key). `arena` and `states` are two separate
+            // locals so `states` can borrow `arena` without a self-referential struct; binding
+            // stays lazy, so a document whose CSS rules never read text never inflates a block.
             let needs_body = range
                 .clone()
                 .any(|i| filter.keep_key(self.key_at(i)).is_none());
             let arena = needs_body.then(|| {
                 let block = self.bundle_strings(b).expect("corrupt bundle string block");
-                let bufs: Vec<OnceLock<Vec<u8>>> =
-                    (0..range.len()).map(|_| OnceLock::new()).collect();
-                (block, bufs)
+                (block, block.arena())
             });
             let states = arena
                 .as_ref()
-                .map(|(block, bufs)| block.lazy_states(self.decoder(), bufs));
+                .map(|(block, arena)| block.lazy_states(self.decoder(), arena));
             for i in range.clone() {
                 let key = self.key_at(i);
                 let keep = match filter.keep_key(key) {
@@ -443,37 +444,52 @@ impl crate::Archive for MmapArchive {
 }
 
 /// A single memory-mapped document paired with its bundle's relocated text, returned by
-/// [`MmapArchive::doc`]/[`doc_by_key`](MmapArchive::doc_by_key). It owns one inflate cache and
-/// holds the document's *compressed* frame, decompressing it at most once — and only if the
-/// document's text is actually read — so a topology- or selector-only query over a single document
-/// pays nothing for compression. Implements [`DomRead`], so it queries exactly like the underlying
-/// archived document (`doc.root()`, `doc.to_html(..)`, `filter.keep(key, &doc)`).
+/// [`MmapArchive::doc`]/[`doc_by_key`](MmapArchive::doc_by_key). It owns one inflate cache per
+/// text block and holds the document's *compressed* block frames, decompressing each at most
+/// once — and only if text inside it is actually read — so a topology- or selector-only query
+/// over a single document pays nothing for compression, and a partial text read pays only for
+/// its blocks. Implements [`DomRead`], so it queries exactly like the underlying archived
+/// document (`doc.root()`, `doc.to_html(..)`, `filter.keep(key, &doc)`).
 ///
 /// For sweeping a whole bundle, prefer reading the block once via
 /// [`MmapArchive::bundle_strings`] + [`ArchivedBundleStrings::lazy_states`]; `doc()` re-resolves the
-/// bundle and sets up a fresh inflate cache on every call (though it no longer re-validates the
+/// bundle and sets up fresh inflate caches on every call (though it no longer re-validates the
 /// block — that happens once per bundle).
 pub struct Doc<'a> {
     entry: &'a ArchivedHtmlEntry,
-    frame: &'a [u8],
-    raw_len: u32,
+    /// The bundle's whole frame blob; `blocks`' tables index into it (bundle-absolute).
+    frames: &'a [u8],
+    /// This document's block tables, copied to native `u32` at construction.
+    blocks: DocBlocks,
+    /// One inflate cache per block.
+    bufs: Box<[OnceLock<Vec<u8>>]>,
     decoder: &'a dyn FrameDecoder,
-    buf: OnceLock<Vec<u8>>,
+    /// [`DomRef::dom_view`]'s contiguous whole-pool cache — a borrowed view needs one flat
+    /// `Plain` slice, which the per-block caches cannot provide. A handle read through both
+    /// paths holds its text twice; in exchange neither path pays for the other.
+    full: OnceLock<Vec<u8>>,
 }
 
 impl<'a> Doc<'a> {
-    /// Run `f` with a query view over this document. The transient [`LazyState`] borrows the
-    /// document's owned inflate cache (`self.buf`), so repeated reads inflate the frame only once;
-    /// it lives only for the call, keeping [`Doc`] free of a self-referential field.
+    /// The per-call [`LazyState`] over this document's blocks — all borrows, so it is built on
+    /// the stack per call, keeping [`Doc`] free of a self-referential field. Repeated reads
+    /// still inflate each block only once (the caches live on the handle).
+    fn lazy_state(&self) -> LazyState<'_> {
+        LazyState {
+            bufs: &self.bufs,
+            frames: self.frames,
+            frame_starts: &self.blocks.frame_starts,
+            raw_starts: &self.blocks.raw_starts,
+            base: self.blocks.base(),
+            len: self.blocks.raw_len(),
+            decoder: self.decoder,
+        }
+    }
+
+    /// Run `f` with a query view over this document.
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
-        let state = LazyState {
-            buf: &self.buf,
-            frame: self.frame,
-            base: 0,
-            len: self.raw_len,
-            decoder: self.decoder,
-        };
+        let state = self.lazy_state();
         let dom = self.entry.bind(StringSource::lazy(&state));
         f(&dom)
     }
@@ -539,12 +555,13 @@ impl DomRead for Doc<'_> {
 impl DomRef for Doc<'_> {
     /// A view bound to the full `&self` borrow (what text accessors that return borrowed `&str`,
     /// and the probe's node analysis, need). Unlike the lazy [`with_view`](DomRead::with_view)
-    /// path, this materialises the document's text once into the owned [`OnceLock`] (a borrowed
-    /// view cannot hand back a transient inflate buffer), then reads it zero-copy via `Plain`.
+    /// path, this materialises the document's whole pool once into the owned `full` cache (a
+    /// borrowed view cannot hand back transient inflate buffers, and `Plain` needs one flat
+    /// slice), then reads it zero-copy.
     fn dom_view(&self) -> DomView<'_> {
         let text = self
-            .buf
-            .get_or_init(|| self.decoder.decode(self.frame, self.raw_len as usize));
+            .full
+            .get_or_init(|| StringSource::lazy(&self.lazy_state()).materialize());
         self.entry.bind(StringSource::plain(text)).view()
     }
 }
@@ -557,23 +574,25 @@ impl ContiguousDfs for Doc<'_> {}
 ///
 /// Construction resolves the document's bundle and validates its blob and the bundle's string
 /// block once (safe rkyv `access`); every later read casts in place unchecked — sound because the
-/// mapping is immutable (see the [`MmapArchive`] caveat). The inflate cache lives on the handle,
-/// so however many text reads the handle serves, its string frame decompresses at most once — the
-/// two costs a per-call `archive.doc(i)` loop would otherwise re-pay per call.
+/// mapping is immutable (see the [`MmapArchive`] caveat). The inflate caches live on the handle,
+/// so however many text reads the handle serves, each of its string blocks decompresses at most
+/// once — the two costs a per-call `archive.doc(i)` loop would otherwise re-pay per call.
 pub struct OwnedDoc {
     archive: Arc<MmapArchive>,
     /// Flat (bundle→doc) position in the doc table.
     pos: usize,
-    /// `pos`'s owning bundle, and the document's slot within it, resolved once.
+    /// `pos`'s owning bundle, resolved once (the block tables below already narrow the bundle's
+    /// string block to this document, so the slot itself is not kept).
     bundle: usize,
-    slot: usize,
     /// The document blob's byte range, bytecheck-validated at construction.
     offset: usize,
     len: usize,
-    /// Decompressed length of the document's string frame.
-    raw_len: u32,
-    /// Handle-lifetime inflate cache (see [`LazyState`]).
-    buf: OnceLock<Vec<u8>>,
+    /// This document's block tables, copied to native `u32` at construction.
+    blocks: DocBlocks,
+    /// Handle-lifetime inflate caches, one per block (see [`LazyState`]).
+    bufs: Box<[OnceLock<Vec<u8>>]>,
+    /// [`DomRef::dom_view`]'s contiguous whole-pool cache — see [`Doc::full`].
+    full: OnceLock<Vec<u8>>,
 }
 
 impl OwnedDoc {
@@ -588,15 +607,15 @@ impl OwnedDoc {
         // Validate the blob and the bundle's string block up front; the per-read accessors
         // ([`entry`](Self::entry), [`frame`](Self::frame)) rely on it to go unchecked.
         archive.blob(offset, len)?;
-        let raw_len = archive.bundle_strings(bundle)?.raw_len(slot);
+        let blocks = archive.bundle_strings(bundle)?.doc_blocks(slot);
         Ok(Self {
             pos,
             bundle,
-            slot,
             offset: offset as usize,
             len: len as usize,
-            raw_len,
-            buf: OnceLock::new(),
+            bufs: blocks.bufs(),
+            blocks,
+            full: OnceLock::new(),
             archive,
         })
     }
@@ -636,23 +655,33 @@ impl OwnedDoc {
         unsafe { rkyv::access_unchecked::<ArchivedHtmlEntry>(s) }
     }
 
-    fn frame(&self) -> &[u8] {
+    fn frames(&self) -> &[u8] {
         self.archive
             .bundle_strings(self.bundle)
             .expect("validated at construction; the mapping is immutable")
-            .frame(self.slot)
+            .frames()
+    }
+
+    /// The per-call [`LazyState`] over this document's blocks — [`Doc::lazy_state`], but the
+    /// bundle's frame blob is re-resolved through the `Arc` (the handle cannot hold a
+    /// self-referential borrow of its own archive).
+    fn lazy_state(&self) -> LazyState<'_> {
+        LazyState {
+            bufs: &self.bufs,
+            frames: self.frames(),
+            frame_starts: &self.blocks.frame_starts,
+            raw_starts: &self.blocks.raw_starts,
+            base: self.blocks.base(),
+            len: self.blocks.raw_len(),
+            decoder: &self.archive.decoder,
+        }
     }
 
     /// Run `f` with a query view over this document — [`Doc::with_dom`], but the [`LazyState`]
-    /// borrows the handle's own inflate cache, so the frame decompresses at most once per handle.
+    /// borrows the handle's own inflate caches, so each block decompresses at most once per
+    /// handle.
     fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
-        let state = LazyState {
-            buf: &self.buf,
-            frame: self.frame(),
-            base: 0,
-            len: self.raw_len,
-            decoder: &self.archive.decoder,
-        };
+        let state = self.lazy_state();
         let dom = self.entry().bind(StringSource::lazy(&state));
         f(&dom)
     }
@@ -704,14 +733,12 @@ impl DomRead for OwnedDoc {
 }
 
 impl DomRef for OwnedDoc {
-    /// See [`Doc`]'s `dom_view`: materialise the text once into the handle's cache, then read it
-    /// zero-copy via `Plain`.
+    /// See [`Doc`]'s `dom_view`: materialise the whole pool once into the handle's `full` cache,
+    /// then read it zero-copy via `Plain`.
     fn dom_view(&self) -> DomView<'_> {
-        let text = self.buf.get_or_init(|| {
-            self.archive
-                .decoder
-                .decode(self.frame(), self.raw_len as usize)
-        });
+        let text = self
+            .full
+            .get_or_init(|| StringSource::lazy(&self.lazy_state()).materialize());
         self.entry().bind(StringSource::plain(text)).view()
     }
 }

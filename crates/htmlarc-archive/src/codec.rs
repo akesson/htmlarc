@@ -88,10 +88,35 @@ pub struct StringCompressor<'a> {
 }
 
 impl StringCompressor<'_> {
-    /// Compress one document's raw text pool into its frame (empty stays empty).
-    pub fn compress(&mut self, raw: &[u8]) -> Result<Vec<u8>, ArchiveErr> {
-        compress_segment(&mut self.inner, raw)
+    /// Compress one document's raw pool as independent block frames (cut at `raw_ends`, from
+    /// [`crate::bundle_strings::block_cuts`]): the concatenated frames plus their cumulative ends.
+    pub fn compress_pool(
+        &mut self,
+        raw: &[u8],
+        raw_ends: &[u32],
+    ) -> Result<(Vec<u8>, Vec<u32>), ArchiveErr> {
+        compress_pool_blocks(&mut self.inner, raw, raw_ends)
     }
+}
+
+/// Compress one document's pool block by block: each `raw[prev_end..end]` slice becomes its own
+/// standalone frame (blocks are never empty — [`block_cuts`](crate::bundle_strings::block_cuts)
+/// only emits strictly increasing ends), concatenated with cumulative frame-end offsets to match.
+pub(crate) fn compress_pool_blocks(
+    compressor: &mut Compressor<'_>,
+    raw: &[u8],
+    raw_ends: &[u32],
+) -> Result<(Vec<u8>, Vec<u32>), ArchiveErr> {
+    let mut frames = Vec::new();
+    let mut frame_ends = Vec::with_capacity(raw_ends.len());
+    let mut start = 0usize;
+    for &end in raw_ends {
+        let frame = compress_segment(compressor, &raw[start..end as usize])?;
+        frames.extend_from_slice(&frame);
+        frame_ends.push(frames.len() as u32);
+        start = end as usize;
+    }
+    Ok((frames, frame_ends))
 }
 
 /// Compress one document's raw text pool into a standalone frame, reusing `compressor`'s context.

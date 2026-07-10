@@ -562,3 +562,153 @@ fn mmap_doc_repackage_materializes_relocated_text() {
 
     std::fs::remove_file(&path).ok();
 }
+
+/// Block-split string frames (format v11, ADR 0008): documents whose pools span several ~16 KiB
+/// blocks — one as many small text nodes, one as a single oversized node — plus a text-free
+/// document between them, must round-trip byte-identically through every read path, and a
+/// selective read must inflate only the blocks it touches.
+#[test]
+fn multi_block_documents_round_trip() {
+    use std::sync::Arc;
+
+    // ~50 KiB across 50 distinct paragraphs → several blocks cut at node boundaries.
+    let many_nodes: String = (0..50)
+        .map(|i| format!("<p id=\"p{i}\">{}</p>", format!("para-{i}-").repeat(128)))
+        .collect();
+    // A single text node well past the 16 KiB block target → one oversized block.
+    let giant_node = format!("<h1>{}</h1>", "z".repeat(20_000));
+
+    let mut b = HtmlArchiveBuilder::default();
+    b.add_html(
+        "many".to_string(),
+        HtmlDoc::parse(&format!("<body>{many_nodes}</body>")).unwrap(),
+    );
+    b.add_html(
+        "empty".to_string(),
+        HtmlDoc::parse("<body><div id=\"nada\"></div></body>").unwrap(),
+    );
+    b.add_html(
+        "giant".to_string(),
+        HtmlDoc::parse(&format!("<body>{giant_node}</body>")).unwrap(),
+    );
+    let path = temp_path("multi_block");
+    b.build().write_to(&path).unwrap();
+
+    let mmap = MmapArchive::open(&path).unwrap();
+    // The cutting actually happened: more blocks than documents (the 50 KiB doc alone must
+    // split), while the giant single node stays one (oversized) block.
+    let strings = mmap.bundle_strings(0).unwrap();
+    assert!(
+        strings.block_count() > 3,
+        "expected the 50 KiB many-node pool to split into several blocks, got {} blocks total",
+        strings.block_count()
+    );
+
+    // Whole-document render parity across borrowed, owned-handle, and rehydrated reads.
+    let owned_archive = HtmlArchive::read_from(&path).unwrap();
+    let archive = Arc::new(MmapArchive::open(&path).unwrap());
+    for pos in 0..archive.len() {
+        let borrowed = archive.doc(pos);
+        let handle = OwnedDoc::new(archive.clone(), pos).unwrap();
+        let want = owned_archive[pos].html.to_html(HtmlFormat::Raw);
+        assert_eq!(borrowed.to_html(HtmlFormat::Raw), want, "doc {pos}");
+        assert_eq!(handle.to_html(HtmlFormat::Raw), want, "doc {pos}");
+        // repackage crosses the materialize (concat-all-blocks) path.
+        assert_eq!(
+            handle.repackage().to_html(HtmlFormat::Raw),
+            want,
+            "doc {pos}"
+        );
+    }
+
+    // A selective read: text of one late paragraph (deep in the last block of "many").
+    let doc = archive.doc(0);
+    let hits: Vec<String> = doc
+        .root()
+        .select_css("#p49")
+        .unwrap()
+        .map(|el| el.descendants().text_chars().collect())
+        .collect();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].starts_with("para-49-"));
+    assert_eq!(hits[0].len(), "para-49-".len() * 128);
+
+    std::fs::remove_file(&path).ok();
+}
+
+/// A text filter over a block-split archive: `entries_matching` binds documents through the
+/// per-bundle arena, and text matching must read the right block.
+#[test]
+fn text_filter_matches_across_blocks() {
+    use htmlarc_archive::{Archive, Filter};
+
+    let many_nodes: String = (0..50)
+        .map(|i| format!("<p>{}</p>", format!("w{i}w ").repeat(256)))
+        .collect();
+    let mut b = HtmlArchiveBuilder::default();
+    b.add_html(
+        "many".to_string(),
+        HtmlDoc::parse(&format!("<body>{many_nodes}</body>")).unwrap(),
+    );
+    b.add_html(
+        "plain".to_string(),
+        HtmlDoc::parse("<body><p>nothing to see</p></body>").unwrap(),
+    );
+    let path = temp_path("text_filter_blocks");
+    b.build().write_to(&path).unwrap();
+
+    let mmap = MmapArchive::open(&path).unwrap();
+    // "w49w" appears only in the last paragraph, deep in the last block of the split pool.
+    let filter = Filter::new(vec![r#"css:p[text*="w49w"]"#.to_string()], vec![]).unwrap();
+    assert_eq!(mmap.entries_matching(&filter), vec!["many"]);
+
+    std::fs::remove_file(&path).ok();
+}
+
+/// A *mutated* document reaching the writer: `replace_text` pushes replacement bytes at the pool
+/// end, leaving dead bytes mid-pool, node ranges out of document order, and (for `""`) an empty
+/// range at the very end of the pool. Block cutting must cope and the round-trip stay
+/// byte-correct.
+#[test]
+fn mutated_document_round_trips_through_blocks() {
+    use htmlarc_dom::prelude::HtmlElement;
+
+    let cell = HtmlDoc::parse(r#"<body><p id="a"></p><p id="b"></p><p id="c"></p></body>"#)
+        .unwrap()
+        .dom_ref_cell();
+    {
+        let root = cell.root();
+        let ps: Vec<_> = root.select_css("p").unwrap().collect();
+        assert_eq!(ps.len(), 3);
+        let ta = ps[0].append_text_child("alpha-original");
+        let tb = ps[1].append_text_child("beta-original");
+        let tc = ps[2].append_text_child("gamma-original");
+        // Replace in reverse document order, so the live ranges land in the pool out of
+        // document order (tc's replacement sits before tb's) with the dead originals mid-pool.
+        HtmlElement::new(&cell, tc).replace_text("gammaNEW");
+        // tb's replacement is bigger than a block, forcing a cut among the disordered ranges.
+        HtmlElement::new(&cell, tb).replace_text(&"y".repeat(20_000));
+        // And an empty replacement last: a `len..len` range at the very end of the pool.
+        HtmlElement::new(&cell, ta).replace_text("");
+    }
+    let doc: HtmlDoc = cell.with_mut(std::mem::take).into();
+
+    let mut b = HtmlArchiveBuilder::default();
+    b.add_html("mutated".to_string(), doc);
+    let path = temp_path("mutated_blocks");
+    b.build().write_to(&path).unwrap();
+
+    let mmap = MmapArchive::open(&path).unwrap();
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let read = mmap.doc_by_key("mutated").unwrap().unwrap();
+    let html = read.to_html(HtmlFormat::Raw);
+    assert_eq!(html, owned[0].html.to_html(HtmlFormat::Raw));
+    assert!(html.contains("gammaNEW"));
+    assert!(html.contains(&"y".repeat(20_000)));
+    assert!(
+        !html.contains("original"),
+        "replaced text must not resurface"
+    );
+
+    std::fs::remove_file(&path).ok();
+}

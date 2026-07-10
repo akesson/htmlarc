@@ -8,7 +8,7 @@ use std::{
     collections::HashSet,
     mem,
     sync::{
-        Arc, OnceLock,
+        Arc,
         atomic::{AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -208,15 +208,15 @@ impl ProbeArchive for MmapArchive {
         filters: &Filter,
     ) -> CountedNodes {
         // Read this bundle's relocated string block once, then bind each document to its (lazily
-        // inflated) frame. `bufs` and `states` are two locals so `states` can borrow `bufs`
-        // without a self-referential struct; each document inflates its text at most once, only
-        // when the analysis actually reads it.
+        // inflated) block frames. `arena` and `states` are two locals so `states` can borrow
+        // `arena` without a self-referential struct; each block inflates at most once, only
+        // when the analysis actually reads text inside it.
         let range = self.bundle_range(bundle);
         let block = self
             .bundle_strings(bundle)
             .expect("corrupt bundle string block");
-        let bufs: Vec<OnceLock<Vec<u8>>> = (0..range.len()).map(|_| OnceLock::new()).collect();
-        let states = block.lazy_states(self.decoder(), &bufs);
+        let arena = block.arena();
+        let states = block.lazy_states(self.decoder(), &arena);
         let mut counter = CountedNodes::default();
         for i in range.clone() {
             let entry = &self[i];
