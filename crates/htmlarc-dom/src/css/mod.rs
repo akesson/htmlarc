@@ -3,6 +3,7 @@
 mod chars;
 mod ext;
 mod helpers;
+mod owned;
 mod parse;
 mod patterns;
 mod selectors;
@@ -15,6 +16,7 @@ mod logging {
 
 pub use chars::CssChars;
 pub(super) use logging::debug;
+pub use owned::OwnedSelectorList;
 pub use parse::parse_css;
 pub use patterns::*;
 pub use selectors::*;

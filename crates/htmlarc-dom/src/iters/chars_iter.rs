@@ -373,7 +373,7 @@ fn reverse_char_iter_replace() {
     chars.next(); // a
     chars.replace_current('q');
 
-    let html = el.to_html(HtmlFormat::Raw);
+    let html = el.dom().to_html(HtmlFormat::Raw);
     assert_eq!(
         html,
         "<head></head><body>qrs<div><b>t</b></div><article><h1>uv</h1><p>wxyz</p></article><section></section></body>"
@@ -415,7 +415,7 @@ fn reverse_char_iter_remove() {
     chars.next(); // a
     chars.remove_current();
 
-    let html = el.to_html(HtmlFormat::Raw);
+    let html = el.dom().to_html(HtmlFormat::Raw);
     assert_eq!(
         html,
         "<head></head><body>b<div><b></b></div><article><h1>e</h1><p>h</p></article><section></section></body>"
@@ -459,7 +459,7 @@ fn reverse_char_iter_insert() {
     chars.next(); // c
     chars.insert_before_current('t');
 
-    let html = el.to_html(HtmlFormat::Raw);
+    let html = el.dom().to_html(HtmlFormat::Raw);
     assert_eq!(
         html,
         "<head></head><body>abtc<div><b>du</b></div><article><h1>wvef</h1><p>ghixyzj</p></article><section></section></body>"
@@ -495,7 +495,7 @@ fn reverse_char_iter_all_changes() {
     chars.next(); // v
     chars.remove_current();
 
-    let html = el.to_html(HtmlFormat::Raw);
+    let html = el.dom().to_html(HtmlFormat::Raw);
     assert_eq!(
         html,
         "<head></head><body>abc<div><b>d</b></div><article><h1>ef</h1><p>whxyi</p></article><section></section></body>"

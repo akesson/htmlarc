@@ -28,7 +28,9 @@ pub mod prelude {
     //! methods return — so callers can name what the API hands back. The same items
     //! are also reachable through their domain modules (`crate::iters`, `crate::css`, …).
     pub use crate::accessors::{Attributes, AttributesMut, Classes, ClassesMut};
-    pub use crate::css::{AttributeSelector, ParseError, Selector, SelectorList, parse_css};
+    pub use crate::css::{
+        AttributeSelector, OwnedSelectorList, ParseError, Selector, SelectorList, parse_css,
+    };
     pub use crate::dom::{
         ArchivedDom, ArchivedDomInner, ContiguousDfs, DomInner, DomRead, DomRef, DomRefCell,
         DomView, NodeIndex, NodesView,
@@ -97,7 +99,7 @@ fn location_test() {
     use std::panic::Location;
     assert_eq!(
         here!().to_string(),
-        "htmlarc-dom::lib.rs:99 fn location_test"
+        format!("htmlarc-dom::lib.rs:{} fn location_test", line!() - 1)
     );
     assert_eq!(
         CodeLocation::File(Location::caller().file()).to_string(),

@@ -189,14 +189,10 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.ancestors().count() as u16
     }
 
+    /// Render this element and its descendants (its "outer HTML"). On the root element this is
+    /// the whole document — the same output as [`DomRead::to_html`] on the backing.
     pub fn to_html(&self, fmt: HtmlFormat) -> String {
-        self.dom.to_html(fmt)
-    }
-
-    pub fn css_path(&self) -> String {
-        let segs: Vec<String> = Vec::with_capacity(12);
-
-        segs.join(" > ")
+        self.with_view(|view| fmt.to_html(view, self.index()))
     }
 
     pub fn writeable<'a>(&self, dom: &'a DomRefCell) -> HtmlElement<'a, DomRefCell> {
@@ -249,6 +245,27 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     pub fn attribute(&self, attr: HtmlAttr) -> Option<String> {
         self.find_attribute(attr, |v| v.map(|s| s.to_string()))
+    }
+
+    /// The attribute value for `name`, looked up by string — standard names resolve to their
+    /// [`HtmlAttr`], anything else (`data-*`, custom) matches the extended names. ASCII
+    /// case-insensitive on both paths, like HTML attribute names themselves.
+    pub fn get_attribute(&self, name: &str) -> Option<String> {
+        use std::str::FromStr;
+        let target = HtmlAttr::from_str(name).map_or(AttrName::Ext(name), AttrName::Std);
+        self.with_view(|view| {
+            view.nodes
+                .attr_list_index(self.index())
+                .and_then(|idx| {
+                    view.attr_list_at(idx).find(|a| match (a.name, target) {
+                        (AttrName::Ext(stored), AttrName::Ext(wanted)) => {
+                            stored.eq_ignore_ascii_case(wanted)
+                        }
+                        _ => a.name == target,
+                    })
+                })
+                .map(|a| a.val.to_string())
+        })
     }
 
     pub fn find_attribute<R, F: Fn(Option<&str>) -> R>(&self, tag: HtmlAttr, f: F) -> R {
@@ -401,6 +418,19 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
         tag_id_class
     }
 
+    /// The element's location as a `tag#id.class` chain from just under the root down to the
+    /// element itself, joined with `" > "` — e.g. `body > main > article#a.x`. Empty for the
+    /// root itself.
+    pub fn css_path(&self) -> String {
+        let mut segs: Vec<String> = std::iter::once(self.cloned())
+            .chain(self.ancestors())
+            .filter(|el| !el.is_root())
+            .map(|el| el.tag_id_class())
+            .collect();
+        segs.reverse();
+        segs.join(" > ")
+    }
+
     pub fn attributes(&self) -> Attributes<'dom, Dom> {
         Attributes {
             dom: self.dom,
@@ -521,6 +551,55 @@ impl<'dom> HtmlElement<'dom, DomRefCell> {
         self.dom
             .with_mut(|dom| dom.replace_text(log_comment.index(), &string));
     }
+}
+
+#[test]
+fn get_attribute_by_string_name() {
+    const HTML: &str = r#"<body><a href="/x" data-k="v" wonky="yes" aria-label="lbl">t</a></body>"#;
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+    let a = dom.root().select_css("a").unwrap().next().unwrap();
+
+    // Standard attribute, exact and case-insensitive (incl. kebab-case names).
+    assert_eq!(a.get_attribute("href").as_deref(), Some("/x"));
+    assert_eq!(a.get_attribute("HREF").as_deref(), Some("/x"));
+    assert_eq!(a.get_attribute("aria-label").as_deref(), Some("lbl"));
+    // Extended (data-* / unknown) attributes, case-insensitive.
+    assert_eq!(a.get_attribute("data-k").as_deref(), Some("v"));
+    assert_eq!(a.get_attribute("DATA-K").as_deref(), Some("v"));
+    assert_eq!(a.get_attribute("wonky").as_deref(), Some("yes"));
+    // Absent.
+    assert_eq!(a.get_attribute("title"), None);
+    assert_eq!(a.get_attribute("data-missing"), None);
+}
+
+#[test]
+fn css_path_walks_from_top() {
+    const HTML: &str =
+        r#"<body><main><article id="a" class="x y"><p>t</p></article></main></body>"#;
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+
+    let p = dom.root().select_css("p").unwrap().next().unwrap();
+    assert_eq!(p.css_path(), "body > main > article#a.x.y > p");
+    assert_eq!(dom.root().css_path(), "");
+}
+
+#[test]
+fn element_to_html_renders_subtree() {
+    const HTML: &str =
+        r#"<body><main><article class="a">One<b>two</b></article><p>tail</p></main></body>"#;
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+
+    let article = dom.root().select_css("article").unwrap().next().unwrap();
+    assert_eq!(
+        article.to_html(HtmlFormat::Raw),
+        r#"<article class="a">One<b>two</b></article>"#
+    );
+
+    // On the root, the element render and the document render agree.
+    assert_eq!(
+        dom.root().to_html(HtmlFormat::Raw),
+        dom.to_html(HtmlFormat::Raw)
+    );
 }
 
 #[test]

@@ -21,5 +21,5 @@ pub use codec::{StringCompressor, StringEncoder, train_string_dict};
 pub use entry::{ArchivedHtmlEntry, HtmlEntry, SerializedEntry};
 pub use error::ArchiveErr;
 pub use filter::{Filter, FilterError};
-pub use mmap::MmapArchive;
+pub use mmap::{Doc, MmapArchive, OwnedDoc};
 pub use writer::ArchiveWriter;
