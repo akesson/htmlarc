@@ -2,6 +2,8 @@
 **/*.rs.bk
 .DS_Store
 *.htmlarc
+# Local-only measurement corpus (WARC segments + ZIMs). See README "Measurement corpus".
+/corpus
 # Local-only test ZIMs fetched by cli/htmlarc-convert/fetch-testdata.sh (not redistributable).
 *.zim
 # Local-only WARC crawl segments for the corpus probe (not redistributable).
