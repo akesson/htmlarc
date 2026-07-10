@@ -10,6 +10,7 @@ use crate::{fmt::Spaces, html::HtmlTag};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 #[derive(Default, Archive, Serialize, Deserialize, Hash, Clone)]
 pub struct DomInner {
@@ -350,6 +351,21 @@ impl DomInner {
     /// serialized string-less. The node text ranges stay valid against the relocated segment.
     pub fn take_string_pool(&mut self) -> Vec<u8> {
         self.strings.take_bytes()
+    }
+
+    /// Every non-empty text/comment range recorded in the topology, in slot order (NOT document
+    /// order — a mutated document's pushed-at-the-end replacements come out wherever their slot
+    /// sits). A flat scan over all slots, deliberately including unlinked (removed) string nodes:
+    /// every range ever handed out by the pool is disjoint from all others, so a stale range is a
+    /// harmless extra boundary to a caller cutting the pool at range ends.
+    pub fn text_ranges(&self) -> Vec<Range<u32>> {
+        let nodes = self.nodes.view();
+        (0..nodes.len() as u32)
+            .map(NodeIndex::new)
+            .filter(|&i| nodes.is_string_node(i))
+            .map(|i| nodes.text_range(i))
+            .filter(|r| r.start < r.end)
+            .collect()
     }
 
     /// Install a text/comment pool — the inverse of [`take_string_pool`](Self::take_string_pool),

@@ -13,7 +13,7 @@ use crate::{
     writer::ArchiveWriter,
 };
 use fs_err as fs;
-use htmlarc_dom::prelude::{FrameDecoder, HtmlDoc};
+use htmlarc_dom::prelude::HtmlDoc;
 use rkyv::rancor::Error;
 
 /// An in-memory archive of pre-parsed HTML documents, grouped into [`DocBundle`]s of at most
@@ -188,9 +188,9 @@ impl HtmlArchive {
                 let blob = bounded(&data, d.offset, d.len, "document blob")?;
                 let mut entry = rkyv::from_bytes::<HtmlEntry, Error>(blob)
                     .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
-                entry.html.set_string_pool(
-                    decoder.decode(strings.frame(slot), strings.raw_len(slot) as usize),
-                );
+                entry
+                    .html
+                    .set_string_pool(strings.materialize_doc(slot, &decoder));
                 bundle_entries.push(entry);
             }
             next_doc += count;

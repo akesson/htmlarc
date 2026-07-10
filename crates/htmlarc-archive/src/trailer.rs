@@ -1,4 +1,4 @@
-//! The fixed-size **trailer** at the end of a v4 `.htmlarc`, so a reader can bootstrap the
+//! The fixed-size **trailer** at the end of a `.htmlarc`, so a reader can bootstrap the
 //! whole file by reading just the last [`TRAILER_LEN`] bytes.
 //!
 //! Layout (88 bytes, hand-rolled little-endian like the header — *not* rkyv, so it has no
