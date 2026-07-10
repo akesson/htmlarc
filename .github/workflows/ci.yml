@@ -47,3 +47,18 @@ jobs:
       # shared runners to gate on, but a bench target that no longer compiles
       # or links should still fail CI.
       - run: cargo bench --workspace --no-run
+
+  python:
+    name: python wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: astral-sh/setup-uv@v6
+      # Debug build: this job gates correctness of the FFI layer, not wheel speed;
+      # release wheels are a separate publishing concern.
+      - run: uvx maturin build -m crates/htmlarc-py/Cargo.toml -o dist
+      - run: |
+          uv venv .venv
+          uv pip install --python .venv dist/*.whl pytest
+          .venv/bin/pytest crates/htmlarc-py/tests

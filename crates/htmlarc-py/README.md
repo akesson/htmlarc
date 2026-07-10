@@ -29,7 +29,21 @@ h1 = htmlarc.Selector("h1.title")
 for doc in archive:
     for el in doc.select(h1):
         print(doc.key, el.text)
+
+# Or let the archive sweep itself: matching()/scan_text()/scan_attr() fan out
+# across all cores with the GIL released — much faster than the Python loop above.
+for key, texts in archive.scan_text(h1):
+    print(key, texts)
+links = archive.scan_attr("a[href]", "href")
+
+# Batch extraction on a single document avoids per-element FFI calls too:
+doc.select_text("p")            # list[str]
+doc.select_attr("a", "href")    # list[str | None]
+doc.select_html(".figure")      # list[str]
 ```
+
+The module ships type stubs (`htmlarc.pyi`), so editors and type checkers see the
+full API.
 
 ## Building from source
 
