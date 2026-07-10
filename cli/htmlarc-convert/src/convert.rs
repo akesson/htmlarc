@@ -69,15 +69,12 @@ impl DocSink for EntrySink<'_> {
                     return;
                 }
             };
-            if let Some(compressor) = &mut self.compressor {
-                match compressor.compress(&ser.strings) {
-                    Ok(frame) => ser.strings = frame,
-                    Err(e) => {
-                        eprintln!("compress failed for '{key}': {e}");
-                        self.failed += 1;
-                        return;
-                    }
-                }
+            if let Some(compressor) = &mut self.compressor
+                && let Err(e) = ser.compress_blocks(compressor)
+            {
+                eprintln!("compress failed for '{key}': {e}");
+                self.failed += 1;
+                return;
             }
             self.docs.push(ser);
         });
@@ -175,7 +172,7 @@ pub(crate) fn run(args: Convert) -> Result<()> {
         let mut compressor = encoder.compressor()?;
         for mut run in warmup {
             for doc in &mut run.docs {
-                doc.strings = compressor.compress(&doc.strings)?;
+                doc.compress_blocks(&mut compressor)?;
                 writer.push_serialized(doc)?;
                 report.exported += 1;
             }
