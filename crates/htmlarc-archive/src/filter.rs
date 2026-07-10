@@ -23,6 +23,23 @@ impl Filter {
         Ok(Self { include, exclude })
     }
 
+    /// Build a filter from already-split parts, bypassing the `css:`/`words:` rule syntax.
+    /// Embedders (the Python bindings) use this: the rule mini-language splits `words:` on
+    /// commas, so it cannot represent keys that contain one. Multiple selectors AND together
+    /// (like repeated `css:` rules); a comma *inside* one selector string is a CSS selector
+    /// list, i.e. OR.
+    pub fn from_parts(
+        include_css: Vec<String>,
+        include_keys: impl IntoIterator<Item = String>,
+        exclude_css: Vec<String>,
+        exclude_keys: impl IntoIterator<Item = String>,
+    ) -> Result<Self, FilterError> {
+        Ok(Self {
+            include: WordFilter::from_parts(include_css, include_keys)?,
+            exclude: WordFilter::from_parts(exclude_css, exclude_keys)?,
+        })
+    }
+
     pub fn keep<Dom: DomRead>(&self, word: &str, dom: &Dom) -> bool {
         let included = if self.include.is_empty() {
             true
@@ -72,13 +89,13 @@ pub enum FilterError {
     #[error("Failed to parse filter: {0}")]
     Parse(String),
     #[error("Failed to parse css selector '{0}' : {1}")]
-    Css(&'static str, String),
+    Css(String, String),
     #[error("Filter kind unrecognized: {0}")]
     Kind(String),
 }
 
 struct WordFilter {
-    css: Vec<SelectorList<'static>>,
+    css: Vec<OwnedSelectorList>,
     words: HashSet<String>,
 }
 
@@ -89,12 +106,7 @@ impl WordFilter {
 
         for def in &defs {
             match def.split_once(':') {
-                Some(("css", value)) => {
-                    let value: &str = Box::leak(Box::new(value.to_owned()));
-                    let selector =
-                        parse_css(value).map_err(|e| FilterError::Css(value, e.to_string()))?;
-                    css.push(selector);
-                }
+                Some(("css", value)) => css.push(value.to_owned()),
                 Some(("words", value)) => {
                     let new_words = value.split(',').map(|w| w.trim()).map(|s| s.to_owned());
 
@@ -111,7 +123,24 @@ impl WordFilter {
             }
         }
 
-        Ok(Self { css, words })
+        Self::from_parts(css, words)
+    }
+
+    fn from_parts(
+        css: Vec<String>,
+        words: impl IntoIterator<Item = String>,
+    ) -> Result<Self, FilterError> {
+        let css = css
+            .into_iter()
+            .map(|source| {
+                OwnedSelectorList::parse(source.as_str())
+                    .map_err(|e| FilterError::Css(source, e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            css,
+            words: words.into_iter().collect(),
+        })
     }
 
     pub fn matches<Dom: DomRead>(&self, word: &str, dom: &Dom) -> bool {
@@ -121,7 +150,7 @@ impl WordFilter {
             self.css.iter().all(|selector| {
                 let el = dom.root();
 
-                let mut matches = el.select(selector.clone());
+                let mut matches = el.select(selector.list().clone());
 
                 matches.next().is_some()
             })

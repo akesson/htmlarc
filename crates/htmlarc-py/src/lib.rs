@@ -166,6 +166,77 @@ impl<'py> CssArg<'py> {
     }
 }
 
+/// A css kwarg accepts one selector or a list of them.
+#[derive(FromPyObject)]
+enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    fn into_vec(opt: Option<Self>) -> Vec<String> {
+        match opt {
+            None => Vec::new(),
+            Some(OneOrMany::One(s)) => vec![s],
+            Some(OneOrMany::Many(v)) => v,
+        }
+    }
+}
+
+/// An include/exclude predicate over archive documents, for `Archive.matching()`.
+///
+/// A document is kept when it satisfies every include condition (or there are none)
+/// and no exclude condition. Multiple selectors in a list AND together; a comma
+/// *inside* one selector string is a CSS selector list, i.e. OR. A pure key filter
+/// (no css) never touches document bodies at all.
+#[pyclass(frozen, module = "htmlarc")]
+pub struct Filter {
+    inner: htmlarc_archive::Filter,
+    repr: String,
+}
+
+#[pymethods]
+impl Filter {
+    #[new]
+    #[pyo3(signature = (*, include_css=None, include_keys=None, exclude_css=None, exclude_keys=None))]
+    fn new(
+        include_css: Option<OneOrMany>,
+        include_keys: Option<Vec<String>>,
+        exclude_css: Option<OneOrMany>,
+        exclude_keys: Option<Vec<String>>,
+    ) -> PyResult<Self> {
+        let include_css = OneOrMany::into_vec(include_css);
+        let exclude_css = OneOrMany::into_vec(exclude_css);
+        let include_keys = include_keys.unwrap_or_default();
+        let exclude_keys = exclude_keys.unwrap_or_default();
+        let mut parts = Vec::new();
+        for (name, css, keys) in [
+            ("include", &include_css, &include_keys),
+            ("exclude", &exclude_css, &exclude_keys),
+        ] {
+            if !css.is_empty() {
+                parts.push(format!("{name}_css={css:?}"));
+            }
+            if !keys.is_empty() {
+                parts.push(format!("{name}_keys=<{} keys>", keys.len()));
+            }
+        }
+        let repr = format!("Filter({})", parts.join(", "));
+        let inner = htmlarc_archive::Filter::from_parts(
+            include_css,
+            include_keys,
+            exclude_css,
+            exclude_keys,
+        )
+        .map_err(selector_err)?;
+        Ok(Filter { inner, repr })
+    }
+
+    fn __repr__(&self) -> &str {
+        &self.repr
+    }
+}
+
 /// A parsed HTML document.
 ///
 /// Obtained from `htmlarc.parse(html)` or by indexing an `Archive`; there is no direct
@@ -522,6 +593,13 @@ enum DocIndex {
     Key(String),
 }
 
+/// `Archive.matching()` accepts a [`Filter`] or anything `select()` accepts.
+#[derive(FromPyObject)]
+enum MatchArg<'py> {
+    Filter(Bound<'py, Filter>),
+    Selector(CssArg<'py>),
+}
+
 /// A read-only, memory-mapped `.htmlarc` archive.
 ///
 /// Documents are stored pre-parsed: indexing returns a queryable `Document` with no
@@ -605,11 +683,25 @@ impl Archive {
             .transpose()
     }
 
-    /// The keys of every document with at least one match for the selector, in archive
-    /// order. Sweeps the whole archive across all cores with the GIL released.
-    fn matching(&self, py: Python<'_>, selector: CssArg<'_>) -> PyResult<Vec<String>> {
+    /// The keys of every document matching the predicate, in archive order. Accepts a
+    /// CSS selector (string or compiled `Selector`: keep documents with at least one
+    /// match, swept across all cores) or a [`Filter`] (include/exclude rules; a pure key
+    /// filter never touches document bodies). Runs with the GIL released either way.
+    fn matching(&self, py: Python<'_>, selector: MatchArg<'_>) -> PyResult<Vec<String>> {
+        let css = match selector {
+            MatchArg::Filter(f) => {
+                let filter = &f.get().inner;
+                return Ok(py.detach(|| {
+                    htmlarc_archive::Archive::entries_matching(&*self.inner, filter)
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect()
+                }));
+            }
+            MatchArg::Selector(css) => css,
+        };
         let mut storage = None;
-        let sel = selector.resolve(&mut storage)?;
+        let sel = css.resolve(&mut storage)?;
         py.detach(|| {
             par_sweep(&self.inner, |doc| {
                 let root = HtmlElement::new(doc, NodeIndex::ROOT);
@@ -784,6 +876,7 @@ fn htmlarc(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ArchiveIter>()?;
     m.add_class::<Document>()?;
     m.add_class::<Element>()?;
+    m.add_class::<Filter>()?;
     m.add_class::<Selector>()?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(open, m)?)?;

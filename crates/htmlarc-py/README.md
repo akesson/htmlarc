@@ -40,6 +40,11 @@ links = archive.scan_attr("a[href]", "href")
 doc.select_text("p")            # list[str]
 doc.select_attr("a", "href")    # list[str | None]
 doc.select_html(".figure")      # list[str]
+
+# matching() also takes a Filter for include/exclude rules; a pure key filter
+# never touches document bodies at all.
+f = htmlarc.Filter(include_css="article .main", exclude_keys=["page-1"])
+keys = archive.matching(f)
 ```
 
 The module ships type stubs (`htmlarc.pyi`), so editors and type checkers see the
