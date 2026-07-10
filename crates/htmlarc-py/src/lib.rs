@@ -64,6 +64,34 @@ fn attr_value<Dom: DomRead + DomRef>(el: &HtmlElement<'_, Dom>, name: &str) -> O
     el.get_attribute(name)
 }
 
+/// Whether `name` is present on `el`, with the wrapper's `"class"` semantics, without
+/// materializing the value — the presence counterpart to [`attr_value`].
+fn attr_present<Dom: DomRead + DomRef>(el: &HtmlElement<'_, Dom>, name: &str) -> bool {
+    if name.eq_ignore_ascii_case("class") {
+        el.classes().next().is_some()
+    } else {
+        el.has_attribute(name)
+    }
+}
+
+/// The number of elements under `el` matching `sel`; with `attr`, only those carrying the
+/// attribute (per [`attr_present`]). Never materializes text and allocates nothing per
+/// match, so counting stays on the select-only path — no string-block inflation, no
+/// PyObjects, nothing marshalled across the FFI boundary.
+fn count_matches<Dom: DomRead + DomRef>(
+    el: &HtmlElement<'_, Dom>,
+    sel: &OwnedSelectorList,
+    attr: Option<&str>,
+) -> usize {
+    match attr {
+        None => el.select(sel.list().clone()).count(),
+        Some(name) => el
+            .select(sel.list().clone())
+            .filter(|e| attr_present(e, name))
+            .count(),
+    }
+}
+
 /// Run `f` over every document in the archive, fanned out across all cores. Returns
 /// `(key, value)` for the documents where `f` answered, in archive order. Callers hold no
 /// GIL here (`Python::detach`); everything captured must be `Sync`.
@@ -326,6 +354,16 @@ impl Document {
             .collect()))
     }
 
+    /// The number of elements matching the selector; with `attr`, only elements where
+    /// that attribute is present (`"class"` resolves like `Element.get()`). Counts
+    /// without materializing elements or text.
+    #[pyo3(signature = (selector, attr = None))]
+    fn select_count(&self, selector: CssArg<'_>, attr: Option<&str>) -> PyResult<usize> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self, 0, |el| count_matches(&el, sel, attr)))
+    }
+
     /// The rendered subtree of every element matching the selector, in document order.
     #[pyo3(signature = (selector, pretty = false))]
     fn select_html(&self, selector: CssArg<'_>, pretty: bool) -> PyResult<Vec<String>> {
@@ -553,6 +591,18 @@ impl Element {
             .collect()))
     }
 
+    /// The number of matching descendant elements; with `attr`, only elements where
+    /// that attribute is present (`"class"` resolves like `get()`). Counts without
+    /// materializing elements or text.
+    #[pyo3(signature = (selector, attr = None))]
+    fn select_count(&self, selector: CssArg<'_>, attr: Option<&str>) -> PyResult<usize> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self.doc.get(), self.index, |el| count_matches(
+            &el, sel, attr
+        )))
+    }
+
     /// The rendered subtree of every matching descendant element, in document order.
     #[pyo3(signature = (selector, pretty = false))]
     fn select_html(&self, selector: CssArg<'_>, pretty: bool) -> PyResult<Vec<String>> {
@@ -760,6 +810,31 @@ impl Archive {
                 (!vals.is_empty()).then_some(vals)
             })
         })
+        .map_err(archive_err)
+    }
+
+    /// The total number of matching elements across every document; with `attr`, only
+    /// elements where that attribute is present, like `Document.select_count` summed
+    /// over the whole archive. Runs across all cores with the GIL released and returns
+    /// a single int — nothing is marshalled per match, and counting never touches
+    /// document text, so it stays on the select-only fast path.
+    #[pyo3(signature = (selector, attr = None))]
+    fn scan_count(
+        &self,
+        py: Python<'_>,
+        selector: CssArg<'_>,
+        attr: Option<&str>,
+    ) -> PyResult<usize> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        py.detach(|| {
+            par_sweep(&self.inner, |doc| {
+                let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                let n = count_matches(&root, sel, attr);
+                (n > 0).then_some(n)
+            })
+        })
+        .map(|hits| hits.iter().map(|(_, n)| n).sum())
         .map_err(archive_err)
     }
 

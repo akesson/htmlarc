@@ -112,6 +112,21 @@ def test_batch_extraction(doc):
     assert doc.select_text(htmlarc.Selector("h1.title")) == ["Alpha"]
 
 
+def test_select_count(doc):
+    assert doc.select_count("p") == 2
+    assert doc.select_count(".no-such-class") == 0
+    # attr= counts only elements where the attribute is present.
+    assert doc.select_count("h1", attr="data-rank") == 1
+    assert doc.select_count("p", attr="data-rank") == 0
+    assert doc.select_count("div", attr="class") == 1  # class resolves like get()
+    assert doc.select_count(htmlarc.Selector("h1.title")) == 1
+
+    # Element-scoped counting only sees the subtree.
+    div = doc.select_first("#main")
+    assert div.select_count("p") == 2
+    assert doc.root.select_count("p") == 2
+
+
 def test_archive_scan(tmp_path):
     """matching/scan_text/scan_attr sweep the archive in parallel (GIL released)."""
     path = tmp_path / "scan.htmlarc"
@@ -133,6 +148,13 @@ def test_archive_scan(tmp_path):
     assert archive.scan_attr("a", "href") == [(k, [f"/l{int(k[5:])}"]) for k in hits]
     # Matched elements without the attribute report None (doc matched, value absent).
     assert archive.scan_attr("h1.t", "href") == [(k, [None]) for k in hits]
+
+    # scan_count returns one archive-wide total; attr= counts only attribute holders.
+    assert archive.scan_count("h1.t") == len(hits)
+    assert archive.scan_count("a", attr="href") == len(hits)
+    assert archive.scan_count("h1.t", attr="href") == 0
+    assert archive.scan_count(".absent") == 0
+    assert archive.scan_count(htmlarc.Selector("h1.t, a")) == 2 * len(hits)
 
 
 def test_filter(tmp_path):

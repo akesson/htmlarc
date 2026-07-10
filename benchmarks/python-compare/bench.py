@@ -8,6 +8,10 @@ Phases:
   requery_lxml_par                               the parallel-lxml counterpart: same
                                                  re-parse+extract fanned out over all
                                                  cores (fork Pool AND ThreadPool)
+  requery_htmlarc_count |                        the same 3 questions as pure counts:
+  requery_lxml_count |                           htmlarc select_count/scan_count vs
+  requery_lxml_count_par                         lxml XPath count() (all counting in
+                                                 C/Rust, nothing marshalled per match)
   hot_bs4 | hot_lxml                             parse all -> hold trees -> query hot
   pipeline_read | pipeline_lxml |                end-to-end from the source cc warc.gz:
   pipeline_lxml_par | pipeline_bs4               stream+decode (+parse+query), cc only
@@ -203,6 +207,78 @@ def requery_lxml_par(corpus):
          counts, failures, workers=workers)
 
 
+# Count-only re-query: the same three questions answered as pure counts. This is
+# each library's fair fast path — lxml counts inside libxml2 via XPath count(),
+# htmlarc counts inside Rust via select_count/scan_count — so no Element handle
+# or string ever crosses into Python and the comparison isolates parse+engine
+# speed from per-match marshalling.
+
+def lxml_count_selectors():
+    from lxml import etree
+    from lxml.cssselect import CSSSelector
+
+    # CSSSelector.path is the compiled XPath; count() over it evaluates fully in C.
+    return tuple(etree.XPath(f"count({CSSSelector(q).path})")
+                 for q in (Q_LINKS, Q_HEADS, Q_CELLS))
+
+
+def lxml_count_query(tree, cnts, counts):
+    for i, cnt in enumerate(cnts):
+        counts[i] += int(cnt(tree))
+
+
+def requery_lxml_count(corpus):
+    import lxml.html
+
+    docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
+    cnts = lxml_count_selectors()
+    counts, failures = [0, 0, 0], 0
+    t0 = time.perf_counter()
+    for _key, html in docs:
+        try:
+            tree = lxml.html.fromstring(html)
+        except Exception:
+            failures += 1
+            continue
+        lxml_count_query(tree, cnts, counts)
+    emit("requery_lxml_count", corpus, {"total": time.perf_counter() - t0},
+         counts, failures)
+
+
+def _lxml_count_chunk(rng):
+    import lxml.html
+
+    cnts = lxml_count_selectors()  # per chunk: XPath evaluators aren't shareable
+    i0, i1 = rng
+    counts, failures = [0, 0, 0], 0
+    for _key, html in _par_docs[i0:i1]:
+        try:
+            tree = lxml.html.fromstring(html)
+        except Exception:
+            failures += 1
+            continue
+        lxml_count_query(tree, cnts, counts)
+    return counts, failures
+
+
+def requery_lxml_count_par(corpus):
+    import multiprocessing as mp
+    import os
+
+    global _par_docs
+    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
+    workers = os.cpu_count()
+    step = max(1, len(_par_docs) // (workers * 4))
+    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
+    t0 = time.perf_counter()
+    with mp.get_context("fork").Pool(workers) as pool:
+        results = pool.map(_lxml_count_chunk, chunks)
+    secs = time.perf_counter() - t0
+    counts = [sum(c[i] for c, _ in results) for i in range(3)]
+    emit("requery_lxml_count_par", corpus, {"processes": secs}, counts,
+         sum(f for _, f in results), workers=workers)
+
+
 # ---------------------------------------------------------------- htmlarc
 
 def htmlarc_selectors():
@@ -280,6 +356,29 @@ def requery_htmlarc(corpus):
     t3 = time.perf_counter()
     emit("requery_htmlarc", corpus, {"open": t1 - t0, "loop_query": t2 - t1,
                                      "scan_query": t3 - t2},
+         counts, scan_counts=scan_counts, n_docs=len(arc))
+
+
+def requery_htmlarc_count(corpus):
+    import htmlarc
+
+    s_links, s_heads, s_cells = htmlarc_selectors()
+    t0 = time.perf_counter()
+    arc = htmlarc.open(DIR / f"{corpus}.htmlarc")
+    t1 = time.perf_counter()
+    counts = [0, 0, 0]
+    for doc in arc:
+        counts[0] += doc.select_count(s_links, attr="href")
+        counts[1] += doc.select_count(s_heads)
+        counts[2] += doc.select_count(s_cells)
+    t2 = time.perf_counter()
+    # Same counts via the GIL-released parallel sweep: one int back per question.
+    scan_counts = [arc.scan_count(s_links, attr="href"),
+                   arc.scan_count(s_heads),
+                   arc.scan_count(s_cells)]
+    t3 = time.perf_counter()
+    emit("requery_htmlarc_count", corpus, {"open": t1 - t0, "loop_count": t2 - t1,
+                                           "scan_count": t3 - t2},
          counts, scan_counts=scan_counts, n_docs=len(arc))
 
 

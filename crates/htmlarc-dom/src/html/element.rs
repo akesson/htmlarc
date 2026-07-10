@@ -268,6 +268,23 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         })
     }
 
+    /// Whether an attribute named `name` is present (ASCII case-insensitive), without
+    /// materializing its value — the presence-only counterpart to [`get_attribute`].
+    pub fn has_attribute(&self, name: &str) -> bool {
+        use std::str::FromStr;
+        let target = HtmlAttr::from_str(name).map_or(AttrName::Ext(name), AttrName::Std);
+        self.with_view(|view| {
+            view.nodes.attr_list_index(self.index()).is_some_and(|idx| {
+                view.attr_list_at(idx).any(|a| match (a.name, target) {
+                    (AttrName::Ext(stored), AttrName::Ext(wanted)) => {
+                        stored.eq_ignore_ascii_case(wanted)
+                    }
+                    _ => a.name == target,
+                })
+            })
+        })
+    }
+
     pub fn find_attribute<R, F: Fn(Option<&str>) -> R>(&self, tag: HtmlAttr, f: F) -> R {
         self.with_view(|view| {
             let val = view
@@ -570,6 +587,16 @@ fn get_attribute_by_string_name() {
     // Absent.
     assert_eq!(a.get_attribute("title"), None);
     assert_eq!(a.get_attribute("data-missing"), None);
+
+    // has_attribute mirrors get_attribute presence without materializing the value.
+    assert!(a.has_attribute("href"));
+    assert!(a.has_attribute("HREF"));
+    assert!(a.has_attribute("aria-label"));
+    assert!(a.has_attribute("data-k"));
+    assert!(a.has_attribute("DATA-K"));
+    assert!(a.has_attribute("wonky"));
+    assert!(!a.has_attribute("title"));
+    assert!(!a.has_attribute("data-missing"));
 }
 
 #[test]
