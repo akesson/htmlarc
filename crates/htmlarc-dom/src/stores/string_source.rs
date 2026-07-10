@@ -1,5 +1,5 @@
-use std::cell::OnceCell;
 use std::ops::Range;
+use std::sync::OnceLock;
 
 /// Inflates one compressed string frame to its raw bytes. The archive layer implements this
 /// (it owns the codec and any dictionary), so this crate stays codec-agnostic — it only ever
@@ -18,9 +18,10 @@ pub trait FrameDecoder: Sync {
 ///   document) or an uncompressed memory-mapped slice (a relocated per-bundle pool). Reads are
 ///   zero-copy. This is the only arm used in production today.
 /// - [`Lazy`](Self::Lazy): the bytes live in a compressed `frame`; the first read inflates it
-///   once into `buf` and every read slices that buffer at `base + range`. A reader holds its
-///   inflate caches single-threaded (one `OnceCell` per document, in the caller's read scope), so
-///   a non-synchronized [`OnceCell`] is sufficient. `decoder` is injected by the archive layer so
+///   once into `buf` and every read slices that buffer at `base + range`. The cache is a
+///   synchronized [`OnceLock`] (not a `OnceCell`) so every read handle that embeds one — e.g. a
+///   long-lived owned document — stays `Sync`; on the hot path the difference is a single
+///   already-initialized atomic load per text read. `decoder` is injected by the archive layer so
 ///   this crate stays codec-agnostic; the enum stays `Copy` because the whole [`LazyState`] sits
 ///   behind one reference.
 ///
@@ -33,7 +34,7 @@ pub trait FrameDecoder: Sync {
 /// carries it, as cheap as a bare slice. `buf` is this document's decompression cache;
 /// `base`/`len` locate this document within the inflated frame.
 pub struct LazyState<'a> {
-    pub buf: &'a OnceCell<Vec<u8>>,
+    pub buf: &'a OnceLock<Vec<u8>>,
     pub frame: &'a [u8],
     pub base: u32,
     pub len: u32,
@@ -117,7 +118,7 @@ mod tests {
         assert_eq!(src.materialize(), b"helloworld");
     }
 
-    /// An identity "codec" — proves the `OnceCell` inflate + `base`/`len` slicing independent of
+    /// An identity "codec" — proves the `OnceLock` inflate + `base`/`len` slicing independent of
     /// any real compression.
     struct Identity;
     impl FrameDecoder for Identity {
@@ -130,7 +131,7 @@ mod tests {
     fn lazy_inflates_once_and_slices_at_base() {
         // `frame` stands in for two concatenated documents "AAA" + "BBBB".
         let frame = b"AAABBBB".as_slice();
-        let buf = OnceCell::new();
+        let buf = OnceLock::new();
         let decoder = Identity;
 
         // Second document: base 3, len 4.
