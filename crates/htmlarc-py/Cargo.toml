@@ -1,0 +1,19 @@
+[package]
+name = "htmlarc-py"
+description = "Python bindings for htmlarc: query pre-parsed HTML archives with CSS selectors"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Distributed as a wheel via maturin, never as a Rust crate.
+publish = false
+
+[lib]
+# The importable Python module name: `import htmlarc`.
+name = "htmlarc"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+htmlarc-dom = { workspace = true }
+htmlarc-archive = { workspace = true }
