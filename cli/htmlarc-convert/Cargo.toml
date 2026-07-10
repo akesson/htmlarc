@@ -22,7 +22,7 @@ xflags.workspace = true
 zim.workspace = true
 zstd.workspace = true
 # Allocation profiler — inert (no compile/runtime cost) unless a `hotpath*` feature is enabled.
-hotpath = "0.17"
+hotpath = "0.21"
 
 [features]
 # `cargo run -p htmlarc-convert --features hotpath,hotpath-alloc -- convert …` to profile.
