@@ -10,6 +10,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_array::{ArrayRef, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_buffer::{Buffer, NullBufferBuilder, OffsetBuffer, ScalarBuffer};
+use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use htmlarc_archive::{ArchiveErr, HtmlArchiveBuilder, MmapArchive, OwnedDoc};
 use htmlarc_dom::prelude::{
     DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
@@ -17,7 +21,7 @@ use htmlarc_dom::prelude::{
 };
 use pyo3::exceptions::{PyIOError, PyIndexError, PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyCapsule, PyDict};
 
 /// The two owned DOM backings a [`Document`] can hold. Both are `Send + Sync + 'static` and
 /// implement `DomRead` with the same `LinearSweep` forward iterator, so every query answers
@@ -838,6 +842,84 @@ impl Archive {
         .map_err(archive_err)
     }
 
+    /// Every match across the archive as one flat Arrow table: a `key` column (the document
+    /// key, repeated once per matched element), an optional `text` column (each element's text
+    /// content, when `text=True`), and one nullable column per name in `attrs` (the attribute
+    /// value, `null` where the matched element lacks it; `"class"` is synthesized space-joined
+    /// like `Element.get`). One row per matched element, ordered by document then match — the
+    /// same ordering as `scan_text`/`scan_attr`. With `text=False` and no `attrs`, it returns a
+    /// one-column inventory of which document each match came from.
+    ///
+    /// The sweep runs across all cores with the GIL released and assembles the Arrow buffers
+    /// entirely off-GIL, handing them to Python zero-copy over the Arrow PyCapsule stream
+    /// interface (`pyarrow.table(r)`, `polars.DataFrame(r)`, duckdb, ...). No per-match Python
+    /// object is created, so this is far faster than `scan_text`/`scan_attr` when extracting
+    /// from every document. Raises `ValueError` if a requested attribute name collides with the
+    /// `key`/`text` columns or duplicates another (names are matched case-insensitively).
+    #[pyo3(signature = (selector, *, text = false, attrs = None))]
+    fn scan_table(
+        &self,
+        py: Python<'_>,
+        selector: CssArg<'_>,
+        text: bool,
+        attrs: Option<Vec<String>>,
+    ) -> PyResult<ArrowResult> {
+        let attrs = attrs.unwrap_or_default();
+
+        // Validate column names up front: the schema needs unique, unreserved labels or the
+        // table would silently collide columns.
+        for name in &attrs {
+            if name.eq_ignore_ascii_case("key") {
+                return Err(PyValueError::new_err(
+                    "scan_table: attribute name \"key\" collides with the key column",
+                ));
+            }
+            if text && name.eq_ignore_ascii_case("text") {
+                return Err(PyValueError::new_err(
+                    "scan_table: attribute name \"text\" collides with the text column (text=True)",
+                ));
+            }
+        }
+        for (i, a) in attrs.iter().enumerate() {
+            if attrs[..i].iter().any(|b| a.eq_ignore_ascii_case(b)) {
+                return Err(PyValueError::new_err(format!(
+                    "scan_table: duplicate attribute column {a:?} (names match case-insensitively)"
+                )));
+            }
+        }
+
+        let cols: Vec<AttrCol> = attrs.iter().map(|n| AttrCol::new(n)).collect();
+
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+
+        // Schema: key (non-null), optional text (non-null), one nullable utf8 column per attr.
+        let mut fields: Vec<Field> = Vec::with_capacity(2 + cols.len());
+        fields.push(Field::new("key", DataType::Utf8, false));
+        if text {
+            fields.push(Field::new("text", DataType::Utf8, false));
+        }
+        for a in &cols {
+            fields.push(Field::new(&a.name, DataType::Utf8, true));
+        }
+        let schema: SchemaRef = Arc::new(Schema::new(fields));
+
+        let hits = py
+            .detach(|| {
+                par_sweep(&self.inner, |doc| {
+                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                    scan_table_doc(&root, sel, text, &cols)
+                })
+            })
+            .map_err(archive_err)?;
+
+        let batches = py
+            .detach(|| build_batches(hits, text, &cols, &schema))
+            .map_err(arrow_err)?;
+
+        Ok(ArrowResult { schema, batches })
+    }
+
     /// Iterate over every document, in archive order.
     fn __iter__(&self) -> ArchiveIter {
         ArchiveIter {
@@ -851,6 +933,358 @@ impl Archive {
             "<htmlarc.Archive path={:?} documents={}>",
             self.path,
             self.inner.len()
+        )
+    }
+}
+
+// ---- Arrow columnar scan (`Archive.scan_table`) ------------------------------------------
+
+/// Maps an assembly `ArrowError` to a Python `ValueError`. The only failure mode is a single
+/// document whose text/attribute column alone exceeds the 2 GiB utf8 offset limit (see
+/// [`build_batches`]).
+fn arrow_err(e: ArrowError) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
+
+/// One requested attribute column. `name` is the column label exactly as requested; `class`
+/// switches to the synthesized class semantics (out-of-band store, space-joined, absent when the
+/// class list is empty), matching [`attr_value`].
+struct AttrCol {
+    name: String,
+    class: bool,
+}
+
+impl AttrCol {
+    fn new(name: &str) -> Self {
+        AttrCol {
+            name: name.to_string(),
+            class: name.eq_ignore_ascii_case("class"),
+        }
+    }
+}
+
+/// One string column's bytes for a single document, built off-GIL: `data` is the matched values
+/// concatenated, `ends` the doc-relative end offset of each row (row `i` spans `ends[i-1]..ends[i]`,
+/// with an implicit `0` start). `i64` so a worker can never overflow before the batch rebase.
+#[derive(Default)]
+struct ColChunk {
+    data: Vec<u8>,
+    ends: Vec<i64>,
+}
+
+impl ColChunk {
+    fn push_end(&mut self) {
+        self.ends.push(self.data.len() as i64);
+    }
+}
+
+/// A single document's contribution to the table: `rows` matched elements, plus the bytes for the
+/// optional text column and each attribute column (with per-row validity for attributes — a
+/// missing attribute is a null, distinct from a present-but-empty `""`).
+struct DocChunk {
+    rows: usize,
+    text: Option<ColChunk>,
+    attrs: Vec<(ColChunk, Vec<bool>)>,
+}
+
+/// Build one document's row contributions off-GIL (runs inside `par_sweep`). Returns `None` when
+/// nothing matched, so documents without matches are omitted — exactly like the other sweeps.
+fn scan_table_doc(
+    root: &HtmlElement<'_, OwnedDoc>,
+    sel: &OwnedSelectorList,
+    want_text: bool,
+    cols: &[AttrCol],
+) -> Option<DocChunk> {
+    let mut text = want_text.then(ColChunk::default);
+    let mut attrs: Vec<(ColChunk, Vec<bool>)> = cols
+        .iter()
+        .map(|_| (ColChunk::default(), Vec::new()))
+        .collect();
+    let mut rows = 0usize;
+
+    for el in root.select(sel.list().clone()) {
+        rows += 1;
+        if let Some(t) = text.as_mut() {
+            el.for_each_text_chunk(|s| t.data.extend_from_slice(s.as_bytes()));
+            t.push_end();
+        }
+        for (col, (chunk, valid)) in cols.iter().zip(attrs.iter_mut()) {
+            let present = if col.class {
+                // Synthesize "class" from the out-of-band store, space-joined; empty list => null,
+                // matching attr_value's None.
+                let mut any = false;
+                for cls in el.classes() {
+                    if any {
+                        chunk.data.push(b' ');
+                    }
+                    chunk.data.extend_from_slice(cls.as_bytes());
+                    any = true;
+                }
+                any
+            } else {
+                el.with_attribute(&col.name, |v| match v {
+                    Some(s) => {
+                        chunk.data.extend_from_slice(s.as_bytes());
+                        true
+                    }
+                    None => false,
+                })
+            };
+            chunk.push_end();
+            valid.push(present);
+        }
+    }
+
+    (rows > 0).then_some(DocChunk { rows, text, attrs })
+}
+
+/// Cut a fresh RecordBatch at a document boundary whenever a column's utf8 data buffer would pass
+/// this many bytes, keeping each column safely under the i32 (2 GiB) offset ceiling. Overridable
+/// via `HTMLARC_SCAN_TABLE_BATCH_BYTES` — mainly so tests can force the multi-batch path on a
+/// small corpus, but also a tuning knob for callers who want smaller batches.
+fn batch_data_limit() -> usize {
+    const DEFAULT: usize = 1 << 30;
+    match std::env::var("HTMLARC_SCAN_TABLE_BATCH_BYTES") {
+        Ok(v) => v.trim().parse().unwrap_or(DEFAULT),
+        Err(_) => DEFAULT,
+    }
+}
+
+/// One string column under construction within the current batch. `ends` carries the leading `0`
+/// offset; one further entry is pushed per appended row.
+struct ColBuilder {
+    data: Vec<u8>,
+    ends: Vec<i32>,
+    nulls: Option<NullBufferBuilder>,
+}
+
+impl ColBuilder {
+    fn new(nullable: bool) -> Self {
+        ColBuilder {
+            data: Vec::new(),
+            ends: vec![0],
+            nulls: nullable.then(|| NullBufferBuilder::new(0)),
+        }
+    }
+
+    /// Finish the current batch's column into a zero-copy `StringArray` and reset for the next
+    /// batch (`NullBufferBuilder::finish` already resets itself; `mem::take`/`replace` clear the
+    /// data and offsets).
+    fn finish(&mut self) -> Result<StringArray, ArrowError> {
+        let offsets = OffsetBuffer::new(ScalarBuffer::from(std::mem::replace(
+            &mut self.ends,
+            vec![0],
+        )));
+        let values = Buffer::from(std::mem::take(&mut self.data));
+        let nulls = self.nulls.as_mut().and_then(|n| n.finish());
+        // Every value byte was copied out of a `&str` and every offset is a row boundary
+        // recorded in append order, so utf8 validity and offset monotonicity hold by
+        // construction; `try_new` would re-validate the entire data buffer (O(bytes), ~6 ms
+        // on an 84 MB result). Debug builds still run the full check.
+        #[cfg(debug_assertions)]
+        StringArray::try_new(offsets.clone(), values.clone(), nulls.clone())?;
+        Ok(unsafe { StringArray::new_unchecked(offsets, values, nulls) })
+    }
+}
+
+/// Append a document's column chunk into the current batch builder, rebasing the doc-relative end
+/// offsets onto the batch's running i32 offset. Errors only if a single document's column alone
+/// exceeds the 2 GiB utf8 offset ceiling. Ends are non-decreasing, so checking the last against
+/// i32 covers them all and the rebase loop needs no per-row branch.
+fn append_col(b: &mut ColBuilder, c: &ColChunk, doc_key: &str) -> Result<(), ArrowError> {
+    let base = b.data.len() as i64;
+    b.data.extend_from_slice(&c.data);
+    let last = base + c.ends.last().copied().unwrap_or(0);
+    if i32::try_from(last).is_err() {
+        return Err(oversize(doc_key));
+    }
+    b.ends.extend(c.ends.iter().map(|&end| (base + end) as i32));
+    Ok(())
+}
+
+fn oversize(doc_key: &str) -> ArrowError {
+    ArrowError::ComputeError(format!(
+        "scan_table: a single column for document {doc_key:?} exceeds the 2 GiB utf8 offset limit"
+    ))
+}
+
+/// Finish every column builder into a `RecordBatch` (and reset the builders for the next batch).
+fn finish_batch(
+    schema: &SchemaRef,
+    key: &mut ColBuilder,
+    text: &mut Option<ColBuilder>,
+    attr_builders: &mut [ColBuilder],
+) -> Result<RecordBatch, ArrowError> {
+    let mut columns: Vec<ArrayRef> = Vec::with_capacity(2 + attr_builders.len());
+    columns.push(Arc::new(key.finish()?) as ArrayRef);
+    if let Some(t) = text.as_mut() {
+        columns.push(Arc::new(t.finish()?) as ArrayRef);
+    }
+    for b in attr_builders.iter_mut() {
+        columns.push(Arc::new(b.finish()?) as ArrayRef);
+    }
+    RecordBatch::try_new(schema.clone(), columns)
+}
+
+/// Concatenate the per-document chunks (already in archive order) into one or more `RecordBatch`es,
+/// cutting at document boundaries so no column's utf8 data passes [`batch_data_limit`]. Serial,
+/// still off-GIL. Zero matches yields an empty `Vec` — the stream still carries the schema, so
+/// consumers get a correct empty table.
+fn build_batches(
+    hits: Vec<(String, DocChunk)>,
+    want_text: bool,
+    cols: &[AttrCol],
+    schema: &SchemaRef,
+) -> Result<Vec<RecordBatch>, ArrowError> {
+    let mut key = ColBuilder::new(false);
+    let mut text = want_text.then(|| ColBuilder::new(false));
+    let mut attr_builders: Vec<ColBuilder> = cols.iter().map(|_| ColBuilder::new(true)).collect();
+
+    // Reserve each column's exact final size up front (totals are known from the sweep), so
+    // the appends below never pay Vec growth reallocations. Over-reservation when the batch
+    // cuts early is harmless — cuts only happen near the GiB-scale limit.
+    let total_rows: usize = hits.iter().map(|(_, c)| c.rows).sum();
+    key.data
+        .reserve(hits.iter().map(|(k, c)| k.len() * c.rows).sum());
+    key.ends.reserve(total_rows);
+    if let Some(t) = text.as_mut() {
+        t.data.reserve(
+            hits.iter()
+                .map(|(_, c)| c.text.as_ref().map_or(0, |t| t.data.len()))
+                .sum(),
+        );
+        t.ends.reserve(total_rows);
+    }
+    for (i, b) in attr_builders.iter_mut().enumerate() {
+        b.data
+            .reserve(hits.iter().map(|(_, c)| c.attrs[i].0.data.len()).sum());
+        b.ends.reserve(total_rows);
+    }
+
+    let mut batches = Vec::new();
+    let mut rows_in_batch = 0usize;
+    let limit = batch_data_limit();
+
+    for (doc_key, chunk) in hits {
+        // Cut before appending if any column would pass the limit and there is something to flush.
+        if rows_in_batch > 0 {
+            let key_would = key.data.len() + doc_key.len() * chunk.rows;
+            let text_would = match (text.as_ref(), chunk.text.as_ref()) {
+                (Some(b), Some(c)) => b.data.len() + c.data.len(),
+                _ => 0,
+            };
+            let attr_would = attr_builders
+                .iter()
+                .zip(chunk.attrs.iter())
+                .map(|(b, (c, _))| b.data.len() + c.data.len())
+                .max()
+                .unwrap_or(0);
+            if key_would > limit || text_would > limit || attr_would > limit {
+                batches.push(finish_batch(
+                    schema,
+                    &mut key,
+                    &mut text,
+                    &mut attr_builders,
+                )?);
+                rows_in_batch = 0;
+            }
+        }
+
+        // Key column: repeat the document key once per matched row. Extend by doubling from
+        // the repeats already written so the copy is O(log rows) large memcpys instead of
+        // `rows` tiny ones, and compute the evenly spaced offsets arithmetically (one
+        // overflow check for the whole document instead of one per row).
+        let base = key.data.len();
+        let klen = doc_key.len();
+        let target = base + klen * chunk.rows;
+        if i32::try_from(target).is_err() {
+            return Err(oversize(&doc_key));
+        }
+        key.data.reserve(target - base);
+        key.data
+            .extend_from_slice(&doc_key.as_bytes()[..klen.min(target - base)]);
+        while key.data.len() < target {
+            let n = (target - key.data.len()).min(key.data.len() - base);
+            key.data.extend_from_within(base..base + n);
+        }
+        key.ends
+            .extend((1..=chunk.rows).map(|i| (base + i * klen) as i32));
+
+        // Text column.
+        if let (Some(b), Some(c)) = (text.as_mut(), chunk.text.as_ref()) {
+            append_col(b, c, &doc_key)?;
+        }
+
+        // Attribute columns (data + per-row validity).
+        for (b, (c, valid)) in attr_builders.iter_mut().zip(chunk.attrs.iter()) {
+            append_col(b, c, &doc_key)?;
+            let nulls = b.nulls.as_mut().expect("attr columns are nullable");
+            nulls.append_slice(valid);
+        }
+
+        rows_in_batch += chunk.rows;
+    }
+
+    if rows_in_batch > 0 {
+        batches.push(finish_batch(
+            schema,
+            &mut key,
+            &mut text,
+            &mut attr_builders,
+        )?);
+    }
+
+    Ok(batches)
+}
+
+/// A columnar scan result ([`Archive::scan_table`]), exported zero-copy over the Arrow PyCapsule
+/// *stream* interface. Consume it with `pyarrow.table(r)`, `polars.DataFrame(r)`,
+/// `pandas.DataFrame.from_arrow(r)`, `duckdb.sql("... from r")`, or any other
+/// `__arrow_c_stream__` reader — htmlarc itself carries no Python-side Arrow dependency. The
+/// result is re-consumable: each call exports a fresh stream over the same buffers.
+#[pyclass(frozen, module = "htmlarc")]
+pub struct ArrowResult {
+    schema: SchemaRef,
+    batches: Vec<RecordBatch>,
+}
+
+#[pymethods]
+impl ArrowResult {
+    /// Export the table as an Arrow C stream (a PyCapsule named `"arrow_array_stream"`). The
+    /// `requested_schema` hint is accepted and ignored — the schema is fixed by the scan, which
+    /// the PyCapsule spec permits.
+    #[pyo3(signature = (requested_schema = None))]
+    fn __arrow_c_stream__<'py>(
+        &self,
+        py: Python<'py>,
+        requested_schema: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyCapsule>> {
+        let _ = requested_schema;
+        let reader = RecordBatchIterator::new(
+            self.batches.clone().into_iter().map(Ok),
+            self.schema.clone(),
+        );
+        let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+        PyCapsule::new_with_value(py, stream, c"arrow_array_stream")
+    }
+
+    /// The total number of rows (matched elements) across all batches.
+    fn __len__(&self) -> usize {
+        self.batches.iter().map(|b| b.num_rows()).sum()
+    }
+
+    fn __repr__(&self) -> String {
+        let cols: Vec<&str> = self
+            .schema
+            .fields()
+            .iter()
+            .map(|f| f.name().as_str())
+            .collect();
+        format!(
+            "<htmlarc.ArrowResult rows={} columns={:?} batches={}>",
+            self.batches.iter().map(|b| b.num_rows()).sum::<usize>(),
+            cols,
+            self.batches.len(),
         )
     }
 }
@@ -949,6 +1383,7 @@ fn htmlarc(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Archive>()?;
     m.add_class::<ArchiveBuilder>()?;
     m.add_class::<ArchiveIter>()?;
+    m.add_class::<ArrowResult>()?;
     m.add_class::<Document>()?;
     m.add_class::<Element>()?;
     m.add_class::<Filter>()?;
