@@ -132,6 +132,7 @@ crates/
 cli/
   htmlarc/          the `htmlarc` binary (pack / list / probe / diff)
   htmlarc-convert/  converts ZIM / WARC / a directory of HTML into a .htmlarc archive
+corpus/             local-only measurement corpus, gitignored (see below)
 ```
 
 ## Building & testing
@@ -158,6 +159,35 @@ make setup
 The other `make` targets mirror the CI jobs so you can reproduce a failure locally:
 `make fmt`, `make lint`, `make test`, `make bench`, or `make ci` for all of them. Run
 `make` to list them.
+
+## Measurement corpus
+
+The size and throughput numbers in [`docs/decisions/`](docs/decisions) are measured against a
+local-only corpus, by convention at `corpus/` in the workspace root (gitignored, ~70 GB):
+
+```
+corpus/
+  cc_000.warc.gz … cc_059.warc.gz   Common Crawl segments — general web HTML
+  wiktionary_co.zim                 small wiki corpus (~9.5 k docs), fast iteration
+  wiktionary_en_all_nopic_*.zim     large wiki corpus (~8.9 M docs, 8.5 GB)
+```
+
+None of it is committed or redistributable, and nothing in the code hardcodes these paths —
+every tool takes the source as an argument, so the corpus can live anywhere:
+
+```sh
+# Paths are relative to where you invoke cargo:
+cargo run -p htmlarc-convert -- stats corpus/cc_000.warc.gz
+
+# nextest runs tests with the crate dir as cwd, so SPIKE_INPUT must be absolute:
+SPIKE_INPUT="$PWD/corpus/cc_000.warc.gz" SPIKE_LIMIT=200 \
+  cargo nextest run -p htmlarc-convert --run-ignored all -E 'test(framing_spike)'
+```
+
+This is **not** test data: the test suite and benches never touch it. Unit and snapshot tests
+use the committed fixtures under `crates/htmlarc-dom/src/**` and `cli/htmlarc/src/testdata/`,
+and the one ignored e2e test in `htmlarc-convert` uses a ~41 KB ZIM fetched on demand by
+[`cli/htmlarc-convert/fetch-testdata.sh`](cli/htmlarc-convert/fetch-testdata.sh).
 
 ## Example
 
