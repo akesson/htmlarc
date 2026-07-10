@@ -96,6 +96,45 @@ def test_invalid_selector_raises(doc):
         htmlarc.Selector("!!!")
 
 
+def test_batch_extraction(doc):
+    assert doc.select_text("p") == ["First bold paragraph", "Second paragraph"]
+    assert doc.select_attr("h1", "data-rank") == ["1"]
+    assert doc.select_attr("h1", "class") == ["title"]  # class synthesized, like get()
+    assert doc.select_attr("p", "data-rank") == [None, None]
+    assert doc.select_html("b") == ["<b>bold</b>"]
+
+    # Element-scoped batch extraction only sees the subtree.
+    div = doc.select_first("#main")
+    assert div.select_text("h1") == ["Alpha"]
+    assert div.select_text(".no-such-class") == []
+
+    # Compiled selectors work in batch calls too.
+    assert doc.select_text(htmlarc.Selector("h1.title")) == ["Alpha"]
+
+
+def test_archive_scan(tmp_path):
+    """matching/scan_text/scan_attr sweep the archive in parallel (GIL released)."""
+    path = tmp_path / "scan.htmlarc"
+    builder = htmlarc.ArchiveBuilder()
+    for i in range(20):
+        if i % 3 == 0:
+            html = f"<body><h1 class='t'>Doc {i}</h1><a href='/l{i}'>x</a></body>"
+        else:
+            html = f"<body><p>filler {i}</p></body>"
+        builder.add(f"page-{i:02}", html)
+    builder.write(path)
+    archive = htmlarc.open(path)
+
+    hits = [f"page-{i:02}" for i in range(20) if i % 3 == 0]
+    assert archive.matching("h1.t") == hits  # archive order, non-matching docs omitted
+    assert archive.matching(".absent") == []
+
+    assert archive.scan_text("h1.t") == [(k, [f"Doc {int(k[5:])}"]) for k in hits]
+    assert archive.scan_attr("a", "href") == [(k, [f"/l{int(k[5:])}"]) for k in hits]
+    # Matched elements without the attribute report None (doc matched, value absent).
+    assert archive.scan_attr("h1.t", "href") == [(k, [None]) for k in hits]
+
+
 def test_archive_roundtrip(tmp_path):
     path = tmp_path / "corpus.htmlarc"
     builder = htmlarc.ArchiveBuilder()
