@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use htmlarc_archive::{ArchiveErr, HtmlArchiveBuilder, MmapArchive, OwnedDoc};
 use htmlarc_dom::prelude::{
-    DomInner, DomIterator, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex, OwnedSelectorList,
+    DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
+    OwnedSelectorList,
 };
 use pyo3::exceptions::{PyIOError, PyIndexError, PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -50,6 +51,62 @@ macro_rules! with_el {
 
 fn archive_err(e: ArchiveErr) -> PyErr {
     PyIOError::new_err(e.to_string())
+}
+
+/// The named attribute's value with the wrapper's `"class"` semantics: htmlarc stores the
+/// class list out-of-band, so `"class"` resolves through it (space-joined) instead of the
+/// attr store. Every attribute lookup in the module funnels through here.
+fn attr_value<Dom: DomRead + DomRef>(el: &HtmlElement<'_, Dom>, name: &str) -> Option<String> {
+    if name.eq_ignore_ascii_case("class") {
+        let classes: Vec<_> = el.classes().collect();
+        return (!classes.is_empty()).then(|| classes.join(" "));
+    }
+    el.get_attribute(name)
+}
+
+/// Run `f` over every document in the archive, fanned out across all cores. Returns
+/// `(key, value)` for the documents where `f` answered, in archive order. Callers hold no
+/// GIL here (`Python::detach`); everything captured must be `Sync`.
+fn par_sweep<T: Send>(
+    archive: &Arc<MmapArchive>,
+    f: impl Fn(&OwnedDoc) -> Option<T> + Sync,
+) -> Result<Vec<(String, T)>, ArchiveErr> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let n = archive.len();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |p| p.get())
+        .min(n.max(1));
+    // Work-stealing by atomic counter: document sizes vary wildly, so fixed ranges would
+    // leave threads idle behind whoever drew the big documents.
+    let next = AtomicUsize::new(0);
+    let mut hits: Vec<(usize, String, T)> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut local = Vec::new();
+                    loop {
+                        let pos = next.fetch_add(1, Ordering::Relaxed);
+                        if pos >= n {
+                            break;
+                        }
+                        let doc = OwnedDoc::new(archive.clone(), pos)?;
+                        if let Some(v) = f(&doc) {
+                            local.push((pos, doc.key().to_string(), v));
+                        }
+                    }
+                    Ok(local)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("archive sweep worker panicked"))
+            .collect::<Result<Vec<_>, ArchiveErr>>()
+            .map(|per_thread| per_thread.into_iter().flatten().collect())
+    })?;
+    hits.sort_unstable_by_key(|(pos, ..)| *pos);
+    Ok(hits.into_iter().map(|(_, key, v)| (key, v)).collect())
 }
 
 fn selector_err(e: impl std::fmt::Display) -> PyErr {
@@ -176,6 +233,40 @@ impl Document {
         Ok(id.map(|i| Document::element(slf, NodeIndex::new(i))))
     }
 
+    /// The descendant text of every element matching the selector, one string per match,
+    /// in document order. One FFI call instead of a Python loop over `select()`.
+    fn select_text(&self, selector: CssArg<'_>) -> PyResult<Vec<String>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self, 0, |el| el
+            .select(sel.list().clone())
+            .map(|e| e.text_content())
+            .collect()))
+    }
+
+    /// The named attribute of every element matching the selector (`None` where absent),
+    /// in document order. `"class"` resolves like `Element.get()`.
+    fn select_attr(&self, selector: CssArg<'_>, name: &str) -> PyResult<Vec<Option<String>>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self, 0, |el| el
+            .select(sel.list().clone())
+            .map(|e| attr_value(&e, name))
+            .collect()))
+    }
+
+    /// The rendered subtree of every element matching the selector, in document order.
+    #[pyo3(signature = (selector, pretty = false))]
+    fn select_html(&self, selector: CssArg<'_>, pretty: bool) -> PyResult<Vec<String>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        let fmt = HtmlFormat::raw_else_pretty(!pretty);
+        Ok(with_el!(self, 0, |el| el
+            .select(sel.list().clone())
+            .map(|e| e.to_html(fmt))
+            .collect()))
+    }
+
     /// Render the document as HTML. `pretty=True` indents; the default is the raw
     /// compact form.
     #[pyo3(signature = (pretty = false))]
@@ -270,11 +361,7 @@ impl Element {
     /// The value of the named attribute (ASCII case-insensitive), or `None`.
     /// `"class"` resolves through the class list, like `attrs`.
     fn get(&self, name: &str) -> Option<String> {
-        if name.eq_ignore_ascii_case("class") {
-            let classes = self.classes();
-            return (!classes.is_empty()).then(|| classes.join(" "));
-        }
-        with_el!(self.doc.get(), self.index, |el| el.get_attribute(name))
+        with_el!(self.doc.get(), self.index, |el| attr_value(&el, name))
     }
 
     /// `element["href"]` — like `get()`, but raises `KeyError` when absent.
@@ -371,6 +458,40 @@ impl Element {
             .map(|e| e.index().as_u32())
             .next());
         Ok(id.map(|i| self.derived(py, NodeIndex::new(i))))
+    }
+
+    /// The descendant text of every matching descendant element, one string per match,
+    /// in document order.
+    fn select_text(&self, selector: CssArg<'_>) -> PyResult<Vec<String>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self.doc.get(), self.index, |el| el
+            .select(sel.list().clone())
+            .map(|e| e.text_content())
+            .collect()))
+    }
+
+    /// The named attribute of every matching descendant element (`None` where absent),
+    /// in document order. `"class"` resolves like `get()`.
+    fn select_attr(&self, selector: CssArg<'_>, name: &str) -> PyResult<Vec<Option<String>>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        Ok(with_el!(self.doc.get(), self.index, |el| el
+            .select(sel.list().clone())
+            .map(|e| attr_value(&e, name))
+            .collect()))
+    }
+
+    /// The rendered subtree of every matching descendant element, in document order.
+    #[pyo3(signature = (selector, pretty = false))]
+    fn select_html(&self, selector: CssArg<'_>, pretty: bool) -> PyResult<Vec<String>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        let fmt = HtmlFormat::raw_else_pretty(!pretty);
+        Ok(with_el!(self.doc.get(), self.index, |el| el
+            .select(sel.list().clone())
+            .map(|e| e.to_html(fmt))
+            .collect()))
     }
 
     /// Whether this element itself matches the CSS selector.
@@ -482,6 +603,72 @@ impl Archive {
             .position_for_key(key)
             .map(|pos| self.document(pos))
             .transpose()
+    }
+
+    /// The keys of every document with at least one match for the selector, in archive
+    /// order. Sweeps the whole archive across all cores with the GIL released.
+    fn matching(&self, py: Python<'_>, selector: CssArg<'_>) -> PyResult<Vec<String>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        py.detach(|| {
+            par_sweep(&self.inner, |doc| {
+                let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                root.select(sel.list().clone())
+                    .next()
+                    .is_some()
+                    .then_some(())
+            })
+        })
+        .map(|hits| hits.into_iter().map(|(key, ())| key).collect())
+        .map_err(archive_err)
+    }
+
+    /// `(key, texts)` for every document with at least one match: the descendant text of
+    /// each matching element, like `Document.select_text` over the whole archive. Runs
+    /// across all cores with the GIL released; documents without matches are omitted.
+    fn scan_text(
+        &self,
+        py: Python<'_>,
+        selector: CssArg<'_>,
+    ) -> PyResult<Vec<(String, Vec<String>)>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        py.detach(|| {
+            par_sweep(&self.inner, |doc| {
+                let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                let texts: Vec<String> = root
+                    .select(sel.list().clone())
+                    .map(|e| e.text_content())
+                    .collect();
+                (!texts.is_empty()).then_some(texts)
+            })
+        })
+        .map_err(archive_err)
+    }
+
+    /// `(key, values)` for every document with at least one match: the named attribute of
+    /// each matching element (`None` where absent), like `Document.select_attr` over the
+    /// whole archive. Runs across all cores with the GIL released; documents without
+    /// matches are omitted.
+    fn scan_attr(
+        &self,
+        py: Python<'_>,
+        selector: CssArg<'_>,
+        name: &str,
+    ) -> PyResult<Vec<(String, Vec<Option<String>>)>> {
+        let mut storage = None;
+        let sel = selector.resolve(&mut storage)?;
+        py.detach(|| {
+            par_sweep(&self.inner, |doc| {
+                let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                let vals: Vec<Option<String>> = root
+                    .select(sel.list().clone())
+                    .map(|e| attr_value(&e, name))
+                    .collect();
+                (!vals.is_empty()).then_some(vals)
+            })
+        })
+        .map_err(archive_err)
     }
 
     /// Iterate over every document, in archive order.
