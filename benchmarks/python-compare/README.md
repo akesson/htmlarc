@@ -108,6 +108,44 @@ zstd-compressed text blocks holding matched text to inflate lazily — this is n
 topology-only cheat (though since format v11 only the ~16 KiB blocks actually touched
 inflate, which is where the cc loop's improvement over earlier versions comes from).
 
+### Workflow 2 (aggregations) — when the question is "how many", not "which"
+
+The rows above answer *"give me the matched strings."* A large share of real corpus
+analysis instead asks *"how many"* — how many pages carry a paywall marker, how many
+external links, what fraction expose structured data. Both engines can answer that
+**without materializing a single string**: lxml via XPath `count(...)` (evaluated inside
+libxml2), htmlarc via `select_count` / `scan_count` (counted inside Rust). Neither hands
+an element or a string across into Python, so this isolates parse + engine speed from
+per-match marshalling — the fair fast path for each library.
+
+Same three selectors, counted rather than extracted, fresh process:
+
+| per-question count over the corpus | wikt | cc | RSS (cc) |
+|---|---|---|---|
+| lxml `count()` (re-parse, 1 core) | 0.62 s | 3.11 s | 1.36 GB |
+| lxml `count()` (re-parse, 14 cores) | 0.13 s | 0.46 s | 1.34 GB |
+| **htmlarc `select_count` (1 core)** | **0.049 s** | **0.174 s** | 0.22 GB |
+| **htmlarc `scan_count` (all cores, GIL released)** | **0.013 s** | **0.019 s** | 0.22 GB |
+
+Counting is where htmlarc's lead is widest: **13–18× vs single-core lxml, and ~10× (wikt)
+to ~25× (cc) core-for-core against 14-core lxml** — at ~6× lower RSS, because counting
+never inflates a text block or builds a result array.
+
+Why so much wider than the 3–5× on string extraction? Because dropping the per-match
+handoff helps the two engines by wildly different amounts:
+
+| same workload, extract → count | htmlarc (all cores) | lxml (14 cores) |
+|---|---|---|
+| cc | **5.7× faster** (0.107 s → 0.019 s) | 1.1× — essentially unchanged (0.51 s → 0.46 s) |
+
+lxml's cost is dominated by *re-parsing the HTML*; whether it then extracts or counts in C
+barely moves the needle. htmlarc already skips parsing, so its remaining cost **was** the
+per-match marshalling — and removing it (no PyStrings, no `text_content`, no zstd
+block inflation) is a 5.7× win on cc. The GIL-bound marshalling ceiling that capped the
+parallel *extraction* sweep simply isn't there when the answer is a number, so the sweep
+lands at its true native-engine speed. (Counts agree exactly on wikt; on cc lxml runs ~2%
+lower for the tree-recovery/charset reasons in the cross-check above.)
+
 ### Workflow 2b — the in-RAM alternative: hold all parsed trees
 
 The only way bs4/lxml can skip re-parsing is keeping every tree alive in one long-running

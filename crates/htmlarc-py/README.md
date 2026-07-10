@@ -36,9 +36,15 @@ for key, texts in archive.scan_text(h1):
     print(key, texts)
 links = archive.scan_attr("a[href]", "href")
 
+# When the question is "how many", count in Rust — no strings cross into Python and
+# text blocks are never decompressed, so this is the fastest sweep of all.
+n_links = archive.scan_count("a[href]", attr="href")   # one int, all cores, GIL released
+n_heads = archive.scan_count("h1, h2, h3")
+
 # Batch extraction on a single document avoids per-element FFI calls too:
 doc.select_text("p")            # list[str]
 doc.select_attr("a", "href")    # list[str | None]
+doc.select_count("a", attr="href")  # int — count matches (optionally attribute-bearing)
 doc.select_html(".figure")      # list[str]
 
 # Asking the same documents several questions? Hold the handles. Each document
