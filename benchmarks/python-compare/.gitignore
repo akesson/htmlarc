@@ -1,0 +1,3 @@
+# Generated working data (corpus pickles + built archives) and the local venv.
+data/
+bench-venv/
