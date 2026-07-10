@@ -12,6 +12,9 @@ Phases:
   requery_lxml_count |                           htmlarc select_count/scan_count vs
   requery_lxml_count_par                         lxml XPath count() (all counting in
                                                  C/Rust, nothing marshalled per match)
+  requery_htmlarc_arrow                          the extract sweeps as one Arrow table
+                                                 each (scan_table), columns built off-GIL
+                                                 and handed to pyarrow zero-copy
   hot_bs4 | hot_lxml                             parse all -> hold trees -> query hot
   pipeline_read | pipeline_lxml |                end-to-end from the source cc warc.gz:
   pipeline_lxml_par | pipeline_bs4               stream+decode (+parse+query), cc only
@@ -380,6 +383,32 @@ def requery_htmlarc_count(corpus):
     emit("requery_htmlarc_count", corpus, {"open": t1 - t0, "loop_count": t2 - t1,
                                            "scan_count": t3 - t2},
          counts, scan_counts=scan_counts, n_docs=len(arc))
+
+
+def requery_htmlarc_arrow(corpus):
+    import htmlarc
+    import pyarrow as pa
+
+    s_links, s_heads, s_cells = htmlarc_selectors()
+    t0 = time.perf_counter()
+    arc = htmlarc.open(DIR / f"{corpus}.htmlarc")
+    t1 = time.perf_counter()
+    # Columnar sweep: each scan_table builds contiguous Arrow buffers off-GIL, with no
+    # per-match PyString marshalling (the cap on scan_text/scan_attr).
+    r_links = arc.scan_table(s_links, attrs=["href"])
+    r_heads = arc.scan_table(s_heads, text=True)
+    r_cells = arc.scan_table(s_cells, text=True)
+    t2 = time.perf_counter()
+    # Zero-copy handover into pyarrow — should be ~free next to the scan.
+    links = pa.table(r_links)
+    heads = pa.table(r_heads)
+    cells = pa.table(r_cells)
+    scan_counts = [links.num_rows - links["href"].null_count,
+                   heads.num_rows, cells.num_rows]
+    t3 = time.perf_counter()
+    emit("requery_htmlarc_arrow", corpus, {"open": t1 - t0, "scan": t2 - t1,
+                                           "to_arrow": t3 - t2},
+         [0, 0, 0], scan_counts=scan_counts, n_docs=len(arc))
 
 
 # ------------------------------------------------- end-to-end source pipeline

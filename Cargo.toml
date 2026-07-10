@@ -10,6 +10,13 @@ repository = "https://github.com/akesson/htmlarc"
 
 [workspace.dependencies]
 anyhow = "1.0"
+# Arrow columnar buffers + C-Data-Interface export (`Archive.scan_table` in htmlarc-py):
+# array/buffer/schema crates plus arrow-array's `ffi` feature for the PyCapsule stream.
+# No `pyarrow` bridge crate and no compute kernels — the wheel gains no Python-side dependency
+# and the capsule glue is ours, so arrow's quarterly majors never fight the pyo3 pin.
+arrow-array = { version = "59", features = ["ffi"] }
+arrow-buffer = "59"
+arrow-schema = "59"
 colorful = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
 # Pure-Rust gzip (miniz_oxide backend) for reading `.warc.gz` crawl segments.
