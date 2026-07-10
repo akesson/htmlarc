@@ -31,6 +31,11 @@ their defaults.
   `a[href]` (attribute extraction), `h1, h2, h3` (text), `table tr td:first-child` (text).
 - Each phase runs in a fresh process; peak RSS via `ru_maxrss`. Gaps under 2× were
   confirmed with 3× interleaved A/B runs (spread ≈ ±4%; medians reported).
+- htmlarc numbers are for **format v11** (block-split text frames, PR #51): a text read
+  now inflates only the ~16 KiB block containing it, not the document's whole text pool.
+  htmlarc build/requery rows re-measured 2026-07-10 (3× medians); bs4/lxml rows kept from
+  the original interleaved runs, spot-checked the same day within ≤ +7% (machine drift,
+  same direction on every phase — the ratios below are computed conservatively).
 
 > **The lxml str footgun** (worth a sidebar in the article): `lxml.html.fromstring(s)`
 > on a `str` raises `ValueError: Unicode strings with encoding declaration are not
@@ -72,8 +77,8 @@ One-time build (parse + write `.htmlarc`):
 
 | | build time | archive size | vs source HTML |
 |---|---|---|---|
-| wikt | 0.52 s | 68.5 MB | 1.31× |
-| cc | 2.83 s | 274 MB | **0.68×** (smaller than the HTML) |
+| wikt | 0.58 s | 68.5 MB | 1.31× |
+| cc | 3.19 s | 277 MB | **0.69×** (smaller than the HTML) |
 
 Cost of the *next* 3-selector sweep over the whole corpus, fresh process:
 
@@ -81,15 +86,16 @@ Cost of the *next* 3-selector sweep over the whole corpus, fresh process:
 |---|---|---|---|---|
 | BeautifulSoup (re-parse) | 8.25 s | — | 32.8 s | — |
 | lxml (re-parse) | 0.64 s | — | 3.04 s | — |
-| **htmlarc, Python loop (1 core)** | **0.10 s** | 108 MB | **0.43 s** | 418 MB |
-| **htmlarc, `scan_*` (all cores, GIL released)** | **0.037 s** | 108 MB | **0.10 s** | 418 MB |
+| **htmlarc, Python loop (1 core)** | **0.09 s** | 110 MB | **0.39 s** | 418 MB |
+| **htmlarc, `scan_*` (all cores, GIL released)** | **0.037 s** | 110 MB | **0.10 s** | 418 MB |
 
 Opening the archive is sub-millisecond (mmap). Per question over the corpus:
-**~7× faster than lxml / ~220–330× faster than bs4 single-threaded**, rising to
+**~7–8× faster than lxml / ~220–330× faster than bs4 single-threaded**, rising to
 **17–30× vs lxml** with the parallel sweeps. The build cost amortizes after roughly one
-re-query even against lxml. Note the sweeps do real work: the text selectors force each
-matching document's zstd-compressed text block to inflate lazily — this is not a
-topology-only cheat.
+re-query even against lxml. Note the sweeps do real work: the text selectors force the
+zstd-compressed text blocks holding matched text to inflate lazily — this is not a
+topology-only cheat (though since format v11 only the ~16 KiB blocks actually touched
+inflate, which is where the cc loop's improvement over earlier versions comes from).
 
 ### Workflow 2b — the in-RAM alternative: hold all parsed trees
 
@@ -100,13 +106,13 @@ process. That is both memory-expensive and *still slower to query* than htmlarc'
 |---|---|---|---|---|
 | BeautifulSoup trees in RAM | 2.71 s | 1.25 GB | 10.5 s | 5.6 GB |
 | lxml trees in RAM | 0.16 s | 0.83 GB | 0.97 s | 3.7 GB |
-| **htmlarc mmap, loop (1 core)** | **0.10 s** | **0.11 GB** | **0.43 s** | **0.42 GB** |
+| **htmlarc mmap, loop (1 core)** | **0.09 s** | **0.11 GB** | **0.39 s** | **0.42 GB** |
 | **htmlarc mmap, `scan_*`** | **0.037 s** | 0.11 GB | **0.10 s** | 0.42 GB |
 
 lxml trees inflate the HTML ~8× in RAM (405 MB → 3.7 GB); bs4 ~14×. htmlarc queries the
-on-disk archive about as fast as lxml queries its own in-memory trees single-threaded
-(1.6–2.2×), and ~4–10× faster with the parallel sweeps, at ~8× lower RSS — and the
-archive survives process exit, is shareable, and scales past RAM.
+on-disk archive **1.7–2.5× faster single-threaded than lxml queries its own in-memory
+trees**, and ~4–10× faster with the parallel sweeps, at ~8× lower RSS — and the archive
+survives process exit, is shareable, and scales past RAM.
 
 (Oneshot RSS columns omitted where dominated by the benchmark harness holding all input
 HTML in RAM — identical across libraries, so absolute values aren't meaningful there.
@@ -207,8 +213,8 @@ hrefs = [(key, h) for key, hs in arc.scan_attr("a[href]", "href")
 - One-shot gains over lxml are modest (1.2–1.3×); the order-of-magnitude wins are
   specifically in the parse-once-query-many workflow, and on small-doc corpora the archive
   is 1.3× the source HTML (it's a pre-parsed DOM store, not a compressor — though on
-  general web HTML it came out 0.68× thanks to per-bundle zstd of text).
-- The parallel `scan_*` speedup over the single-core loop here is 2.6–4.3×, not ~10×:
+  general web HTML it came out 0.69× thanks to per-bundle zstd of text).
+- The parallel `scan_*` speedup over the single-core loop here is 2.6–3.7×, not ~10×:
   these sweeps finish in 37–100 ms, so Python-side result marshalling (which still holds
   the GIL) is a large fraction. Heavier extractions parallelize better.
 
