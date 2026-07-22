@@ -138,10 +138,18 @@ class ArchiveIter:
     def __next__(self) -> Document: ...
 
 class ArchiveBuilder:
-    """Builds a ``.htmlarc`` archive: ``add(key, html)`` then ``write(path)`` once."""
+    """Builds a ``.htmlarc`` archive: ``add(key, html)`` / ``add_document(key, doc)``,
+    then ``write(path)`` once.
+    """
 
     def __init__(self) -> None: ...
     def add(self, key: str, html: str) -> None: ...
+    def add_document(self, key: str, doc: Document) -> None:
+        """Store an already-parsed ``Document`` (from ``parse()``) without re-parsing.
+
+        Raises ``TypeError`` for archive-backed documents — round-trip those through
+        ``add(key, doc.to_html())``.
+        """
     def write(self, path: str | PathLike[str]) -> None: ...
 
 def parse(html: str) -> Document: ...
