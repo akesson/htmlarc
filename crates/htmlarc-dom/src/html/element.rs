@@ -181,6 +181,12 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     /// Gathers the text content of the element and its descendants.
+    ///
+    /// Raw-text containers (`<script>`, `<style>`) contribute their payload only when they
+    /// are the extraction root themselves: `script.text_content()` returns the script source
+    /// (a JSON-LD block, say), but an ancestor's text never includes nested JavaScript or
+    /// CSS. (`<noscript>` innards are reparsed into real elements at tokenization and stay
+    /// included.)
     pub fn text_content(&self) -> String {
         let mut out = String::new();
         self.for_each_text_chunk(|chunk| out.push_str(chunk));
@@ -192,15 +198,39 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// Concatenating the slices reproduces `text_content`'s string exactly, but without the
     /// intermediate `String` per text node or the char-by-char collection. Each slice borrows the
     /// backing store only for the duration of the call, so `f` must copy whatever it keeps.
+    /// Applies `text_content`'s raw-text-container rule.
     pub fn for_each_text_chunk(&self, mut f: impl FnMut(&str)) {
+        // Raw-text elements cannot contain markup, so their payload is always a direct text
+        // child — a parent-tag test per text node is exact. The last parent's verdict is
+        // memoized: consecutive chunks usually share a parent.
+        let root_is_raw = matches!(self.tag(), HtmlTag::script | HtmlTag::style);
+        let mut last: Option<(NodeIndex, bool)> = None;
         for el in self.descendants().set_include_text() {
-            if el.tag() == HtmlTag::sys_text {
-                el.dom.with_view(|view| {
-                    if let Some(s) = view.text(el.index()) {
-                        f(s);
-                    }
-                });
+            if el.tag() != HtmlTag::sys_text {
+                continue;
             }
+            if !root_is_raw {
+                let parent = el.with_nodes(|nodes| nodes.parent_index(el.index()));
+                let in_raw = match (parent, last) {
+                    (Some(p), Some((q, verdict))) if p == q => verdict,
+                    (Some(p), _) => {
+                        let verdict = el.with_nodes(|nodes| {
+                            matches!(nodes.tag(p), HtmlTag::script | HtmlTag::style)
+                        });
+                        last = Some((p, verdict));
+                        verdict
+                    }
+                    (None, _) => false,
+                };
+                if in_raw {
+                    continue;
+                }
+            }
+            el.dom.with_view(|view| {
+                if let Some(s) = view.text(el.index()) {
+                    f(s);
+                }
+            });
         }
     }
 
@@ -655,6 +685,46 @@ fn for_each_text_chunk_matches_text_content() {
     let mut leaf = String::new();
     b.for_each_text_chunk(|s| leaf.push_str(s));
     assert_eq!(leaf, b.text_content());
+}
+
+#[test]
+fn text_content_excludes_raw_containers_except_as_root() {
+    const HTML: &str = concat!(
+        r#"<head><style>.a{color:red}</style><title>T</title>"#,
+        r#"<script type="application/ld+json">{"@type":"Thing"}</script></head>"#,
+        r#"<body><p>Hello<script>var x=1;</script> world</p>"#,
+        r#"<noscript><p>fallback</p></noscript></body>"#,
+    );
+    let dom = crate::html::HtmlDoc::parse(HTML).unwrap().dom();
+    let root = dom.root();
+
+    // Ancestors never see script/style payloads...
+    let p = root.select_css("p").unwrap().next().unwrap();
+    assert_eq!(p.text_content(), "Hello world");
+    let doc_text = root.text_content();
+    assert!(!doc_text.contains("var x=1;"));
+    assert!(!doc_text.contains("color:red"));
+    assert!(!doc_text.contains("@type"));
+    assert!(doc_text.contains('T'));
+
+    // ...but a raw container selected as the extraction root still yields its source
+    // (the JSON-LD extraction pattern).
+    let ld = root
+        .select_css(r#"script[type="application/ld+json"]"#)
+        .unwrap()
+        .next()
+        .unwrap();
+    assert_eq!(ld.text_content(), r#"{"@type":"Thing"}"#);
+    let style = root.select_css("style").unwrap().next().unwrap();
+    assert_eq!(style.text_content(), ".a{color:red}");
+
+    // noscript innards are reparsed into real elements and stay included.
+    assert!(doc_text.contains("fallback"));
+
+    // for_each_text_chunk agrees with text_content under the rule.
+    let mut chunked = String::new();
+    p.for_each_text_chunk(|s| chunked.push_str(s));
+    assert_eq!(chunked, p.text_content());
 }
 
 #[test]
