@@ -19,7 +19,9 @@ use htmlarc_dom::prelude::{
     DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
     OwnedSelectorList,
 };
-use pyo3::exceptions::{PyIOError, PyIndexError, PyKeyError, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{
+    PyIOError, PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError,
+};
 use pyo3::prelude::*;
 use pyo3::types::{PyCapsule, PyDict};
 
@@ -1315,11 +1317,11 @@ impl ArchiveIter {
     }
 }
 
-/// Builds a `.htmlarc` archive from HTML strings.
+/// Builds a `.htmlarc` archive from HTML strings or parsed documents.
 ///
-/// Add documents with `add(key, html)` (duplicate keys are skipped, first wins —
-/// matching the archive's dedup rule), then `write(path)` once. The builder cannot
-/// be reused after writing.
+/// Add documents with `add(key, html)` or `add_document(key, doc)` (duplicate keys
+/// are skipped, first wins — matching the archive's dedup rule), then `write(path)`
+/// once. The builder cannot be reused after writing.
 #[pyclass(module = "htmlarc")]
 pub struct ArchiveBuilder {
     builder: Option<HtmlArchiveBuilder>,
@@ -1344,6 +1346,30 @@ impl ArchiveBuilder {
         let doc = HtmlDoc::parse(html).map_err(|e| PyValueError::new_err(e.to_string()))?;
         builder.add_html(key.to_string(), doc);
         Ok(())
+    }
+
+    /// Add an already-parsed `Document` under `key` without re-parsing — the path for
+    /// crawlers that parse each page anyway (e.g. for link discovery): parse once, query
+    /// for links, then store the same `Document`.
+    ///
+    /// Accepts documents from `parse()`. Documents handed out by an `Archive` are backed
+    /// by shared per-bundle storage and can't be re-added directly; raises `TypeError`
+    /// for those (round-trip through `add(key, doc.to_html())` instead).
+    fn add_document(&mut self, key: &str, doc: Bound<'_, Document>) -> PyResult<()> {
+        let builder = self
+            .builder
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
+        match &doc.get().backing {
+            Backing::Parsed(dom) => {
+                builder.add_html(key.to_string(), HtmlDoc::from(dom.as_ref().clone()));
+                Ok(())
+            }
+            Backing::Archived(_) => Err(PyTypeError::new_err(
+                "document is archive-backed (its text lives in shared bundle storage); \
+                 use add(key, doc.to_html()) to copy it into a new archive",
+            )),
+        }
     }
 
     /// Write the archive to `path` and consume the builder.

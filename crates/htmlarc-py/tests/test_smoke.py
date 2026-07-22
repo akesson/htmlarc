@@ -376,3 +376,26 @@ def test_archive_roundtrip(tmp_path):
 def test_open_missing_archive(tmp_path):
     with pytest.raises(IOError):
         htmlarc.open(tmp_path / "missing.htmlarc")
+
+
+def test_add_document(tmp_path):
+    parsed = htmlarc.parse(PAGE)
+    b = htmlarc.ArchiveBuilder()
+    b.add_document("parsed", parsed)
+    b.add("string", PAGE)
+    path = tmp_path / "docs.htmlarc"
+    b.write(path)
+
+    arc = htmlarc.open(path)
+    # The no-reparse path stores the identical document: same render, same queries.
+    assert arc["parsed"].to_html() == arc["string"].to_html()
+    assert arc["parsed"].select_first("h1.title").text == "Alpha"
+
+    # Archive-backed documents can't be re-added directly (bundle-shared storage);
+    # the error tells you to round-trip through to_html().
+    b2 = htmlarc.ArchiveBuilder()
+    with pytest.raises(TypeError, match="to_html"):
+        b2.add_document("again", arc["parsed"])
+
+    # The source Document stays usable after being added (the builder takes a copy).
+    assert parsed.select_first("h1.title").text == "Alpha"
