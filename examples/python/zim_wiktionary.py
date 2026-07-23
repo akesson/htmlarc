@@ -29,7 +29,7 @@ ARCHIVE = DATA / "wikt_co.htmlarc"
 def download_zim() -> Path:
     listing = htmlarc.parse(get(MIRROR).text)  # dogfood: parse the listing page
     names = [h for h in listing.select_attr("a[href]", "href") if h and PATTERN.search(h)]
-    latest = max(names, key=lambda h: PATTERN.search(h).group(1))
+    latest = max(names, key=lambda h: m.group(1) if (m := PATTERN.search(h)) else "")
     target = DATA / latest
     if not target.exists():
         print(f"downloading {latest} ...")
