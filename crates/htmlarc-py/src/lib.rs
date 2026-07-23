@@ -350,13 +350,22 @@ impl Document {
     }
 
     /// The named attribute of every element matching the selector (`None` where absent),
-    /// in document order. `"class"` resolves like `Element.get()`.
-    fn select_attr(&self, selector: CssArg<'_>, name: &str) -> PyResult<Vec<Option<String>>> {
+    /// in document order. `"class"` resolves like `Element.get()`. With
+    /// `skip_missing=True`, elements lacking the attribute are dropped instead and the
+    /// result is `list[str]` — for selectors like `a[href]` that guarantee its presence.
+    #[pyo3(signature = (selector, name, *, skip_missing = false))]
+    fn select_attr(
+        &self,
+        selector: CssArg<'_>,
+        name: &str,
+        skip_missing: bool,
+    ) -> PyResult<Vec<Option<String>>> {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         Ok(with_el!(self, 0, |el| el
             .select(sel.list().clone())
             .map(|e| attr_value(&e, name))
+            .filter(|v| !skip_missing || v.is_some())
             .collect()))
     }
 
@@ -589,13 +598,21 @@ impl Element {
     }
 
     /// The named attribute of every matching descendant element (`None` where absent),
-    /// in document order. `"class"` resolves like `get()`.
-    fn select_attr(&self, selector: CssArg<'_>, name: &str) -> PyResult<Vec<Option<String>>> {
+    /// in document order. `"class"` resolves like `get()`. With `skip_missing=True`,
+    /// elements lacking the attribute are dropped instead and the result is `list[str]`.
+    #[pyo3(signature = (selector, name, *, skip_missing = false))]
+    fn select_attr(
+        &self,
+        selector: CssArg<'_>,
+        name: &str,
+        skip_missing: bool,
+    ) -> PyResult<Vec<Option<String>>> {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         Ok(with_el!(self.doc.get(), self.index, |el| el
             .select(sel.list().clone())
             .map(|e| attr_value(&e, name))
+            .filter(|v| !skip_missing || v.is_some())
             .collect()))
     }
 
@@ -801,12 +818,15 @@ impl Archive {
     /// `(key, values)` for every document with at least one match: the named attribute of
     /// each matching element (`None` where absent), like `Document.select_attr` over the
     /// whole archive. Runs across all cores with the GIL released; documents without
-    /// matches are omitted.
+    /// matches are omitted. With `skip_missing=True`, elements lacking the attribute are
+    /// dropped instead and the value lists are `list[str]`.
+    #[pyo3(signature = (selector, name, *, skip_missing = false))]
     fn scan_attr(
         &self,
         py: Python<'_>,
         selector: CssArg<'_>,
         name: &str,
+        skip_missing: bool,
     ) -> PyResult<Vec<(String, Vec<Option<String>>)>> {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
@@ -816,6 +836,7 @@ impl Archive {
                 let vals: Vec<Option<String>> = root
                     .select(sel.list().clone())
                     .map(|e| attr_value(&e, name))
+                    .filter(|v| !skip_missing || v.is_some())
                     .collect();
                 (!vals.is_empty()).then_some(vals)
             })
@@ -1326,30 +1347,65 @@ impl ArchiveIter {
 /// Add documents with `add(key, html)` or `add_document(key, doc)` (duplicate keys
 /// are skipped, first wins — matching the archive's dedup rule), then `write(path)`
 /// once. The builder cannot be reused after writing.
+///
+/// With a `path` at construction the builder is a context manager: `with
+/// htmlarc.ArchiveBuilder("out.htmlarc") as b:` writes on clean exit and skips
+/// the write when the block raises.
+///
+/// `on_error="skip"` records the key of any document that exceeds htmlarc's
+/// per-document capacity in `skipped` instead of raising — the mode for
+/// wild-corpus ingestion, where roughly 1 in 100k real-world pages trips a
+/// capacity limit.
 #[pyclass(module = "htmlarc")]
 pub struct ArchiveBuilder {
     builder: Option<HtmlArchiveBuilder>,
+    path: Option<PathBuf>,
+    skip_on_error: bool,
+    skipped: Vec<String>,
 }
 
 #[pymethods]
 impl ArchiveBuilder {
     #[new]
-    fn new() -> Self {
-        ArchiveBuilder {
+    #[pyo3(signature = (path = None, *, on_error = "raise"))]
+    fn new(path: Option<PathBuf>, on_error: &str) -> PyResult<Self> {
+        let skip_on_error = match on_error {
+            "raise" => false,
+            "skip" => true,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "on_error must be 'raise' or 'skip', got {other:?}"
+                )));
+            }
+        };
+        Ok(ArchiveBuilder {
             builder: Some(HtmlArchiveBuilder::default()),
-        }
+            path,
+            skip_on_error,
+            skipped: Vec::new(),
+        })
     }
 
     /// Parse `html` and add it under `key`. Raises `ValueError` when the HTML exceeds
-    /// htmlarc's per-document capacity or cannot be parsed.
+    /// htmlarc's per-document capacity — unless the builder was created with
+    /// `on_error="skip"`, in which case the document is dropped and its key appended
+    /// to `skipped`.
     fn add(&mut self, key: &str, html: &str) -> PyResult<()> {
         let builder = self
             .builder
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
-        let doc = HtmlDoc::parse(html).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        builder.add_html(key.to_string(), doc);
-        Ok(())
+        match HtmlDoc::parse(html) {
+            Ok(doc) => {
+                builder.add_html(key.to_string(), doc);
+                Ok(())
+            }
+            Err(_) if self.skip_on_error => {
+                self.skipped.push(key.to_string());
+                Ok(())
+            }
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
     }
 
     /// Add an already-parsed `Document` under `key` without re-parsing — the path for
@@ -1376,13 +1432,53 @@ impl ArchiveBuilder {
         }
     }
 
-    /// Write the archive to `path` and consume the builder.
-    fn write(&mut self, path: PathBuf) -> PyResult<()> {
+    /// Write the archive and consume the builder. `path` may be omitted when it was
+    /// given at construction; passing one here overrides the constructor's.
+    #[pyo3(signature = (path = None))]
+    fn write(&mut self, path: Option<PathBuf>) -> PyResult<()> {
+        let path = path.or_else(|| self.path.clone()).ok_or_else(|| {
+            PyValueError::new_err("no path: pass write(path) or construct ArchiveBuilder(path)")
+        })?;
         let builder = self
             .builder
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
         builder.write_to(path).map_err(archive_err)
+    }
+
+    /// Keys of documents dropped by `on_error="skip"`, in add order. Empty when
+    /// `on_error="raise"` (the default) or when nothing was dropped.
+    #[getter]
+    fn skipped(&self) -> Vec<String> {
+        self.skipped.clone()
+    }
+
+    /// Enter the context manager. Requires a `path` from the constructor — the write
+    /// destination for `__exit__`.
+    fn __enter__(slf: Py<Self>, py: Python<'_>) -> PyResult<Py<Self>> {
+        if slf.borrow(py).path.is_none() {
+            return Err(PyValueError::new_err(
+                "ArchiveBuilder used as a context manager needs a path: \
+                 ArchiveBuilder('out.htmlarc')",
+            ));
+        }
+        Ok(slf.clone_ref(py))
+    }
+
+    /// Exit the context manager: write the archive to the constructor's `path` on
+    /// clean exit; skip the write when the block raised.
+    #[pyo3(signature = (exc_type, exc, tb))]
+    fn __exit__(
+        &mut self,
+        exc_type: Option<Bound<'_, PyAny>>,
+        exc: Option<Bound<'_, PyAny>>,
+        tb: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<bool> {
+        let (_, _) = (exc, tb);
+        if exc_type.is_none() {
+            self.write(None)?;
+        }
+        Ok(false)
     }
 }
 

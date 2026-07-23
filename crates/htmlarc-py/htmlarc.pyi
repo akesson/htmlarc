@@ -7,6 +7,8 @@
 
 from collections.abc import Iterator, Sequence
 from os import PathLike
+from types import TracebackType
+from typing import Literal, overload
 
 __version__: str
 
@@ -72,10 +74,19 @@ class Document:
         per match, in document order. One FFI call instead of a Python loop
         over ``select()``."""
 
-    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]:
+    @overload
+    def select_attr(
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[True]
+    ) -> list[str]: ...
+    @overload
+    def select_attr(
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[False] = False
+    ) -> list[str | None]:
         """The named attribute of every element matching the selector (``None``
         where absent), in document order. ``"class"`` resolves like
-        ``Element.get()``."""
+        ``Element.get()``. With ``skip_missing=True``, elements lacking the
+        attribute are dropped instead and the result is ``list[str]`` — for
+        selectors like ``a[href]`` that guarantee its presence."""
 
     def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The number of elements matching the selector; with ``attr``, only
@@ -172,9 +183,18 @@ class Element:
         """The descendant text of every matching descendant element, one string
         per match, in document order."""
 
-    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]:
+    @overload
+    def select_attr(
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[True]
+    ) -> list[str]: ...
+    @overload
+    def select_attr(
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[False] = False
+    ) -> list[str | None]:
         """The named attribute of every matching descendant element (``None``
-        where absent), in document order. ``"class"`` resolves like ``get()``."""
+        where absent), in document order. ``"class"`` resolves like ``get()``.
+        With ``skip_missing=True``, elements lacking the attribute are dropped
+        instead and the result is ``list[str]``."""
 
     def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The number of matching descendant elements; with ``attr``, only
@@ -237,13 +257,20 @@ class Archive:
         over the whole archive. Runs across all cores with the GIL released;
         documents without matches are omitted."""
 
+    @overload
     def scan_attr(
-        self, selector: str | Selector, name: str
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[True]
+    ) -> list[tuple[str, list[str]]]: ...
+    @overload
+    def scan_attr(
+        self, selector: str | Selector, name: str, *, skip_missing: Literal[False] = False
     ) -> list[tuple[str, list[str | None]]]:
         """``(key, values)`` for every document with at least one match: the
         named attribute of each matching element (``None`` where absent), like
         ``Document.select_attr`` over the whole archive. Runs across all cores
-        with the GIL released; documents without matches are omitted."""
+        with the GIL released; documents without matches are omitted. With
+        ``skip_missing=True``, elements lacking the attribute are dropped
+        instead and the value lists are ``list[str]``."""
 
     def scan_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The total number of matching elements across every document; with
@@ -312,12 +339,46 @@ class ArchiveBuilder:
     (duplicate keys are skipped, first wins — matching the archive's dedup
     rule), then ``write(path)`` once. The builder cannot be reused after
     writing.
+
+    With a ``path`` at construction the builder is a context manager: ``with
+    htmlarc.ArchiveBuilder("out.htmlarc") as b:`` writes on clean exit and
+    skips the write when the block raises.
+
+    ``on_error="skip"`` records the key of any document that exceeds htmlarc's
+    per-document capacity in ``skipped`` instead of raising — the mode for
+    wild-corpus ingestion, where roughly 1 in 100k real-world pages trips a
+    capacity limit.
     """
 
-    def __init__(self) -> None: ...
+    def __init__(
+        self,
+        path: str | PathLike[str] | None = None,
+        *,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> None: ...
+    def __enter__(self) -> ArchiveBuilder:
+        """Enter the context manager. Requires a ``path`` from the constructor —
+        the write destination for ``__exit__``."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
+        """Exit the context manager: write the archive to the constructor's
+        ``path`` on clean exit; skip the write when the block raised."""
+
+    @property
+    def skipped(self) -> list[str]:
+        """Keys of documents dropped by ``on_error="skip"``, in add order. Empty
+        when ``on_error="raise"`` (the default) or when nothing was dropped."""
+
     def add(self, key: str, html: str) -> None:
         """Parse ``html`` and add it under ``key``. Raises ``ValueError`` when
-        the HTML exceeds htmlarc's per-document capacity or cannot be parsed."""
+        the HTML exceeds htmlarc's per-document capacity — unless the builder
+        was created with ``on_error="skip"``, in which case the document is
+        dropped and its key appended to ``skipped``."""
 
     def add_document(self, key: str, doc: Document) -> None:
         """Add an already-parsed ``Document`` under ``key`` without re-parsing —
@@ -329,8 +390,10 @@ class ArchiveBuilder:
         re-added directly; raises ``TypeError`` for those (round-trip through
         ``add(key, doc.to_html())`` instead)."""
 
-    def write(self, path: str | PathLike[str]) -> None:
-        """Write the archive to ``path`` and consume the builder."""
+    def write(self, path: str | PathLike[str] | None = None) -> None:
+        """Write the archive and consume the builder. ``path`` may be omitted
+        when it was given at construction; passing one here overrides the
+        constructor's."""
 
 def parse(html: str) -> Document:
     """Parse an HTML string into a queryable ``Document``.
