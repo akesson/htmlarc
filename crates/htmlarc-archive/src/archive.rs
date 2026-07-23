@@ -384,7 +384,12 @@ fn locate(sorted: &[(u32, u32)], bundles: &[DocBundle], key: &str) -> Option<(us
 
 /// Slice `data[offset..offset+len]`, returning a validation error (not a panic) if the range
 /// falls outside the file — guards against a corrupt directory/trailer.
-fn bounded<'a>(data: &'a [u8], offset: u64, len: u64, what: &str) -> Result<&'a [u8], ArchiveErr> {
+pub(crate) fn bounded<'a>(
+    data: &'a [u8],
+    offset: u64,
+    len: u64,
+    what: &str,
+) -> Result<&'a [u8], ArchiveErr> {
     let end = offset
         .checked_add(len)
         .ok_or_else(|| ArchiveErr::Validate(format!("{what} offset/len overflow")))?;
@@ -422,7 +427,7 @@ fn stream_html_file(writer: &mut ArchiveWriter, path: &Path) -> Result<(), Archi
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_string();
-    writer.push(key, doc)
+    writer.push(key, doc).map(|_| ())
 }
 
 impl Index<usize> for HtmlArchive {

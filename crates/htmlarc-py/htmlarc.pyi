@@ -383,6 +383,10 @@ class ArchiveBuilder:
     them back via ``Document.meta``, ``Archive.meta_schema``,
     ``Archive.meta_table()`` and ``scan_table(meta=[...])`` — no sidecar file,
     no join.
+
+    ``htmlarc.append(path)`` returns this same builder opened over an *existing*
+    archive: adds stream into the file in place (duplicates of existing keys are
+    skipped, the metadata table is continued) and ``write()`` commits.
     """
 
     def __init__(
@@ -445,7 +449,8 @@ class ArchiveBuilder:
     def write(self, path: str | PathLike[str] | None = None) -> None:
         """Write the archive and consume the builder. ``path`` may be omitted
         when it was given at construction; passing one here overrides the
-        constructor's."""
+        constructor's. An appender (``htmlarc.append``) always commits back to
+        its own file — passing a different ``path`` raises ``ValueError``."""
 
 def parse(html: str) -> Document:
     """Parse an HTML string into a queryable ``Document``.
@@ -456,3 +461,18 @@ def parse(html: str) -> Document:
 
 def open(path: str | PathLike[str]) -> Archive:
     """Open a ``.htmlarc`` archive (alias for ``Archive(path)``)."""
+
+def append(
+    path: str | PathLike[str], *, on_error: Literal["raise", "skip"] = "raise"
+) -> ArchiveBuilder:
+    """Open an existing ``.htmlarc`` for **in-place appending**: returns an
+    ``ArchiveBuilder`` whose adds stream into the file (memory stays flat
+    regardless of archive size) and whose ``write()`` commits the new footer.
+    Keys already present are skipped (first wins), and the archive's metadata
+    schema, if any, carries over — ``add(meta={...})`` continues the table.
+
+    Crash-safe: until ``write()`` returns, the file still reads as the
+    pre-append archive, and an abandoned append is healed by the next one. Each
+    append leaves the previous footer behind as a few dead bytes; re-pack to
+    reclaim them. Don't append while another process is appending; concurrent
+    *readers* of the already-open file are fine."""
