@@ -55,6 +55,12 @@ class Document:
         """The archive key this document was stored under, or ``None`` for parsed documents."""
 
     @property
+    def meta(self) -> dict[str, str | int | float | bool | None] | None:
+        """The document's typed metadata row as a dict (declared fields only,
+        ``None`` where null), or ``None`` for parsed documents and archives
+        without metadata."""
+
+    @property
     def root(self) -> Element:
         """The document root element (renders the whole document, selects over all of it)."""
 
@@ -286,6 +292,7 @@ class Archive:
         *,
         text: bool = False,
         attrs: Sequence[str] | None = None,
+        meta: Sequence[str] | None = None,
     ) -> ArrowResult:
         """Every match across the archive as one flat Arrow table: a ``key``
         column (the document key, repeated once per matched element), an
@@ -305,7 +312,28 @@ class Archive:
         created, so this is far faster than ``scan_text``/``scan_attr`` when
         extracting from every document. Raises ``ValueError`` if a requested
         attribute name collides with the ``key``/``text`` columns or duplicates
-        another (names are matched case-insensitively)."""
+        another (names are matched case-insensitively).
+
+        ``meta=[...]`` appends the named metadata fields as **typed** columns
+        (``str``→utf8, ``int``→int64, ``float``→float64, ``bool``→boolean):
+        each row carries its document's value, so the result needs no join back
+        to ``meta_table()``. Raises ``ValueError`` when the archive carries no
+        metadata, a name is not in the schema, or it collides with another
+        column."""
+
+    @property
+    def meta_schema(self) -> dict[str, type] | None:
+        """The archive's metadata schema as a ``{"name": type}`` dict (types
+        ``str``/``int``/``float``/``bool``, declaration order), or ``None``
+        when the archive carries no metadata."""
+
+    def meta_table(self) -> ArrowResult:
+        """The whole metadata table as one Arrow table: a ``key`` column plus
+        one **typed** column per schema field (``str``→utf8, ``int``→int64,
+        ``float``→float64, ``bool``→boolean, nulls preserved), one row per
+        document in archive order. The in-archive replacement for a sidecar
+        dataframe: ``polars.DataFrame(arc.meta_table())``. Raises
+        ``ValueError`` when the archive carries no metadata."""
 
 class ArrowResult:
     """A columnar scan result (``Archive.scan_table``), exported zero-copy over
@@ -348,6 +376,13 @@ class ArchiveBuilder:
     per-document capacity in ``skipped`` instead of raising — the mode for
     wild-corpus ingestion, where roughly 1 in 100k real-world pages trips a
     capacity limit.
+
+    ``meta_schema={"name": type, ...}`` (types ``str``/``int``/``float``/``bool``)
+    declares typed per-document metadata columns stored inside the archive; each
+    add may then carry ``meta={...}`` (missing fields are null). Readers get
+    them back via ``Document.meta``, ``Archive.meta_schema``,
+    ``Archive.meta_table()`` and ``scan_table(meta=[...])`` — no sidecar file,
+    no join.
     """
 
     def __init__(
@@ -355,6 +390,7 @@ class ArchiveBuilder:
         path: str | PathLike[str] | None = None,
         *,
         on_error: Literal["raise", "skip"] = "raise",
+        meta_schema: dict[str, type] | None = None,
     ) -> None: ...
     def __enter__(self) -> ArchiveBuilder:
         """Enter the context manager. Requires a ``path`` from the constructor —
@@ -374,16 +410,32 @@ class ArchiveBuilder:
         """Keys of documents dropped by ``on_error="skip"``, in add order. Empty
         when ``on_error="raise"`` (the default) or when nothing was dropped."""
 
-    def add(self, key: str, html: str) -> None:
+    def add(
+        self,
+        key: str,
+        html: str,
+        *,
+        meta: dict[str, str | int | float | bool | None] | None = None,
+    ) -> None:
         """Parse ``html`` and add it under ``key``. Raises ``ValueError`` when
         the HTML exceeds htmlarc's per-document capacity — unless the builder
         was created with ``on_error="skip"``, in which case the document is
-        dropped and its key appended to ``skipped``."""
+        dropped and its key appended to ``skipped``. With a ``meta_schema``,
+        ``meta={...}`` attaches this document's metadata row (missing fields
+        are null)."""
 
-    def add_document(self, key: str, doc: Document) -> None:
+    def add_document(
+        self,
+        key: str,
+        doc: Document,
+        *,
+        meta: dict[str, str | int | float | bool | None] | None = None,
+    ) -> None:
         """Add an already-parsed ``Document`` under ``key`` without re-parsing —
         the path for crawlers that parse each page anyway (e.g. for link
         discovery): parse once, query for links, then store the same ``Document``.
+        With a ``meta_schema``, ``meta={...}`` attaches this document's metadata
+        row (missing fields are null).
 
         Accepts documents from ``parse()``. Documents handed out by an
         ``Archive`` are backed by shared per-bundle storage and can't be

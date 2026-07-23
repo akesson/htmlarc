@@ -11,10 +11,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use arrow_array::{ArrayRef, RecordBatch, RecordBatchIterator, StringArray};
-use arrow_buffer::{Buffer, NullBufferBuilder, OffsetBuffer, ScalarBuffer};
+use arrow_array::{
+    ArrayRef, BooleanArray, Float64Array, Int64Array, RecordBatch, RecordBatchIterator, StringArray,
+};
+use arrow_buffer::{BooleanBuffer, Buffer, NullBufferBuilder, OffsetBuffer, ScalarBuffer};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
-use htmlarc_archive::{ArchiveErr, HtmlArchiveBuilder, MmapArchive, OwnedDoc};
+use htmlarc_archive::{
+    ArchiveErr, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue, MmapArchive,
+    OwnedDoc, archived_value,
+};
 use htmlarc_dom::prelude::{
     DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
     OwnedSelectorList,
@@ -145,6 +150,172 @@ fn par_sweep<T: Send>(
 
 fn selector_err(e: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(format!("invalid CSS selector: {e}"))
+}
+
+// ---- Typed metadata (ADR 0009): Python <-> core conversions ------------------------------
+
+/// Parse a `{"name": str | int | float | bool}` dict into the core schema. Field names must be
+/// unique and must not shadow the reserved `key` column (`meta_table` always emits one).
+fn meta_schema_from_py(dict: &Bound<'_, PyDict>) -> PyResult<MetaSchema> {
+    use pyo3::types::{PyBool, PyFloat, PyInt, PyString, PyType};
+
+    let py = dict.py();
+    let mut fields = Vec::with_capacity(dict.len());
+    for (k, v) in dict.iter() {
+        let name: String = k
+            .extract()
+            .map_err(|_| PyTypeError::new_err("meta_schema keys must be field-name strings"))?;
+        if name.eq_ignore_ascii_case("key") {
+            return Err(PyValueError::new_err(
+                "meta_schema field \"key\" collides with the key column",
+            ));
+        }
+        if fields.iter().any(|(n, _): &(String, _)| *n == name) {
+            return Err(PyValueError::new_err(format!(
+                "duplicate meta_schema field {name:?}"
+            )));
+        }
+        let t = v.cast::<PyType>().map_err(|_| {
+            PyTypeError::new_err(format!(
+                "meta_schema[{name:?}] must be one of the types str, int, float, bool"
+            ))
+        })?;
+        // `bool` before `int`: bool is a subclass of int in Python.
+        let ty = if t.is(py.get_type::<PyBool>()) {
+            MetaType::Bool
+        } else if t.is(py.get_type::<PyInt>()) {
+            MetaType::Int
+        } else if t.is(py.get_type::<PyFloat>()) {
+            MetaType::Float
+        } else if t.is(py.get_type::<PyString>()) {
+            MetaType::Str
+        } else {
+            return Err(PyTypeError::new_err(format!(
+                "meta_schema[{name:?}] must be one of the types str, int, float, bool"
+            )));
+        };
+        fields.push((name, ty));
+    }
+    if fields.is_empty() {
+        return Err(PyValueError::new_err(
+            "meta_schema must declare at least one field",
+        ));
+    }
+    Ok(MetaSchema { fields })
+}
+
+/// Convert a per-document `meta={...}` dict into a schema-ordered row. Missing fields are null;
+/// unknown fields are an error (they would silently vanish otherwise). `int` values coerce into
+/// `float` fields; Python `bool` never coerces into `int` (it is almost always a bug).
+fn meta_row_from_py(
+    schema: &MetaSchema,
+    dict: &Bound<'_, PyDict>,
+) -> PyResult<Vec<Option<MetaValue>>> {
+    use pyo3::types::PyBool;
+
+    for (k, _) in dict.iter() {
+        let name: String = k
+            .extract()
+            .map_err(|_| PyTypeError::new_err("meta keys must be field-name strings"))?;
+        if schema.index_of(&name).is_none() {
+            return Err(PyValueError::new_err(format!(
+                "meta field {name:?} is not in the archive's meta_schema"
+            )));
+        }
+    }
+    schema
+        .fields
+        .iter()
+        .map(|(name, ty)| {
+            let Some(v) = dict.get_item(name)? else {
+                return Ok(None);
+            };
+            if v.is_none() {
+                return Ok(None);
+            }
+            let is_bool = v.is_instance_of::<PyBool>();
+            let wrong = |got: &str| {
+                PyTypeError::new_err(format!(
+                    "meta field {name:?} is declared {}, got {got}",
+                    ty.name()
+                ))
+            };
+            let value = match ty {
+                MetaType::Bool => {
+                    if !is_bool {
+                        return Err(wrong(v.get_type().name()?.to_str()?));
+                    }
+                    MetaValue::Bool(v.extract::<bool>()?)
+                }
+                MetaType::Int => {
+                    if is_bool {
+                        return Err(wrong("bool"));
+                    }
+                    MetaValue::Int(v.extract::<i64>().map_err(|_| {
+                        wrong(
+                            v.get_type()
+                                .name()
+                                .map_or("?".into(), |n| n.to_string())
+                                .as_str(),
+                        )
+                    })?)
+                }
+                MetaType::Float => {
+                    if is_bool {
+                        return Err(wrong("bool"));
+                    }
+                    MetaValue::Float(v.extract::<f64>().map_err(|_| {
+                        wrong(
+                            v.get_type()
+                                .name()
+                                .map_or("?".into(), |n| n.to_string())
+                                .as_str(),
+                        )
+                    })?)
+                }
+                MetaType::Str => MetaValue::Str(v.extract::<String>().map_err(|_| {
+                    wrong(
+                        v.get_type()
+                            .name()
+                            .map_or("?".into(), |n| n.to_string())
+                            .as_str(),
+                    )
+                })?),
+            };
+            Ok(Some(value))
+        })
+        .collect()
+}
+
+fn meta_ref_to_py(py: Python<'_>, v: Option<MetaRef<'_>>) -> PyResult<Py<PyAny>> {
+    use pyo3::IntoPyObjectExt;
+    match v {
+        None => Ok(py.None()),
+        Some(MetaRef::Str(s)) => s.into_py_any(py),
+        Some(MetaRef::Int(x)) => x.into_py_any(py),
+        Some(MetaRef::Float(x)) => x.into_py_any(py),
+        Some(MetaRef::Bool(x)) => x.into_py_any(py),
+    }
+}
+
+/// The Python type object corresponding to a metadata field type.
+fn meta_type_to_py(py: Python<'_>, ty: MetaType) -> Bound<'_, pyo3::types::PyType> {
+    use pyo3::types::{PyBool, PyFloat, PyInt, PyString};
+    match ty {
+        MetaType::Str => py.get_type::<PyString>(),
+        MetaType::Int => py.get_type::<PyInt>(),
+        MetaType::Float => py.get_type::<PyFloat>(),
+        MetaType::Bool => py.get_type::<PyBool>(),
+    }
+}
+
+fn meta_arrow_type(ty: MetaType) -> DataType {
+    match ty {
+        MetaType::Str => DataType::Utf8,
+        MetaType::Int => DataType::Int64,
+        MetaType::Float => DataType::Float64,
+        MetaType::Bool => DataType::Boolean,
+    }
 }
 
 /// A compiled CSS selector list.
@@ -296,6 +467,25 @@ impl Document {
     #[getter]
     fn key(&self) -> Option<&str> {
         self.key.as_deref()
+    }
+
+    /// The document's typed metadata row as a dict (declared fields only, `None` where
+    /// null), or `None` for parsed documents and archives without metadata.
+    #[getter]
+    fn meta(&self, py: Python<'_>) -> PyResult<Option<Py<PyDict>>> {
+        let Backing::Archived(doc) = &self.backing else {
+            return Ok(None);
+        };
+        let Some(table) = doc.archive().meta() else {
+            return Ok(None);
+        };
+        let pos = doc.position();
+        let dict = PyDict::new(py);
+        for (i, name) in table.names.iter().enumerate() {
+            let value = archived_value(&table.columns[i], pos);
+            dict.set_item(name.as_str(), meta_ref_to_py(py, value)?)?;
+        }
+        Ok(Some(dict.into()))
     }
 
     /// The document root element (renders the whole document, selects over all of it).
@@ -725,6 +915,72 @@ impl Archive {
         self.inner.keys().map(|k| k.to_string()).collect()
     }
 
+    /// The archive's metadata schema as a `{"name": type}` dict (types
+    /// `str`/`int`/`float`/`bool`, declaration order), or `None` when the archive
+    /// carries no metadata.
+    #[getter]
+    fn meta_schema<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let Some(schema) = self.inner.meta_schema() else {
+            return Ok(None);
+        };
+        let dict = PyDict::new(py);
+        for (name, ty) in &schema.fields {
+            dict.set_item(name, meta_type_to_py(py, *ty))?;
+        }
+        Ok(Some(dict))
+    }
+
+    /// The whole metadata table as one Arrow table: a `key` column plus one **typed**
+    /// column per schema field (`str`→utf8, `int`→int64, `float`→float64,
+    /// `bool`→boolean, nulls preserved), one row per document in archive order. The
+    /// in-archive replacement for a sidecar dataframe: `polars.DataFrame(arc.meta_table())`.
+    /// Raises `ValueError` when the archive carries no metadata.
+    fn meta_table(&self, py: Python<'_>) -> PyResult<ArrowResult> {
+        let inner = self.inner.clone();
+        let Some(schema_fields) = inner.meta_schema() else {
+            return Err(PyValueError::new_err("archive carries no metadata"));
+        };
+
+        let mut fields: Vec<Field> = Vec::with_capacity(1 + schema_fields.fields.len());
+        fields.push(Field::new("key", DataType::Utf8, false));
+        for (name, ty) in &schema_fields.fields {
+            fields.push(Field::new(name, meta_arrow_type(*ty), true));
+        }
+        let schema: SchemaRef = Arc::new(Schema::new(fields));
+
+        let batch = py
+            .detach(|| {
+                let table = inner.meta().expect("checked above");
+                let n = inner.len();
+
+                let mut key = ColBuilder::new(false);
+                for k in inner.keys() {
+                    key.data.extend_from_slice(k.as_bytes());
+                    if i32::try_from(key.data.len()).is_err() {
+                        return Err(oversize(k));
+                    }
+                    key.ends.push(key.data.len() as i32);
+                }
+
+                let mut columns: Vec<ArrayRef> = Vec::with_capacity(1 + table.columns.len());
+                columns.push(Arc::new(key.finish()?) as ArrayRef);
+                for (ci, (_, ty)) in schema_fields.fields.iter().enumerate() {
+                    let mut b = MetaColBuilder::new(*ty);
+                    for row in 0..n {
+                        b.append(archived_value(&table.columns[ci], row), 1)?;
+                    }
+                    columns.push(b.finish()?);
+                }
+                RecordBatch::try_new(schema.clone(), columns)
+            })
+            .map_err(arrow_err)?;
+
+        Ok(ArrowResult {
+            schema,
+            batches: vec![batch],
+        })
+    }
+
     fn __contains__(&self, key: &str) -> bool {
         self.inner.position_for_key(key).is_some()
     }
@@ -883,15 +1139,23 @@ impl Archive {
     /// object is created, so this is far faster than `scan_text`/`scan_attr` when extracting
     /// from every document. Raises `ValueError` if a requested attribute name collides with the
     /// `key`/`text` columns or duplicates another (names are matched case-insensitively).
-    #[pyo3(signature = (selector, *, text = false, attrs = None))]
+    ///
+    /// `meta=[...]` appends the named metadata fields as **typed** columns (`str`→utf8,
+    /// `int`→int64, `float`→float64, `bool`→boolean): each row carries its document's value,
+    /// so the result needs no join back to `meta_table()`. Raises `ValueError` when the
+    /// archive carries no metadata, a name is not in the schema, or it collides with
+    /// another column.
+    #[pyo3(signature = (selector, *, text = false, attrs = None, meta = None))]
     fn scan_table(
         &self,
         py: Python<'_>,
         selector: CssArg<'_>,
         text: bool,
         attrs: Option<Vec<String>>,
+        meta: Option<Vec<String>>,
     ) -> PyResult<ArrowResult> {
         let attrs = attrs.unwrap_or_default();
+        let meta = meta.unwrap_or_default();
 
         // Validate column names up front: the schema needs unique, unreserved labels or the
         // table would silently collide columns.
@@ -915,13 +1179,45 @@ impl Archive {
             }
         }
 
+        // Metadata columns: each name must exist in the archive's schema and not collide
+        // with the key/text/attr columns (or another meta column).
+        let meta_fields: Vec<(String, usize, MetaType)> = if meta.is_empty() {
+            Vec::new()
+        } else {
+            let Some(schema) = self.inner.meta_schema() else {
+                return Err(PyValueError::new_err(
+                    "scan_table: meta requested but the archive carries no metadata",
+                ));
+            };
+            let mut out: Vec<(String, usize, MetaType)> = Vec::with_capacity(meta.len());
+            for name in &meta {
+                let Some(idx) = schema.index_of(name) else {
+                    return Err(PyValueError::new_err(format!(
+                        "scan_table: meta field {name:?} is not in the archive's meta_schema"
+                    )));
+                };
+                if name.eq_ignore_ascii_case("key")
+                    || (text && name.eq_ignore_ascii_case("text"))
+                    || attrs.iter().any(|a| a.eq_ignore_ascii_case(name))
+                    || out.iter().any(|(n, ..)| n.eq_ignore_ascii_case(name))
+                {
+                    return Err(PyValueError::new_err(format!(
+                        "scan_table: meta column {name:?} collides with another column"
+                    )));
+                }
+                out.push((name.clone(), idx, schema.fields[idx].1));
+            }
+            out
+        };
+
         let cols: Vec<AttrCol> = attrs.iter().map(|n| AttrCol::new(n)).collect();
 
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
 
-        // Schema: key (non-null), optional text (non-null), one nullable utf8 column per attr.
-        let mut fields: Vec<Field> = Vec::with_capacity(2 + cols.len());
+        // Schema: key (non-null), optional text (non-null), one nullable utf8 column per
+        // attr, one typed nullable column per meta field.
+        let mut fields: Vec<Field> = Vec::with_capacity(2 + cols.len() + meta_fields.len());
         fields.push(Field::new("key", DataType::Utf8, false));
         if text {
             fields.push(Field::new("text", DataType::Utf8, false));
@@ -929,19 +1225,26 @@ impl Archive {
         for a in &cols {
             fields.push(Field::new(&a.name, DataType::Utf8, true));
         }
+        for (name, _, ty) in &meta_fields {
+            fields.push(Field::new(name, meta_arrow_type(*ty), true));
+        }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
 
         let hits = py
             .detach(|| {
                 par_sweep(&self.inner, |doc| {
                     let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                    scan_table_doc(&root, sel, text, &cols)
+                    scan_table_doc(&root, sel, text, &cols).map(|mut c| {
+                        c.pos = doc.position();
+                        c
+                    })
                 })
             })
             .map_err(archive_err)?;
 
+        let archive = self.inner.clone();
         let batches = py
-            .detach(|| build_batches(hits, text, &cols, &schema))
+            .detach(|| build_batches(hits, text, &cols, &meta_fields, &archive, &schema))
             .map_err(arrow_err)?;
 
         Ok(ArrowResult { schema, batches })
@@ -1010,6 +1313,9 @@ impl ColChunk {
 /// missing attribute is a null, distinct from a present-but-empty `""`).
 struct DocChunk {
     rows: usize,
+    /// The document's flat archive position — resolves its metadata row for `meta=[...]`
+    /// columns (stamped by the sweep closure, which owns the `OwnedDoc`).
+    pos: usize,
     text: Option<ColChunk>,
     attrs: Vec<(ColChunk, Vec<bool>)>,
 }
@@ -1062,7 +1368,12 @@ fn scan_table_doc(
         }
     }
 
-    (rows > 0).then_some(DocChunk { rows, text, attrs })
+    (rows > 0).then_some(DocChunk {
+        rows,
+        pos: 0,
+        text,
+        attrs,
+    })
 }
 
 /// Cut a fresh RecordBatch at a document boundary whenever a column's utf8 data buffer would pass
@@ -1135,20 +1446,149 @@ fn oversize(doc_key: &str) -> ArrowError {
     ))
 }
 
+/// One **typed** metadata column under construction (`scan_table(meta=[...])` and
+/// `meta_table`). The str variant reuses [`ColBuilder`]; the scalar variants build their
+/// value/validity buffers directly — nothing here is per-match work, a document's value is
+/// fetched once and appended `rows` times.
+enum MetaColBuilder {
+    Str(ColBuilder),
+    Int {
+        values: Vec<i64>,
+        nulls: NullBufferBuilder,
+    },
+    Float {
+        values: Vec<f64>,
+        nulls: NullBufferBuilder,
+    },
+    Bool {
+        values: Vec<bool>,
+        nulls: NullBufferBuilder,
+    },
+}
+
+impl MetaColBuilder {
+    fn new(ty: MetaType) -> Self {
+        match ty {
+            MetaType::Str => MetaColBuilder::Str(ColBuilder::new(true)),
+            MetaType::Int => MetaColBuilder::Int {
+                values: Vec::new(),
+                nulls: NullBufferBuilder::new(0),
+            },
+            MetaType::Float => MetaColBuilder::Float {
+                values: Vec::new(),
+                nulls: NullBufferBuilder::new(0),
+            },
+            MetaType::Bool => MetaColBuilder::Bool {
+                values: Vec::new(),
+                nulls: NullBufferBuilder::new(0),
+            },
+        }
+    }
+
+    /// Append `repeat` rows of `value`. A mismatched variant cannot occur (values come from a
+    /// column of the builder's own declared type) and is treated as null.
+    fn append(&mut self, value: Option<MetaRef<'_>>, repeat: usize) -> Result<(), ArrowError> {
+        match self {
+            MetaColBuilder::Str(b) => {
+                let nulls = b.nulls.as_mut().expect("meta str columns are nullable");
+                if let Some(MetaRef::Str(s)) = value {
+                    for _ in 0..repeat {
+                        b.data.extend_from_slice(s.as_bytes());
+                        if i32::try_from(b.data.len()).is_err() {
+                            return Err(ArrowError::ComputeError(
+                                "scan_table: a metadata column exceeds the 2 GiB utf8 offset limit"
+                                    .to_string(),
+                            ));
+                        }
+                        b.ends.push(b.data.len() as i32);
+                    }
+                    nulls.append_n_non_nulls(repeat);
+                } else {
+                    let end = *b.ends.last().expect("ends starts with 0");
+                    b.ends.extend(std::iter::repeat_n(end, repeat));
+                    nulls.append_n_nulls(repeat);
+                }
+            }
+            MetaColBuilder::Int { values, nulls } => {
+                if let Some(MetaRef::Int(x)) = value {
+                    values.extend(std::iter::repeat_n(x, repeat));
+                    nulls.append_n_non_nulls(repeat);
+                } else {
+                    values.extend(std::iter::repeat_n(0, repeat));
+                    nulls.append_n_nulls(repeat);
+                }
+            }
+            MetaColBuilder::Float { values, nulls } => {
+                if let Some(MetaRef::Float(x)) = value {
+                    values.extend(std::iter::repeat_n(x, repeat));
+                    nulls.append_n_non_nulls(repeat);
+                } else {
+                    values.extend(std::iter::repeat_n(0.0, repeat));
+                    nulls.append_n_nulls(repeat);
+                }
+            }
+            MetaColBuilder::Bool { values, nulls } => {
+                if let Some(MetaRef::Bool(x)) = value {
+                    values.extend(std::iter::repeat_n(x, repeat));
+                    nulls.append_n_non_nulls(repeat);
+                } else {
+                    values.extend(std::iter::repeat_n(false, repeat));
+                    nulls.append_n_nulls(repeat);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Current utf8 data size (str variant only) — feeds the batch-cut check.
+    fn data_len(&self) -> usize {
+        match self {
+            MetaColBuilder::Str(b) => b.data.len(),
+            _ => 0,
+        }
+    }
+
+    /// Finish the current batch's column and reset for the next batch.
+    fn finish(&mut self) -> Result<ArrayRef, ArrowError> {
+        Ok(match self {
+            MetaColBuilder::Str(b) => Arc::new(b.finish()?) as ArrayRef,
+            MetaColBuilder::Int { values, nulls } => Arc::new(Int64Array::new(
+                ScalarBuffer::from(std::mem::take(values)),
+                nulls.finish(),
+            )) as ArrayRef,
+            MetaColBuilder::Float { values, nulls } => Arc::new(Float64Array::new(
+                ScalarBuffer::from(std::mem::take(values)),
+                nulls.finish(),
+            )) as ArrayRef,
+            MetaColBuilder::Bool { values, nulls } => Arc::new(BooleanArray::new(
+                std::mem::take(values)
+                    .into_iter()
+                    .collect::<BooleanBuffer>(),
+                nulls.finish(),
+            )) as ArrayRef,
+        })
+    }
+}
+
 /// Finish every column builder into a `RecordBatch` (and reset the builders for the next batch).
 fn finish_batch(
     schema: &SchemaRef,
     key: &mut ColBuilder,
     text: &mut Option<ColBuilder>,
     attr_builders: &mut [ColBuilder],
+    meta_builders: &mut [MetaColBuilder],
 ) -> Result<RecordBatch, ArrowError> {
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(2 + attr_builders.len());
+    let mut columns: Vec<ArrayRef> =
+        Vec::with_capacity(2 + attr_builders.len() + meta_builders.len());
     columns.push(Arc::new(key.finish()?) as ArrayRef);
     if let Some(t) = text.as_mut() {
         columns.push(Arc::new(t.finish()?) as ArrayRef);
     }
     for b in attr_builders.iter_mut() {
         columns.push(Arc::new(b.finish()?) as ArrayRef);
+    }
+    for b in meta_builders.iter_mut() {
+        columns.push(b.finish()?);
     }
     RecordBatch::try_new(schema.clone(), columns)
 }
@@ -1161,11 +1601,18 @@ fn build_batches(
     hits: Vec<(String, DocChunk)>,
     want_text: bool,
     cols: &[AttrCol],
+    meta_fields: &[(String, usize, MetaType)],
+    archive: &MmapArchive,
     schema: &SchemaRef,
 ) -> Result<Vec<RecordBatch>, ArrowError> {
     let mut key = ColBuilder::new(false);
     let mut text = want_text.then(|| ColBuilder::new(false));
     let mut attr_builders: Vec<ColBuilder> = cols.iter().map(|_| ColBuilder::new(true)).collect();
+    let mut meta_builders: Vec<MetaColBuilder> = meta_fields
+        .iter()
+        .map(|(_, _, ty)| MetaColBuilder::new(*ty))
+        .collect();
+    let meta_table = archive.meta();
 
     // Reserve each column's exact final size up front (totals are known from the sweep), so
     // the appends below never pay Vec growth reallocations. Over-reservation when the batch
@@ -1206,12 +1653,18 @@ fn build_batches(
                 .map(|(b, (c, _))| b.data.len() + c.data.len())
                 .max()
                 .unwrap_or(0);
-            if key_would > limit || text_would > limit || attr_would > limit {
+            let meta_now = meta_builders
+                .iter()
+                .map(|b| b.data_len())
+                .max()
+                .unwrap_or(0);
+            if key_would > limit || text_would > limit || attr_would > limit || meta_now > limit {
                 batches.push(finish_batch(
                     schema,
                     &mut key,
                     &mut text,
                     &mut attr_builders,
+                    &mut meta_builders,
                 )?);
                 rows_in_batch = 0;
             }
@@ -1249,6 +1702,15 @@ fn build_batches(
             nulls.append_slice(valid);
         }
 
+        // Metadata columns: fetch the document's value once, append it `rows` times.
+        if !meta_fields.is_empty() {
+            let table = meta_table.expect("meta_fields validated against the archive schema");
+            for (b, (_, field_idx, _)) in meta_builders.iter_mut().zip(meta_fields.iter()) {
+                let value = htmlarc_archive::archived_value(&table.columns[*field_idx], chunk.pos);
+                b.append(value, chunk.rows)?;
+            }
+        }
+
         rows_in_batch += chunk.rows;
     }
 
@@ -1258,6 +1720,7 @@ fn build_batches(
             &mut key,
             &mut text,
             &mut attr_builders,
+            &mut meta_builders,
         )?);
     }
 
@@ -1356,19 +1819,30 @@ impl ArchiveIter {
 /// per-document capacity in `skipped` instead of raising — the mode for
 /// wild-corpus ingestion, where roughly 1 in 100k real-world pages trips a
 /// capacity limit.
+///
+/// `meta_schema={"name": type, ...}` (types `str`/`int`/`float`/`bool`) declares
+/// typed per-document metadata columns stored inside the archive; each add may
+/// then carry `meta={...}` (missing fields are null). Readers get them back via
+/// `Document.meta`, `Archive.meta_schema`, `Archive.meta_table()` and
+/// `scan_table(meta=[...])` — no sidecar file, no join.
 #[pyclass(module = "htmlarc")]
 pub struct ArchiveBuilder {
     builder: Option<HtmlArchiveBuilder>,
     path: Option<PathBuf>,
     skip_on_error: bool,
     skipped: Vec<String>,
+    meta_schema: Option<MetaSchema>,
 }
 
 #[pymethods]
 impl ArchiveBuilder {
     #[new]
-    #[pyo3(signature = (path = None, *, on_error = "raise"))]
-    fn new(path: Option<PathBuf>, on_error: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path = None, *, on_error = "raise", meta_schema = None))]
+    fn new(
+        path: Option<PathBuf>,
+        on_error: &str,
+        meta_schema: Option<Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
         let skip_on_error = match on_error {
             "raise" => false,
             "skip" => true,
@@ -1378,28 +1852,40 @@ impl ArchiveBuilder {
                 )));
             }
         };
+        let mut builder = HtmlArchiveBuilder::default();
+        let meta_schema = match meta_schema {
+            Some(dict) => {
+                let schema = meta_schema_from_py(&dict)?;
+                builder
+                    .set_meta_schema(schema.clone())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                Some(schema)
+            }
+            None => None,
+        };
         Ok(ArchiveBuilder {
-            builder: Some(HtmlArchiveBuilder::default()),
+            builder: Some(builder),
             path,
             skip_on_error,
             skipped: Vec::new(),
+            meta_schema,
         })
     }
 
     /// Parse `html` and add it under `key`. Raises `ValueError` when the HTML exceeds
     /// htmlarc's per-document capacity — unless the builder was created with
     /// `on_error="skip"`, in which case the document is dropped and its key appended
-    /// to `skipped`.
-    fn add(&mut self, key: &str, html: &str) -> PyResult<()> {
+    /// to `skipped`. With a `meta_schema`, `meta={...}` attaches this document's
+    /// metadata row (missing fields are null).
+    #[pyo3(signature = (key, html, *, meta = None))]
+    fn add(&mut self, key: &str, html: &str, meta: Option<Bound<'_, PyDict>>) -> PyResult<()> {
+        let row = self.convert_meta(meta.as_ref())?;
         let builder = self
             .builder
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
         match HtmlDoc::parse(html) {
-            Ok(doc) => {
-                builder.add_html(key.to_string(), doc);
-                Ok(())
-            }
+            Ok(doc) => Self::add_parsed(builder, key, doc, row),
             Err(_) if self.skip_on_error => {
                 self.skipped.push(key.to_string());
                 Ok(())
@@ -1410,20 +1896,27 @@ impl ArchiveBuilder {
 
     /// Add an already-parsed `Document` under `key` without re-parsing — the path for
     /// crawlers that parse each page anyway (e.g. for link discovery): parse once, query
-    /// for links, then store the same `Document`.
+    /// for links, then store the same `Document`. With a `meta_schema`, `meta={...}`
+    /// attaches this document's metadata row (missing fields are null).
     ///
     /// Accepts documents from `parse()`. Documents handed out by an `Archive` are backed
     /// by shared per-bundle storage and can't be re-added directly; raises `TypeError`
     /// for those (round-trip through `add(key, doc.to_html())` instead).
-    fn add_document(&mut self, key: &str, doc: Bound<'_, Document>) -> PyResult<()> {
+    #[pyo3(signature = (key, doc, *, meta = None))]
+    fn add_document(
+        &mut self,
+        key: &str,
+        doc: Bound<'_, Document>,
+        meta: Option<Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let row = self.convert_meta(meta.as_ref())?;
         let builder = self
             .builder
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
         match &doc.get().backing {
             Backing::Parsed(dom) => {
-                builder.add_html(key.to_string(), HtmlDoc::from(dom.as_ref().clone()));
-                Ok(())
+                Self::add_parsed(builder, key, HtmlDoc::from(dom.as_ref().clone()), row)
             }
             Backing::Archived(_) => Err(PyTypeError::new_err(
                 "document is archive-backed (its text lives in shared bundle storage); \
@@ -1479,6 +1972,40 @@ impl ArchiveBuilder {
             self.write(None)?;
         }
         Ok(false)
+    }
+}
+
+impl ArchiveBuilder {
+    /// Convert a per-add `meta={...}` dict to a schema-ordered row; `meta` without a declared
+    /// schema is an error (it would be silently dropped otherwise).
+    fn convert_meta(
+        &self,
+        meta: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Option<Vec<Option<MetaValue>>>> {
+        match (meta, &self.meta_schema) {
+            (None, _) => Ok(None),
+            (Some(_), None) => Err(PyValueError::new_err(
+                "meta given but the builder was constructed without a meta_schema",
+            )),
+            (Some(dict), Some(schema)) => Ok(Some(meta_row_from_py(schema, dict)?)),
+        }
+    }
+
+    fn add_parsed(
+        builder: &mut HtmlArchiveBuilder,
+        key: &str,
+        doc: HtmlDoc,
+        row: Option<Vec<Option<MetaValue>>>,
+    ) -> PyResult<()> {
+        match row {
+            Some(row) => builder
+                .add_html_with_meta(key.to_string(), doc, row)
+                .map_err(|e| PyValueError::new_err(e.to_string())),
+            None => {
+                builder.add_html(key.to_string(), doc);
+                Ok(())
+            }
+        }
     }
 }
 
