@@ -54,6 +54,10 @@ pub struct MmapArchive {
     /// from one revalidation *per document* (quadratic in bundle size) into one *per bundle*. It is
     /// pure memoization (observationally immutable), so the archive stays `Sync`.
     bundles_validated: Box<[AtomicBool]>,
+    /// The typed metadata table's region (ADR 0009), `None` when the archive carries no
+    /// metadata. Fully validated at open ([`crate::meta::validate_archived`]) — metadata is
+    /// tiny relative to the archive — so reads go straight to `access_unchecked`.
+    meta_region: Option<(usize, usize)>,
 }
 
 impl MmapArchive {
@@ -143,6 +147,20 @@ impl MmapArchive {
             .map(|_| AtomicBool::new(false))
             .collect();
 
+        // The typed metadata table (ADR 0009), if present — validated fully here (structure via
+        // safe rkyv access, values via `validate_archived`), so per-row reads never re-check.
+        let meta_region = if trailer.meta_len > 0 {
+            let off = trailer.meta_offset as usize;
+            let len = trailer.meta_len as usize;
+            let s = slice(&mmap, off, len, "metadata table")?;
+            let table = rkyv::access::<crate::meta::ArchivedMetaTable, Error>(s)
+                .map_err(|e| ArchiveErr::Validate(e.to_string()))?;
+            crate::meta::validate_archived(table, doc_count)?;
+            Some((off, len))
+        } else {
+            None
+        };
+
         Ok(Self {
             mmap,
             doc_table_offset,
@@ -153,7 +171,30 @@ impl MmapArchive {
             sort_index_len,
             decoder,
             bundles_validated,
+            meta_region,
         })
+    }
+
+    /// The archive's typed metadata table (ADR 0009), or `None` when it carries no metadata.
+    /// Row `i` belongs to the document at doc-table position `i`.
+    pub fn meta(&self) -> Option<&crate::meta::ArchivedMetaTable> {
+        let (off, len) = self.meta_region?;
+        let s = &self.mmap[off..off + len];
+        // SAFETY: `open` validated this exact slice and the mapping is immutable.
+        Some(unsafe { rkyv::access_unchecked::<crate::meta::ArchivedMetaTable>(s) })
+    }
+
+    /// The declared metadata schema, or `None` when the archive carries no metadata.
+    pub fn meta_schema(&self) -> Option<crate::meta::MetaSchema> {
+        self.meta().map(|t| t.schema())
+    }
+
+    /// The metadata value of field `field` for the document at doc-table position `pos`
+    /// (`None` = null). Panics if the archive has no metadata or the indices are out of
+    /// range — callers gate on [`meta`](Self::meta)/[`meta_schema`](Self::meta_schema).
+    pub fn meta_value(&self, pos: usize, field: usize) -> Option<crate::meta::MetaRef<'_>> {
+        let table = self.meta().expect("archive has no metadata table");
+        crate::meta::archived_value(&table.columns[field], pos)
     }
 
     fn doc_table(&self) -> &ArchivedDocTable {

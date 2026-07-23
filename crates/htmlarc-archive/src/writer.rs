@@ -63,6 +63,10 @@ pub struct ArchiveWriter {
     /// path via [`set_dictionary`](Self::set_dictionary). `None` ⇒ frames were compressed
     /// dictionary-less, so an empty region (length 0) is written.
     dict: Option<Vec<u8>>,
+    /// The complete typed metadata table (ADR 0009), set via [`set_meta_table`](Self::set_meta_table)
+    /// before [`finish`](Self::finish). `None` ⇒ an empty region (length 0) is written. Rows must
+    /// align 1:1 with stored documents in arrival order — `finish` validates the count.
+    meta: Option<crate::meta::MetaTable>,
     /// Doc-table index at which the current bundle started.
     bundle_start_doc: usize,
     seen: HashSet<String>,
@@ -93,6 +97,7 @@ impl ArchiveWriter {
             cur_strings: BundleStrings::default(),
             compressor: codec::build_compressor()?,
             dict: None,
+            meta: None,
             bundle_start_doc: 0,
             seen: HashSet::new(),
             collapsed: 0,
@@ -232,6 +237,13 @@ impl ArchiveWriter {
         self.dict = dict;
     }
 
+    /// Record the typed per-document metadata table (ADR 0009), serialized into the footer by
+    /// [`finish`](Self::finish). Row `i` describes the `i`-th *stored* document (arrival order,
+    /// after dedup) — callers accumulate rows only for documents that were actually stored.
+    pub fn set_meta_table(&mut self, meta: Option<crate::meta::MetaTable>) {
+        self.meta = meta;
+    }
+
     /// Write zero padding so the next write starts on an 8-byte boundary.
     fn pad_to_align(&mut self) -> Result<(), ArchiveErr> {
         let rem = self.pos % ALIGN;
@@ -320,6 +332,27 @@ impl ArchiveWriter {
             None => 0,
         };
 
+        // The typed metadata table (ADR 0009): rows must align 1:1 with stored documents.
+        self.pad_to_align()?;
+        let meta_offset = self.pos;
+        let meta_len = match self.meta.take() {
+            Some(meta) => {
+                if meta.row_count() != self.docs.len() {
+                    return Err(ArchiveErr::Validate(format!(
+                        "metadata table has {} rows, archive has {} documents",
+                        meta.row_count(),
+                        self.docs.len()
+                    )));
+                }
+                let bytes = rkyv::to_bytes::<Error>(&meta)
+                    .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
+                let (off, len) = self.write_blob(&bytes)?;
+                debug_assert_eq!(off, meta_offset);
+                len
+            }
+            None => 0,
+        };
+
         // The doc table is already in arrival (== bundle→doc) order.
         let doc_bytes = rkyv::to_bytes::<Error>(&self.docs)
             .map_err(|e| ArchiveErr::Serialize(e.to_string()))?;
@@ -340,6 +373,8 @@ impl ArchiveWriter {
             sort_index_len,
             dict_offset,
             dict_len,
+            meta_offset,
+            meta_len,
             doc_count: self.docs.len() as u64,
             bundle_count: self.bundles.len() as u64,
         };

@@ -9,6 +9,7 @@ mod entry;
 mod error;
 mod filter;
 mod header;
+mod meta;
 mod mmap;
 mod trailer;
 mod writer;
@@ -21,5 +22,9 @@ pub use codec::{StringCompressor, StringEncoder, train_string_dict};
 pub use entry::{ArchivedHtmlEntry, HtmlEntry, SerializedEntry};
 pub use error::ArchiveErr;
 pub use filter::{Filter, FilterError};
+pub use meta::{
+    ArchivedMetaColumn, ArchivedMetaTable, MetaColumn, MetaRef, MetaSchema, MetaTable,
+    MetaTableBuilder, MetaType, MetaValue, archived_value,
+};
 pub use mmap::{Doc, MmapArchive, OwnedDoc};
 pub use writer::ArchiveWriter;
