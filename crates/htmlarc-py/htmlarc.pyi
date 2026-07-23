@@ -405,7 +405,7 @@ class ArchiveBuilder:
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> bool:
+    ) -> Literal[False]:
         """Exit the context manager: write the archive to the constructor's
         ``path`` on clean exit; skip the write when the block raised."""
 
