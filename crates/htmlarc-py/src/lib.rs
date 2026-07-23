@@ -486,6 +486,8 @@ impl Element {
     }
 
     /// All descendant text, concatenated (like BeautifulSoup's `get_text()`).
+    /// Text inside nested `<script>`/`<style>` is excluded — unless this element
+    /// itself is the script/style, whose payload is returned.
     #[getter]
     fn text(&self) -> String {
         with_el!(self.doc.get(), self.index, |el| el.text_content())
@@ -660,7 +662,9 @@ enum MatchArg<'py> {
 ///
 /// Documents are stored pre-parsed: indexing returns a queryable `Document` with no
 /// HTML parsing at read time. Index by position (`archive[0]`) or key (`archive["…"]`),
-/// or iterate to visit every document.
+/// or iterate to visit every document. The `scan_*`/`matching` sweeps run across all
+/// cores with the GIL released — prefer them over a Python loop when extracting from
+/// every document.
 #[pyclass(frozen, module = "htmlarc")]
 pub struct Archive {
     inner: Arc<MmapArchive>,
