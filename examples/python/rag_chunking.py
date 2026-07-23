@@ -31,18 +31,6 @@ HEADINGS = {"h1", "h2", "h3"}
 MAX_CHARS = 1200
 
 
-def clean_text(el: htmlarc.Element) -> str:
-    """Text of `el` minus any script/style/etc. nested inside it.
-
-    `el.text` includes ALL descendant text — a paragraph carrying an inline
-    `<script>` would leak its JavaScript — so blocks are gathered recursively
-    with SKIP subtrees pruned.
-    """
-    parts = [el.own_text or ""]
-    parts += [clean_text(c) for c in el.children if c.tag not in SKIP]
-    return " ".join(p for p in parts if p)
-
-
 def chunk_doc(doc: htmlarc.Document) -> list[dict]:
     root = doc.select_first("main, article, [role='main']") or doc.select_first("body")
     if root is None:
@@ -66,7 +54,9 @@ def chunk_doc(doc: htmlarc.Document) -> list[dict]:
                 flush()
                 heading = child.text.strip()
             elif tag in BLOCK:
-                if t := clean_text(child).strip():
+                # .text excludes nested script/style natively; SKIP pruning
+                # above handles the structural boilerplate.
+                if t := child.text.strip():
                     buf.append(t)
             else:
                 walk(child)

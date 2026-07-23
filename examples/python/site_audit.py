@@ -14,7 +14,8 @@ stores every page in an archive, then:
      need extraction rules declared before crawling; the archive doesn't.
 
 htmlarc itself is the crawler's parser here: `doc.select_attr("a", "href")`
-finds the next links, so the recipe has no bs4/lxml dependency.
+finds the next links, so the recipe has no bs4/lxml dependency — and
+`add_document` stores the already-parsed page, so each page is parsed once.
 """
 
 import sys
@@ -41,7 +42,7 @@ def crawl(limit: int) -> None:
         url = queue.pop(0)
         r = get(url)
         doc = htmlarc.parse(decode_html(r.content, r.headers.get("Content-Type")))
-        builder.add(urlparse(url).path or "/", doc.to_html())
+        builder.add_document(urlparse(url).path or "/", doc)
         n += 1
         for href in doc.select_attr("a[href]", "href"):
             nxt = urldefrag(urljoin(url, href)).url
