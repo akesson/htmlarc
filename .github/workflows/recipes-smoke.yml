@@ -1,0 +1,38 @@
+name: recipes smoke
+
+# Weekly canary for the examples/python recipes: they run against LIVE endpoints
+# (Common Crawl index + data, the Wayback CDX API, Kiwix, books.toscrape.com), so
+# they can rot without any commit — an index format change, a moved ZIM, a dead
+# site. A red run here means "fix the recipe before a reader hits it", which
+# matters more than usual while the recipes are launch collateral.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC (off the whole-hour load spike)
+  workflow_dispatch:
+
+jobs:
+  recipes:
+    name: run all recipes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: astral-sh/setup-uv@v7
+      # Release build: the recipes chew through real corpora; debug parse speed
+      # would dominate the job's wall clock.
+      - run: uvx maturin build --release -m crates/htmlarc-py/Cargo.toml -o dist
+      # Small limits: enough to exercise every code path (metadata columns,
+      # append, skip handling) while staying polite to the live services.
+      - name: run recipes
+        working-directory: examples/python
+        run: |
+          WHEEL=$(ls ../../dist/htmlarc-*.whl)
+          uv run --with "$WHEEL" warc_to_archive.py --limit 200
+          uv run --with "$WHEEL" warc_to_archive.py --append --limit 50
+          uv run --with "$WHEEL" corpus_questions.py
+          uv run --with "$WHEEL" rag_chunking.py
+          uv run --with "$WHEEL" extractor_from_archive.py
+          uv run --with "$WHEEL" zim_wiktionary.py
+          uv run --with "$WHEEL" site_audit.py
+          uv run --with "$WHEEL" snapshot_diff.py
