@@ -15,7 +15,9 @@ use htmlarc_dom::dom::TopologyReport;
 use htmlarc_dom::prelude::HtmlDoc;
 
 use crate::args::Stats;
-use crate::source::{DocSink, Source, WarcSource, drive_runs_parallel, open_source, warc_files};
+use crate::source::{
+    DocSink, MetaRow, Source, WarcSource, drive_runs_parallel, open_source, warc_files,
+};
 use counter::{DocStats, count_doc};
 
 // ADR 0002 ceilings (the values a per-document count must stay under).
@@ -397,7 +399,7 @@ impl StatsSink {
 }
 
 impl DocSink for StatsSink {
-    fn accept(&mut self, key: &str, html: &str) {
+    fn accept(&mut self, key: &str, html: &str, _meta: Option<MetaRow>) {
         let stats = count_doc(html, self.compress.is_some());
         self.hists.record(&stats, key);
         self.node_sum += stats.nodes as u64;

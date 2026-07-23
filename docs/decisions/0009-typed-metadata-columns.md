@@ -43,8 +43,10 @@ readers reject older files as before).
   reads go unchecked.
 - **Write path:** the writer takes a complete `MetaTable` (`set_meta_table`) at finish-time;
   no per-push alignment protocol. The owned `HtmlArchive` round-trips the table through
-  `read_from`/`write_to`, so re-packs preserve it. The convert CLI is unchanged (no metadata
-  source yet).
+  `read_from`/`write_to`, so re-packs preserve it. The convert CLI's WARC source supplies
+  `fetched` (`WARC-Date`) + `status` (HTTP status line) columns, both captured in its pass-1
+  scan; the key already is the target URI, so no `url` column. ZIM and directory sources
+  declare no schema.
 
 Python surface: `ArchiveBuilder(meta_schema={"url": str, "status": int, ...})`,
 `add(key, html, meta={...})` (missing fields null, unknown fields error, `int`→`float` coerces,
