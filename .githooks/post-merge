@@ -1,0 +1,9 @@
+#!/bin/sh
+# Refresh the editor venv (make py-dev) after a pull/merge so completions track
+# the Rust API. No-op unless the venv exists (opt-in via `make py-dev` once).
+# Worst-case cost ~4s (cached cargo build); ~1s when no Rust source changed.
+[ -d .venv ] || exit 0
+command -v uv >/dev/null 2>&1 || exit 0
+grep -q '^py-dev:' Makefile 2>/dev/null || exit 0
+echo "[post-merge] refreshing .venv (make py-dev)"
+make py-dev >/dev/null 2>&1 || echo "[post-merge] make py-dev failed - run it manually"
