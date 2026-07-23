@@ -45,6 +45,8 @@ def build() -> None:
     builder, n = htmlarc.ArchiveBuilder(), 0
     t0 = time.perf_counter()
     for i in range(zim.all_entry_count):
+        # python-libzim has no public "iterate all entries" API; indexing by
+        # entry id via this private method is the accepted community idiom.
         entry = zim._get_entry_by_id(i)
         if entry.is_redirect:
             continue
