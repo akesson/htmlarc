@@ -1,6 +1,8 @@
 # Type stubs for the htmlarc extension module (shipped in the wheel by maturin).
 # Keep in sync with crates/htmlarc-py/src/lib.rs — the pyclass docstrings there
-# are the authoritative behavior reference.
+# are the authoritative behavior reference; the docstrings here mirror them so
+# editors (which read only this stub, never the compiled module) show them on
+# hover.
 
 from collections.abc import Iterator, Sequence
 from os import PathLike
@@ -16,14 +18,16 @@ class Selector:
 
     def __init__(self, css: str) -> None: ...
     @property
-    def source(self) -> str: ...
+    def source(self) -> str:
+        """The selector source text."""
 
 class Filter:
     """Include/exclude predicate over archive documents, for ``Archive.matching()``.
 
     A document is kept when it satisfies every include condition (or there are
     none) and no exclude condition. Multiple selectors in a list AND together;
-    a comma inside one selector string is a CSS selector list, i.e. OR.
+    a comma inside one selector string is a CSS selector list, i.e. OR. A pure
+    key filter (no css) never touches document bodies at all.
     """
 
     def __init__(
@@ -39,89 +43,224 @@ class Document:
     """A parsed HTML document, from ``parse()`` or an ``Archive``."""
 
     @property
-    def key(self) -> str | None: ...
+    def key(self) -> str | None:
+        """The archive key this document was stored under, or ``None`` for parsed documents."""
+
     @property
-    def root(self) -> Element: ...
+    def root(self) -> Element:
+        """The document root element (renders the whole document, selects over all of it)."""
+
     @property
-    def text(self) -> str: ...
-    def select(self, selector: str | Selector) -> list[Element]: ...
-    def select_first(self, selector: str | Selector) -> Element | None: ...
-    def select_text(self, selector: str | Selector) -> list[str]: ...
-    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]: ...
-    def select_count(self, selector: str | Selector, attr: str | None = None) -> int: ...
-    def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]: ...
-    def to_html(self, pretty: bool = False) -> str: ...
+    def text(self) -> str:
+        """All descendant text of the document, concatenated."""
+
+    def select(self, selector: str | Selector) -> list[Element]:
+        """All elements matching the CSS selector (a string or a compiled
+        ``Selector``), in document order."""
+
+    def select_first(self, selector: str | Selector) -> Element | None:
+        """The first element matching the CSS selector, or ``None``."""
+
+    def select_text(self, selector: str | Selector) -> list[str]:
+        """The descendant text of every element matching the selector, one string
+        per match, in document order. One FFI call instead of a Python loop
+        over ``select()``."""
+
+    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]:
+        """The named attribute of every element matching the selector (``None``
+        where absent), in document order. ``"class"`` resolves like
+        ``Element.get()``."""
+
+    def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
+        """The number of elements matching the selector; with ``attr``, only
+        elements where that attribute is present. Counts without materializing
+        elements or text."""
+
+    def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]:
+        """The rendered subtree of every element matching the selector, in
+        document order."""
+
+    def to_html(self, pretty: bool = False) -> str:
+        """Render the document as HTML. ``pretty=True`` indents; the default is
+        the raw compact form."""
 
 class Element:
     """An element within a ``Document`` — a cheap (document, node index) handle."""
 
     @property
-    def document(self) -> Document: ...
+    def document(self) -> Document:
+        """The document this element belongs to."""
+
     @property
-    def index(self) -> int: ...
+    def index(self) -> int:
+        """The element's node index within the document (stable for the document's lifetime)."""
+
     @property
-    def tag(self) -> str: ...
+    def tag(self) -> str:
+        """The tag name, lowercase (e.g. ``"div"``)."""
+
     @property
-    def id(self) -> str | None: ...
+    def id(self) -> str | None:
+        """The ``id`` attribute, or ``None``."""
+
     @property
-    def classes(self) -> list[str]: ...
+    def classes(self) -> list[str]:
+        """The class list, in document order."""
+
     @property
-    def attrs(self) -> dict[str, str]: ...
+    def attrs(self) -> dict[str, str]:
+        """All attributes as a dict (entity-decoded values). htmlarc stores the
+        class list out-of-band, so a ``"class"`` entry is synthesized from it
+        (space-joined)."""
+
     @property
-    def text(self) -> str: ...
+    def text(self) -> str:
+        """All descendant text, concatenated (like BeautifulSoup's ``get_text()``).
+        Text inside nested ``<script>``/``<style>`` is excluded — unless this
+        element itself is the script/style, whose payload is returned."""
+
     @property
-    def own_text(self) -> str | None: ...
+    def own_text(self) -> str | None:
+        """The element's own immediate text — its direct text-node children
+        concatenated, excluding descendants' text — or ``None`` when it has none."""
+
     @property
-    def css_path(self) -> str: ...
+    def css_path(self) -> str:
+        """A CSS path locating this element (e.g. ``"html > body > div#main > p"``)."""
+
     @property
-    def parent(self) -> Element | None: ...
+    def parent(self) -> Element | None:
+        """The parent element, or ``None`` at the root."""
+
     @property
-    def next_sibling(self) -> Element | None: ...
+    def next_sibling(self) -> Element | None:
+        """The next sibling element, or ``None``."""
+
     @property
-    def prev_sibling(self) -> Element | None: ...
+    def prev_sibling(self) -> Element | None:
+        """The previous sibling element, or ``None``."""
+
     @property
-    def children(self) -> list[Element]: ...
-    def get(self, name: str) -> str | None: ...
-    def __getitem__(self, name: str) -> str: ...
-    def select(self, selector: str | Selector) -> list[Element]: ...
-    def select_first(self, selector: str | Selector) -> Element | None: ...
-    def select_text(self, selector: str | Selector) -> list[str]: ...
-    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]: ...
-    def select_count(self, selector: str | Selector, attr: str | None = None) -> int: ...
-    def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]: ...
-    def matches(self, selector: str | Selector) -> bool: ...
-    def to_html(self, pretty: bool = False) -> str: ...
+    def children(self) -> list[Element]:
+        """The child elements, in document order."""
+
+    def get(self, name: str) -> str | None:
+        """The value of the named attribute (ASCII case-insensitive), or ``None``.
+        ``"class"`` resolves through the class list, like ``attrs``."""
+
+    def __getitem__(self, name: str) -> str:
+        """``element["href"]`` — like ``get()``, but raises ``KeyError`` when absent."""
+
+    def select(self, selector: str | Selector) -> list[Element]:
+        """All descendant elements matching the CSS selector (a string or a
+        compiled ``Selector``), in document order."""
+
+    def select_first(self, selector: str | Selector) -> Element | None:
+        """The first descendant element matching the CSS selector, or ``None``."""
+
+    def select_text(self, selector: str | Selector) -> list[str]:
+        """The descendant text of every matching descendant element, one string
+        per match, in document order."""
+
+    def select_attr(self, selector: str | Selector, name: str) -> list[str | None]:
+        """The named attribute of every matching descendant element (``None``
+        where absent), in document order."""
+
+    def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
+        """The number of matching descendant elements; with ``attr``, only
+        elements where that attribute is present. Counts without materializing
+        elements or text."""
+
+    def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]:
+        """The rendered subtree of every matching descendant element, in
+        document order."""
+
+    def matches(self, selector: str | Selector) -> bool:
+        """Whether this element itself matches the CSS selector."""
+
+    def to_html(self, pretty: bool = False) -> str:
+        """Render this element's subtree as HTML. ``pretty=True`` indents; the
+        default is the raw compact form."""
 
 class Archive:
     """A read-only, memory-mapped ``.htmlarc`` archive of pre-parsed documents.
 
-    The ``scan_*``/``matching`` sweeps run across all cores with the GIL
-    released — prefer them over a Python loop when extracting from every
-    document.
+    Documents are stored pre-parsed: indexing returns a queryable ``Document``
+    with no HTML parsing at read time. Index by position (``archive[0]``) or
+    key (``archive["…"]``), or iterate to visit every document. The
+    ``scan_*``/``matching`` sweeps run across all cores with the GIL released —
+    prefer them over a Python loop when extracting from every document.
     """
 
     def __init__(self, path: str | PathLike[str]) -> None: ...
     @property
-    def path(self) -> str: ...
-    def __len__(self) -> int: ...
-    def keys(self) -> list[str]: ...
+    def path(self) -> str:
+        """The archive file path."""
+
+    def __len__(self) -> int:
+        """The number of documents."""
+
+    def keys(self) -> list[str]:
+        """All document keys, in archive order."""
+
     def __contains__(self, key: str) -> bool: ...
-    def __getitem__(self, index: int | str) -> Document: ...
-    def get(self, key: str) -> Document | None: ...
-    def __iter__(self) -> Iterator[Document]: ...
-    def matching(self, selector: str | Selector | Filter) -> list[str]: ...
-    def scan_text(self, selector: str | Selector) -> list[tuple[str, list[str]]]: ...
+    def __getitem__(self, index: int | str) -> Document:
+        """The document at a position (int, negative indexes from the end) or
+        under a key (str). Raises ``IndexError`` / ``KeyError`` when absent."""
+
+    def get(self, key: str) -> Document | None:
+        """The document under ``key``, or ``None`` when absent."""
+
+    def __iter__(self) -> Iterator[Document]:
+        """Iterate over every document, in archive order."""
+
+    def matching(self, selector: str | Selector | Filter) -> list[str]:
+        """The keys of every document matching the predicate, in archive order.
+        Accepts a CSS selector (string or compiled ``Selector``: keep documents
+        with at least one match, swept across all cores) or a ``Filter``
+        (include/exclude rules; a pure key filter never touches document
+        bodies). Runs with the GIL released either way."""
+
+    def scan_text(self, selector: str | Selector) -> list[tuple[str, list[str]]]:
+        """``(key, texts)`` for every document with at least one match: the
+        descendant text of each matching element, like ``Document.select_text``
+        over the whole archive. Runs across all cores with the GIL released;
+        documents without matches are omitted."""
+
     def scan_attr(
         self, selector: str | Selector, name: str
-    ) -> list[tuple[str, list[str | None]]]: ...
-    def scan_count(self, selector: str | Selector, attr: str | None = None) -> int: ...
+    ) -> list[tuple[str, list[str | None]]]:
+        """``(key, values)`` for every document with at least one match: the
+        named attribute of each matching element (``None`` where absent), like
+        ``Document.select_attr`` over the whole archive. Runs across all cores
+        with the GIL released; documents without matches are omitted."""
+
+    def scan_count(self, selector: str | Selector, attr: str | None = None) -> int:
+        """The total number of matching elements across every document; with
+        ``attr``, only elements where that attribute is present. Runs across
+        all cores with the GIL released and returns a single int — nothing is
+        marshalled per match and counting never touches document text."""
+
     def scan_table(
         self,
         selector: str | Selector,
         *,
         text: bool = False,
         attrs: Sequence[str] | None = None,
-    ) -> ArrowResult: ...
+    ) -> ArrowResult:
+        """Every match across the archive as one flat Arrow table: a ``key``
+        column (the document key, repeated once per matched element), an
+        optional ``text`` column (each element's text content, when
+        ``text=True``), and one nullable column per name in ``attrs`` (the
+        attribute value, ``null`` where the matched element lacks it). One row
+        per matched element, ordered by document then match.
+
+        The sweep runs across all cores with the GIL released and hands the
+        Arrow buffers to Python zero-copy — no per-match Python object is
+        created, so this is far faster than ``scan_text``/``scan_attr`` when
+        extracting from every document. Consume with ``polars.DataFrame(r)``,
+        ``pyarrow.table(r)``, duckdb, … Raises ``ValueError`` if a requested
+        attribute name collides with ``key``/``text`` or duplicates another."""
 
 class ArrowResult:
     """A columnar ``scan_table`` result, exported zero-copy over the Arrow PyCapsule
@@ -130,27 +269,51 @@ class ArrowResult:
     ``__arrow_c_stream__`` reader. Re-consumable.
     """
 
-    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object: ...
-    def __len__(self) -> int: ...
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """Export the table as an Arrow C stream (a PyCapsule named
+        ``"arrow_array_stream"``). The ``requested_schema`` hint is accepted
+        and ignored — the schema is fixed by the scan."""
+
+    def __len__(self) -> int:
+        """The total number of rows (matched elements) across all batches."""
 
 class ArchiveIter:
     def __iter__(self) -> ArchiveIter: ...
     def __next__(self) -> Document: ...
 
 class ArchiveBuilder:
-    """Builds a ``.htmlarc`` archive: ``add(key, html)`` / ``add_document(key, doc)``,
-    then ``write(path)`` once.
+    """Builds a ``.htmlarc`` archive from HTML strings or parsed documents.
+
+    Add documents with ``add(key, html)`` or ``add_document(key, doc)``
+    (duplicate keys are skipped, first wins — matching the archive's dedup
+    rule), then ``write(path)`` once. The builder cannot be reused after
+    writing.
     """
 
     def __init__(self) -> None: ...
-    def add(self, key: str, html: str) -> None: ...
+    def add(self, key: str, html: str) -> None:
+        """Parse ``html`` and add it under ``key``. Raises ``ValueError`` when
+        the HTML exceeds htmlarc's per-document capacity or cannot be parsed."""
+
     def add_document(self, key: str, doc: Document) -> None:
-        """Store an already-parsed ``Document`` (from ``parse()``) without re-parsing.
+        """Add an already-parsed ``Document`` under ``key`` without re-parsing —
+        the path for crawlers that parse each page anyway (e.g. for link
+        discovery): parse once, query for links, then store the same document.
 
-        Raises ``TypeError`` for archive-backed documents — round-trip those through
-        ``add(key, doc.to_html())``.
-        """
-    def write(self, path: str | PathLike[str]) -> None: ...
+        Accepts documents from ``parse()``. Documents handed out by an
+        ``Archive`` are backed by shared per-bundle storage and can't be
+        re-added directly; raises ``TypeError`` for those (round-trip through
+        ``add(key, doc.to_html())`` instead)."""
 
-def parse(html: str) -> Document: ...
-def open(path: str | PathLike[str]) -> Archive: ...
+    def write(self, path: str | PathLike[str]) -> None:
+        """Write the archive to ``path`` and consume the builder."""
+
+def parse(html: str) -> Document:
+    """Parse an HTML string into a queryable ``Document``.
+
+    Parsing is fault-tolerant in the html5-recovery sense: malformed markup
+    yields a best-effort tree rather than an error. Raises ``ValueError`` only
+    when the document exceeds htmlarc's per-document capacity."""
+
+def open(path: str | PathLike[str]) -> Archive:
+    """Open a ``.htmlarc`` archive (alias for ``Archive(path)``)."""
