@@ -65,9 +65,12 @@ for _key, blocks in arc.scan_text(JSONLD):
         except json.JSONDecodeError:
             continue
         for node in data if isinstance(data, list) else [data]:
-            t = isinstance(node, dict) and node.get("@type")
-            for name in t if isinstance(t, list) else [t] if t else []:
-                types[str(name)] += 1
+            if not isinstance(node, dict):
+                continue
+            t = node.get("@type")  # per spec: a string or a list of strings
+            for name in t if isinstance(t, list) else [t]:
+                if name:
+                    types[str(name)] += 1
 print(f"  top @type: {types.most_common(8)}")
 
 print("\nQ3: corpus totals (counted in Rust, GIL released)")

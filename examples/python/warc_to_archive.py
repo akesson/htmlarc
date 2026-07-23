@@ -16,9 +16,8 @@ The sidecar is the recommended pattern for carrying metadata alongside the DOM:
 Run:  uv run --with <htmlarc wheel or 'htmlarc'> warc_to_archive.py [--limit N]
 """
 
+import argparse
 import gzip
-import io
-import sys
 import time
 
 import htmlarc
@@ -51,6 +50,7 @@ def build(limit: int = 500) -> None:
 
     builder = htmlarc.ArchiveBuilder()
     meta: list[dict] = []
+    skipped = 0
     t0 = time.perf_counter()
     with get(warc_url, stream=True) as r:
         for rec in ArchiveIterator(r.raw):
@@ -64,7 +64,11 @@ def build(limit: int = 500) -> None:
                 continue
             url = rec.rec_headers.get_header("WARC-Target-URI")
             key = f"{url}#{len(meta)}"  # index suffix disambiguates re-fetched URLs
-            builder.add(key, decode_html(body, ct))
+            try:
+                builder.add(key, decode_html(body, ct))
+            except ValueError:
+                skipped += 1  # pathological page beyond per-document capacity (~1 in 100k)
+                continue
             meta.append(
                 {
                     "key": key,
@@ -82,10 +86,12 @@ def build(limit: int = 500) -> None:
     secs = time.perf_counter() - t0
     mb = sum(m["bytes"] for m in meta) / 1e6
     print(f"{len(meta)} docs ({mb:.0f} MB html) -> {ARCHIVE.name} "
-          f"({ARCHIVE.stat().st_size / 1e6:.0f} MB) + {META.name} in {secs:.0f}s")
+          f"({ARCHIVE.stat().st_size / 1e6:.0f} MB) + {META.name} in {secs:.0f}s"
+          + (f" ({skipped} oversized doc(s) skipped)" if skipped else ""))
     print("next: uv run corpus_questions.py  (answers arrive in milliseconds)")
 
 
 if __name__ == "__main__":
-    limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 500
-    build(limit)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--limit", type=int, default=500, help="documents to stream (default 500)")
+    build(ap.parse_args().limit)
