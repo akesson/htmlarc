@@ -37,7 +37,10 @@ delete it to start fresh.
 `uv run` builds its environment at run time, so language servers can't see the
 recipes' dependencies. For completions and type hints, run `make py-dev` at the
 repo root — it creates a `.venv` with the htmlarc wheel (typed via its shipped
-stub) plus every recipe dependency. Point your editor at that interpreter;
-re-run the target after changing the Rust API.
+stub) plus every recipe dependency. Point your editor at that interpreter.
+
+With the tracked hooks active (`make setup`), the venv refreshes itself after
+every pull, merge, and branch switch (~1–4 s, only when `.venv` exists). After
+*local* Rust edits, re-run `make py-dev` by hand — git hooks can't see those.
 
 [uv]: https://docs.astral.sh/uv/

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Refresh the editor venv (make py-dev) after a branch switch so completions
+# track the checked-out Rust API. Args: prev-HEAD new-HEAD branch-flag.
+# Only fires on branch checkouts that actually moved HEAD, and only if the
+# venv exists (opt-in via `make py-dev` once). Worst-case cost ~4s.
+[ "$3" = "1" ] || exit 0
+[ "$1" != "$2" ] || exit 0
+[ -d .venv ] || exit 0
+command -v uv >/dev/null 2>&1 || exit 0
+grep -q '^py-dev:' Makefile 2>/dev/null || exit 0
+echo "[post-checkout] refreshing .venv (make py-dev)"
+make py-dev >/dev/null 2>&1 || echo "[post-checkout] make py-dev failed - run it manually"
