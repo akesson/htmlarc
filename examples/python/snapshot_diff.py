@@ -20,6 +20,7 @@ import time
 
 import htmlarc
 import polars as pl
+import requests
 from warcio.archiveiterator import ArchiveIterator
 
 from _common import DATA, decode_html, get
@@ -47,24 +48,39 @@ def snapshot(crawl_id: str, limit: int) -> htmlarc.Archive:
             "limit": str(limit),
         },
     ).text
-    n = 0
+    n, throttled = 0, 0
     with htmlarc.ArchiveBuilder(path) as builder:
         for line in rows.splitlines():
             rec = json.loads(line)
             if "html" not in rec.get("mime", ""):
                 continue
             start = int(rec["offset"])
-            r = get(
-                f"{CC_DATA}/{rec['filename']}",
-                headers={"Range": f"bytes={start}-{start + int(rec['length']) - 1}"},
-            )
+            try:
+                r = get(
+                    f"{CC_DATA}/{rec['filename']}",
+                    headers={"Range": f"bytes={start}-{start + int(rec['length']) - 1}"},
+                )
+            except requests.HTTPError as e:
+                # A page CC won't serve right now shouldn't sink the whole diff —
+                # but 5 rebuffs in a row means "come back later", so stop asking.
+                if e.response is not None and e.response.status_code in (503, 429):
+                    throttled += 1
+                    if throttled >= 5:
+                        print(f"  {crawl_id}: CC keeps throttling, continuing with {n} pages")
+                        break
+                    continue
+                raise
+            throttled = 0
             warc = next(ArchiveIterator(io.BytesIO(r.content)))
             body = warc.content_stream().read()
             if body:
                 ct = warc.http_headers.get_header("Content-Type") if warc.http_headers else None
                 builder.add(rec["url"], decode_html(body, ct))  # key = URL, same in both snapshots
                 n += 1
-            time.sleep(0.1)
+            time.sleep(0.3)  # ~3 req/s keeps CC's rate limiter friendly
+    if n == 0:
+        path.unlink(missing_ok=True)  # don't cache an empty snapshot
+        raise SystemExit(f"{crawl_id}: no pages fetched (CC throttled?) — try again later")
     print(f"{crawl_id}: {n} pages -> {path.name}")
     return htmlarc.open(path)
 
