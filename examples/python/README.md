@@ -32,4 +32,12 @@ Recipes 2, 6 and 7 build the recipe-1 archive automatically if it's missing;
 `--limit N` controls corpus size where applicable. Everything lands in `data/`;
 delete it to start fresh.
 
+## Editor completions
+
+`uv run` builds its environment at run time, so language servers can't see the
+recipes' dependencies. For completions and type hints, run `make py-dev` at the
+repo root — it creates a `.venv` with the htmlarc wheel (typed via its shipped
+stub) plus every recipe dependency. Point your editor at that interpreter;
+re-run the target after changing the Rust API.
+
 [uv]: https://docs.astral.sh/uv/

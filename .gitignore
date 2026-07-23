@@ -11,3 +11,5 @@
 *.warc.gz
 # Python bytecode caches (crates/htmlarc-py tests)
 __pycache__/
+# Editor venv created by `make py-dev`
+/.venv
