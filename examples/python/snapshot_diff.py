@@ -47,24 +47,24 @@ def snapshot(crawl_id: str, limit: int) -> htmlarc.Archive:
             "limit": str(limit),
         },
     ).text
-    builder, n = htmlarc.ArchiveBuilder(), 0
-    for line in rows.splitlines():
-        rec = json.loads(line)
-        if "html" not in rec.get("mime", ""):
-            continue
-        start = int(rec["offset"])
-        r = get(
-            f"{CC_DATA}/{rec['filename']}",
-            headers={"Range": f"bytes={start}-{start + int(rec['length']) - 1}"},
-        )
-        warc = next(ArchiveIterator(io.BytesIO(r.content)))
-        body = warc.content_stream().read()
-        if body:
-            ct = warc.http_headers.get_header("Content-Type") if warc.http_headers else None
-            builder.add(rec["url"], decode_html(body, ct))  # key = URL, same in both snapshots
-            n += 1
-        time.sleep(0.1)
-    builder.write(path)
+    n = 0
+    with htmlarc.ArchiveBuilder(path) as builder:
+        for line in rows.splitlines():
+            rec = json.loads(line)
+            if "html" not in rec.get("mime", ""):
+                continue
+            start = int(rec["offset"])
+            r = get(
+                f"{CC_DATA}/{rec['filename']}",
+                headers={"Range": f"bytes={start}-{start + int(rec['length']) - 1}"},
+            )
+            warc = next(ArchiveIterator(io.BytesIO(r.content)))
+            body = warc.content_stream().read()
+            if body:
+                ct = warc.http_headers.get_header("Content-Type") if warc.http_headers else None
+                builder.add(rec["url"], decode_html(body, ct))  # key = URL, same in both snapshots
+                n += 1
+            time.sleep(0.1)
     print(f"{crawl_id}: {n} pages -> {path.name}")
     return htmlarc.open(path)
 
