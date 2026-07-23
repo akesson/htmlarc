@@ -14,12 +14,13 @@ use std::time::Instant;
 
 use anyhow::Result;
 use htmlarc_archive::{
-    ArchiveWriter, HtmlEntry, SerializedEntry, StringCompressor, StringEncoder, train_string_dict,
+    ArchiveWriter, HtmlEntry, MetaTableBuilder, SerializedEntry, StringCompressor, StringEncoder,
+    train_string_dict,
 };
 use htmlarc_dom::prelude::HtmlDoc;
 
 use crate::args::Convert;
-use crate::source::{DocSink, drive_runs_parallel, load_wordlist, open_source};
+use crate::source::{DocSink, MetaRow, drive_runs_parallel, load_wordlist, open_source};
 
 /// Documents to gather before training the dictionary. The harness study (ADR 0005) found the
 /// ratio plateaus by ~500 documents; ~1–2 bundles is comfortably past the knee while keeping the
@@ -35,6 +36,9 @@ const DICT_SAMPLE_DOCS: usize = 2_000;
 /// text for training, which the coordinator compresses once the dictionary is ready.
 struct EntrySink<'a> {
     docs: Vec<SerializedEntry>,
+    /// `rows[i]` is `docs[i]`'s metadata row (pushed together, so a parse/serialize failure
+    /// drops both and the pairing survives to the coordinator).
+    rows: Vec<Option<MetaRow>>,
     failed: u32,
     compressor: Option<StringCompressor<'a>>,
 }
@@ -43,6 +47,7 @@ impl<'a> EntrySink<'a> {
     fn new(compressor: Option<StringCompressor<'a>>) -> Self {
         Self {
             docs: Vec::new(),
+            rows: Vec::new(),
             failed: 0,
             compressor,
         }
@@ -50,7 +55,7 @@ impl<'a> EntrySink<'a> {
 }
 
 impl DocSink for EntrySink<'_> {
-    fn accept(&mut self, key: &str, html: &str) {
+    fn accept(&mut self, key: &str, html: &str, meta: Option<MetaRow>) {
         // Per-doc: parse, build the DOM (optimal node width + checksum), and serialize it to
         // the on-disk form right away. The live `DomInner` is dropped before the next document.
         hotpath::measure_block!("convert::parse_doc", {
@@ -77,6 +82,7 @@ impl DocSink for EntrySink<'_> {
                 return;
             }
             self.docs.push(ser);
+            self.rows.push(meta);
         });
     }
 }
@@ -84,6 +90,7 @@ impl DocSink for EntrySink<'_> {
 /// One run's serialized bundle, handed to the coordinator.
 struct BundleResult {
     docs: Vec<SerializedEntry>,
+    rows: Vec<Option<MetaRow>>,
     failed: u32,
 }
 
@@ -128,6 +135,9 @@ pub(crate) fn run(args: Convert) -> Result<()> {
     let source = source.as_ref();
 
     let mut writer = ArchiveWriter::create(&output)?;
+    // When the source supplies per-document metadata (WARC: fetch date + status), accumulate
+    // rows in the exact order documents are stored; `finish()` validates the 1:1 alignment.
+    let mut meta = source.meta_schema().map(MetaTableBuilder::new);
     let mut report = Report {
         prepared: source.stats().prepared,
         ignored: source.stats().ignored,
@@ -151,6 +161,7 @@ pub(crate) fn run(args: Convert) -> Result<()> {
         warmup_doc_count += sink.docs.len();
         warmup.push(BundleResult {
             docs: sink.docs,
+            rows: sink.rows,
             failed: sink.failed + read_failed,
         });
         warmup_runs += 1;
@@ -167,14 +178,32 @@ pub(crate) fn run(args: Convert) -> Result<()> {
     let encoder = Arc::new(StringEncoder::new(dict.as_deref()));
     writer.set_dictionary(dict);
 
+    // Store one pre-serialized doc and, when it is actually stored (not a writer-level key
+    // duplicate), its metadata row — keeping the row stream 1:1 with the stored documents.
+    fn store(
+        writer: &mut ArchiveWriter,
+        report: &mut Report,
+        meta: &mut Option<MetaTableBuilder>,
+        doc: &SerializedEntry,
+        row: Option<MetaRow>,
+    ) -> Result<()> {
+        if writer.push_serialized(doc)? {
+            report.exported += 1;
+            if let Some(mb) = meta {
+                let row = row.unwrap_or_else(|| vec![None; mb.schema().fields.len()]);
+                mb.push_row(row)?;
+            }
+        }
+        Ok(())
+    }
+
     // ---- Phase 3: compress + write the buffered warm-up runs (coordinator, one compressor).
     {
         let mut compressor = encoder.compressor()?;
-        for mut run in warmup {
-            for doc in &mut run.docs {
+        for run in warmup {
+            for (mut doc, row) in run.docs.into_iter().zip(run.rows) {
                 doc.compress_blocks(&mut compressor)?;
-                writer.push_serialized(doc)?;
-                report.exported += 1;
+                store(&mut writer, &mut report, &mut meta, &doc, row)?;
             }
             writer.seal_bundle()?;
             report.failed += run.failed;
@@ -194,6 +223,7 @@ pub(crate) fn run(args: Convert) -> Result<()> {
             let read_failed = source.drive_run(rank, &mut sink);
             BundleResult {
                 docs: sink.docs,
+                rows: sink.rows,
                 failed: sink.failed + read_failed,
             }
         },
@@ -202,12 +232,11 @@ pub(crate) fn run(args: Convert) -> Result<()> {
             // The heavy work (parse + serialize + compress) already happened on the worker.
             hotpath::measure_block!("convert::write_bundle", {
                 if write_err.is_none() {
-                    for doc in &result.docs {
-                        if let Err(e) = writer.push_serialized(doc) {
-                            write_err = Some(e.into());
+                    for (doc, row) in result.docs.iter().zip(result.rows) {
+                        if let Err(e) = store(&mut writer, &mut report, &mut meta, doc, row) {
+                            write_err = Some(e);
                             break;
                         }
-                        report.exported += 1;
                     }
                     // Seal the run as its own bundle (a no-op for an empty run), so on-disk
                     // bundles are exactly the source's runs. Sealing flushes the bundle's
@@ -228,6 +257,7 @@ pub(crate) fn run(args: Convert) -> Result<()> {
     }
 
     let stored = writer.doc_count() as u32;
+    writer.set_meta_table(meta.map(MetaTableBuilder::finish));
     writer.finish()?;
 
     print!("{report}");

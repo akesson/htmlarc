@@ -146,7 +146,7 @@ impl Source for ZimSource {
                     }
                 };
                 match from_utf8(bytes.as_ref()) {
-                    Ok(html) => sink.accept(key, html),
+                    Ok(html) => sink.accept(key, html, None),
                     Err(e) => {
                         eprintln!("'{key}' is not valid utf-8: {e}");
                         read_failed += 1;

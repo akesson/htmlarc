@@ -22,16 +22,23 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, mpsc};
 
 use anyhow::{Result, bail};
+use htmlarc_archive::{MetaSchema, MetaValue};
 use unicode_normalization::{UnicodeNormalization, is_nfc};
 
 pub(crate) use dir::DirSource;
 pub(crate) use warc::WarcSource;
 pub(crate) use zim::ZimSource;
 
+/// One document's metadata values, in the order of the source's [`Source::meta_schema`]
+/// (`None` per field = null).
+pub(crate) type MetaRow = Vec<Option<MetaValue>>;
+
 /// A per-document consumer. Implemented by `convert` (parse to an archive entry) and `stats`
 /// (tolerant cardinality counting), and by the small key sinks behind `list`/`extract`.
+/// `meta` is a row matching the source's [`Source::meta_schema`], or `None` when the source
+/// declares no schema; only `convert` stores it, every other sink ignores it.
 pub(crate) trait DocSink {
-    fn accept(&mut self, key: &str, html: &str);
+    fn accept(&mut self, key: &str, html: &str, meta: Option<MetaRow>);
 }
 
 /// Pass-1 tally, reported after a source is opened.
@@ -51,10 +58,18 @@ pub(crate) trait Source: Sync {
     /// Number of bundle-sized runs.
     fn run_count(&self) -> usize;
 
-    /// Drive run `rank`, calling `sink.accept(key, html)` for each readable document in
+    /// Drive run `rank`, calling `sink.accept(key, html, meta)` for each readable document in
     /// order. Returns the count of documents whose bytes could not be read or decoded
     /// (distinct from later parse failures, which the sink itself counts).
     fn drive_run(&self, rank: usize, sink: &mut dyn DocSink) -> u32;
+
+    /// The per-document metadata columns this source can supply (ADR 0009), if any. When
+    /// `Some`, every `accept` call passes a row in this schema's field order and `convert`
+    /// stores the table inside the archive. WARC supplies fetch date + HTTP status (the key
+    /// already is the URL); ZIM and directory sources have no crawl metadata.
+    fn meta_schema(&self) -> Option<MetaSchema> {
+        None
+    }
 
     fn stats(&self) -> &SourceStats;
 }

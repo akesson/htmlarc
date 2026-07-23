@@ -109,6 +109,72 @@ fn wordlist_is_nfc_normalized_deduped_and_skips_blanks() {
     assert_eq!(set.len(), 2);
 }
 
+/// End-to-end: converting a WARC stores `WARC-Date` + HTTP status as typed metadata columns
+/// (ADR 0009) inside the archive, row-aligned with the stored documents.
+#[test]
+fn convert_warc_stores_metadata_columns() {
+    use flate2::{Compression, write::GzEncoder};
+    use htmlarc_archive::MetaColumn;
+    use std::io::Write;
+
+    const DATE: &str = "2026-06-05T21:48:11Z";
+    let record = |uri: &str, body: &str| -> Vec<u8> {
+        let http = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n{body}");
+        format!(
+            "WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: {uri}\r\nWARC-Date: {DATE}\r\nContent-Length: {}\r\n\r\n{http}\r\n\r\n",
+            http.len()
+        )
+        .into_bytes()
+    };
+    let mut file = Vec::new();
+    for (uri, body) in [
+        ("http://a/", "<html><body>A</body></html>"),
+        ("http://b/", "<html><body>B</body></html>"),
+    ] {
+        let mut e = GzEncoder::new(Vec::new(), Compression::fast());
+        e.write_all(&record(uri, body)).unwrap();
+        file.extend_from_slice(&e.finish().unwrap());
+    }
+    let dir = std::env::temp_dir();
+    let input = dir.join(format!("htmlarc-meta-e2e-{}.warc.gz", std::process::id()));
+    let output = dir.join(format!("htmlarc-meta-e2e-{}.htmlarc", std::process::id()));
+    std::fs::write(&input, &file).unwrap();
+
+    crate::convert::run(crate::args::Convert {
+        input: input.clone(),
+        output: output.clone(),
+        list: None,
+        limit: None,
+        format: None,
+    })
+    .expect("convert should succeed");
+
+    let arch = htmlarc_archive::HtmlArchive::read_from(&output).expect("archive should load");
+    std::fs::remove_file(&input).ok();
+    std::fs::remove_file(&output).ok();
+
+    let meta = arch.meta().expect("a WARC convert stores a metadata table");
+    assert_eq!(
+        meta.names,
+        vec!["fetched".to_string(), "status".to_string()]
+    );
+    assert_eq!(meta.row_count(), 2);
+    match &meta.columns[0] {
+        MetaColumn::Str { ends, bytes, valid } => {
+            assert_eq!(valid, &vec![1, 1]);
+            assert_eq!(&bytes[..ends[0] as usize], DATE.as_bytes());
+        }
+        other => panic!("expected a Str column for 'fetched', got {other:?}"),
+    }
+    match &meta.columns[1] {
+        MetaColumn::Int { values, valid } => {
+            assert_eq!(values, &vec![200, 200]);
+            assert_eq!(valid, &vec![1, 1]);
+        }
+        other => panic!("expected an Int column for 'status', got {other:?}"),
+    }
+}
+
 /// End-to-end against a real ZIM. Ignored by default because no `.zim` fixture is committed
 /// (the openzim test suite is unlicensed and can't be redistributed here). To run it, fetch a
 /// small ZIM first with `cli/htmlarc-convert/fetch-testdata.sh`, then:

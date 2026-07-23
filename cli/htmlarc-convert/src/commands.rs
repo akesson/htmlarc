@@ -4,13 +4,13 @@
 use anyhow::{Result, bail};
 
 use crate::args::{Extract, List};
-use crate::source::{DocSink, open_source};
+use crate::source::{DocSink, MetaRow, open_source};
 
 /// Prints each document's key, one per line.
 struct ListSink;
 
 impl DocSink for ListSink {
-    fn accept(&mut self, key: &str, _html: &str) {
+    fn accept(&mut self, key: &str, _html: &str, _meta: Option<MetaRow>) {
         println!("{key}");
     }
 }
@@ -31,7 +31,7 @@ struct ExtractSink<'a> {
 }
 
 impl DocSink for ExtractSink<'_> {
-    fn accept(&mut self, key: &str, html: &str) {
+    fn accept(&mut self, key: &str, html: &str, _meta: Option<MetaRow>) {
         if self.html.is_none() && key == self.want {
             self.html = Some(html.to_string());
         }
