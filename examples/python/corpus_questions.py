@@ -6,7 +6,8 @@
 
 Opens the archive built by recipe 1 (building it first if missing) and answers:
 
-  Q1  where do these pages link? (top external domains, joined with the sidecar)
+  Q1  where do these pages link? (top external domains; the typed metadata
+      columns ride along on every scan_table row — no sidecar, no join)
   Q2  how many pages ship JSON-LD structured data, and of which @type?
   Q3  how many headings / links are there in total? (counted in Rust, no strings)
 
@@ -39,13 +40,17 @@ if not ARCHIVE.exists():
     warc_to_archive.build()
 
 arc = timed("open archive (mmap)", lambda: htmlarc.open(ARCHIVE))
-meta = pl.read_parquet(DATA / "cc_sample_meta.parquet")
+print(f"  metadata columns in the archive: {arc.meta_schema}")
 
 print("\nQ1: top external link targets")
-links = timed("scan_table('a[href]')", lambda: pl.DataFrame(arc.scan_table("a[href]", attrs=["href"])))
+# meta=[...] puts each row's document metadata on the row itself, typed - the
+# int64 status stays an int64 all the way into the dataframe. No join.
+links = timed(
+    "scan_table('a[href]', meta=['url', 'status'])",
+    lambda: pl.DataFrame(arc.scan_table("a[href]", attrs=["href"], meta=["url", "status"])),
+)
 top = (
-    links.join(meta, on="key")  # sidecar join: every row knows its source url + fetch date
-    .with_columns(domain=pl.col("href").str.extract(r"^https?://([^/]+)", 1))
+    links.with_columns(domain=pl.col("href").str.extract(r"^https?://([^/]+)", 1))
     .drop_nulls("domain")
     .group_by("domain")
     .len()

@@ -42,20 +42,20 @@ def build() -> None:
 
     zim_path = download_zim()
     zim = ZimArchive(zim_path)
-    builder, n = htmlarc.ArchiveBuilder(), 0
+    n = 0
     t0 = time.perf_counter()
-    for i in range(zim.all_entry_count):
-        # python-libzim has no public "iterate all entries" API; indexing by
-        # entry id via this private method is the accepted community idiom.
-        entry = zim._get_entry_by_id(i)
-        if entry.is_redirect:
-            continue
-        item = entry.get_item()
-        if not item.mimetype.startswith("text/html"):
-            continue
-        builder.add(f"{entry.title or entry.path}#{i}", bytes(item.content).decode("utf-8", "replace"))
-        n += 1
-    builder.write(ARCHIVE)
+    with htmlarc.ArchiveBuilder(ARCHIVE) as builder:
+        for i in range(zim.all_entry_count):
+            # python-libzim has no public "iterate all entries" API; indexing by
+            # entry id via this private method is the accepted community idiom.
+            entry = zim._get_entry_by_id(i)
+            if entry.is_redirect:
+                continue
+            item = entry.get_item()
+            if not item.mimetype.startswith("text/html"):
+                continue
+            builder.add(f"{entry.title or entry.path}#{i}", bytes(item.content).decode("utf-8", "replace"))
+            n += 1
     print(f"{n} entries parsed+packed in {time.perf_counter() - t0:.1f}s: "
           f"{zim_path.name} ({zim_path.stat().st_size / 1e6:.0f} MB) -> "
           f"{ARCHIVE.name} ({ARCHIVE.stat().st_size / 1e6:.0f} MB)")
