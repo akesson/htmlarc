@@ -20,7 +20,7 @@
 use std::path::Path;
 
 use super::counter::count_doc;
-use crate::source::{DocSink, open_source};
+use crate::source::{DocSink, MetaRow, open_source};
 
 const SUB: usize = 1000; // sub-frame size for the "smaller bundle" variant
 const DICT_MAX: usize = 112_640; // 110 KiB trained-dict cap
@@ -39,7 +39,7 @@ struct Collect {
     docs: Vec<Vec<u8>>,
 }
 impl DocSink for Collect {
-    fn accept(&mut self, _key: &str, html: &str) {
+    fn accept(&mut self, _key: &str, html: &str, _meta: Option<MetaRow>) {
         let s = count_doc(html, self.lane_b);
         let bytes = if self.lane_b {
             s.lane_b

@@ -100,7 +100,7 @@ impl Source for DirSource {
         let mut read_failed = 0u32;
         for (key, path) in &self.runs[rank] {
             match std::fs::read(path) {
-                Ok(bytes) => sink.accept(key, &String::from_utf8_lossy(&bytes)),
+                Ok(bytes) => sink.accept(key, &String::from_utf8_lossy(&bytes), None),
                 Err(e) => {
                     eprintln!("could not read {}: {e}", path.display());
                     read_failed += 1;
