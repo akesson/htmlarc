@@ -17,8 +17,8 @@ use arrow_array::{
 use arrow_buffer::{BooleanBuffer, Buffer, NullBufferBuilder, OffsetBuffer, ScalarBuffer};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use htmlarc_archive::{
-    ArchiveErr, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue, MmapArchive,
-    OwnedDoc, archived_value,
+    ArchiveAppender, ArchiveErr, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue,
+    MmapArchive, OwnedDoc, archived_value,
 };
 use htmlarc_dom::prelude::{
     DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
@@ -1825,13 +1825,36 @@ impl ArchiveIter {
 /// then carry `meta={...}` (missing fields are null). Readers get them back via
 /// `Document.meta`, `Archive.meta_schema`, `Archive.meta_table()` and
 /// `scan_table(meta=[...])` — no sidecar file, no join.
+///
+/// `htmlarc.append(path)` returns this same builder opened over an *existing*
+/// archive: adds stream into the file in place (duplicates of existing keys are
+/// skipped, the metadata table is continued) and `write()` commits.
 #[pyclass(module = "htmlarc")]
 pub struct ArchiveBuilder {
-    builder: Option<HtmlArchiveBuilder>,
+    builder: Option<BuilderInner>,
     path: Option<PathBuf>,
     skip_on_error: bool,
     skipped: Vec<String>,
     meta_schema: Option<MetaSchema>,
+}
+
+/// The two backings of the Python `ArchiveBuilder`: building a fresh archive in memory,
+/// or streaming an in-place append into an existing one (ADR 0010).
+enum BuilderInner {
+    Build(HtmlArchiveBuilder),
+    /// Boxed: the appender carries a writer with buffers and a zstd context (~500 B),
+    /// dwarfing the build variant.
+    Append(Box<ArchiveAppender>),
+}
+
+fn parse_on_error(on_error: &str) -> PyResult<bool> {
+    match on_error {
+        "raise" => Ok(false),
+        "skip" => Ok(true),
+        other => Err(PyValueError::new_err(format!(
+            "on_error must be 'raise' or 'skip', got {other:?}"
+        ))),
+    }
 }
 
 #[pymethods]
@@ -1843,15 +1866,7 @@ impl ArchiveBuilder {
         on_error: &str,
         meta_schema: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
-        let skip_on_error = match on_error {
-            "raise" => false,
-            "skip" => true,
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "on_error must be 'raise' or 'skip', got {other:?}"
-                )));
-            }
-        };
+        let skip_on_error = parse_on_error(on_error)?;
         let mut builder = HtmlArchiveBuilder::default();
         let meta_schema = match meta_schema {
             Some(dict) => {
@@ -1864,7 +1879,7 @@ impl ArchiveBuilder {
             None => None,
         };
         Ok(ArchiveBuilder {
-            builder: Some(builder),
+            builder: Some(BuilderInner::Build(builder)),
             path,
             skip_on_error,
             skipped: Vec::new(),
@@ -1926,17 +1941,30 @@ impl ArchiveBuilder {
     }
 
     /// Write the archive and consume the builder. `path` may be omitted when it was
-    /// given at construction; passing one here overrides the constructor's.
+    /// given at construction; passing one here overrides the constructor's. An
+    /// appender (`htmlarc.append`) always commits back to its own file — passing a
+    /// different `path` raises `ValueError`.
     #[pyo3(signature = (path = None))]
     fn write(&mut self, path: Option<PathBuf>) -> PyResult<()> {
-        let path = path.or_else(|| self.path.clone()).ok_or_else(|| {
-            PyValueError::new_err("no path: pass write(path) or construct ArchiveBuilder(path)")
-        })?;
-        let builder = self
-            .builder
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("archive already written"))?;
-        builder.write_to(path).map_err(archive_err)
+        match self.builder.take() {
+            None => Err(PyRuntimeError::new_err("archive already written")),
+            Some(BuilderInner::Build(builder)) => {
+                let path = path.or_else(|| self.path.clone()).ok_or_else(|| {
+                    PyValueError::new_err(
+                        "no path: pass write(path) or construct ArchiveBuilder(path)",
+                    )
+                })?;
+                builder.write_to(path).map_err(archive_err)
+            }
+            Some(BuilderInner::Append(appender)) => {
+                if path.is_some() && path != self.path {
+                    return Err(PyValueError::new_err(
+                        "append() commits back to its own file; call write() without a path",
+                    ));
+                }
+                appender.commit().map_err(archive_err)
+            }
+        }
     }
 
     /// Keys of documents dropped by `on_error="skip"`, in add order. Empty when
@@ -1992,21 +2020,53 @@ impl ArchiveBuilder {
     }
 
     fn add_parsed(
-        builder: &mut HtmlArchiveBuilder,
+        builder: &mut BuilderInner,
         key: &str,
         doc: HtmlDoc,
         row: Option<Vec<Option<MetaValue>>>,
     ) -> PyResult<()> {
-        match row {
-            Some(row) => builder
+        match (builder, row) {
+            (BuilderInner::Build(b), Some(row)) => b
                 .add_html_with_meta(key.to_string(), doc, row)
                 .map_err(|e| PyValueError::new_err(e.to_string())),
-            None => {
-                builder.add_html(key.to_string(), doc);
+            (BuilderInner::Build(b), None) => {
+                b.add_html(key.to_string(), doc);
                 Ok(())
             }
+            (BuilderInner::Append(a), Some(row)) => a
+                .add_html_with_meta(key.to_string(), doc, row)
+                .map(|_| ())
+                .map_err(|e| PyValueError::new_err(e.to_string())),
+            (BuilderInner::Append(a), None) => a
+                .add_html(key.to_string(), doc)
+                .map(|_| ())
+                .map_err(archive_err),
         }
     }
+}
+
+/// Open an existing `.htmlarc` for **in-place appending**: returns an [`ArchiveBuilder`]
+/// whose adds stream into the file (memory stays flat regardless of archive size) and whose
+/// `write()` commits the new footer. Keys already present are skipped (first wins), and the
+/// archive's metadata schema, if any, carries over — `add(meta={...})` continues the table.
+///
+/// Crash-safe: until `write()` returns, the file still reads as the pre-append archive,
+/// and an abandoned append is healed by the next one. Each append leaves the previous
+/// footer behind as a few dead bytes; re-pack to reclaim them. Don't append while another
+/// process is appending; concurrent *readers* of the already-open file are fine.
+#[pyfunction]
+#[pyo3(signature = (path, *, on_error = "raise"))]
+fn append(path: PathBuf, on_error: &str) -> PyResult<ArchiveBuilder> {
+    let skip_on_error = parse_on_error(on_error)?;
+    let appender = ArchiveAppender::open(&path).map_err(archive_err)?;
+    let meta_schema = appender.meta_schema().cloned();
+    Ok(ArchiveBuilder {
+        builder: Some(BuilderInner::Append(Box::new(appender))),
+        path: Some(path),
+        skip_on_error,
+        skipped: Vec::new(),
+        meta_schema,
+    })
 }
 
 /// Parse an HTML string into a queryable [`Document`].
@@ -2043,5 +2103,6 @@ fn htmlarc(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Selector>()?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(open, m)?)?;
+    m.add_function(wrap_pyfunction!(append, m)?)?;
     Ok(())
 }
