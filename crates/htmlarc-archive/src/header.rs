@@ -3,12 +3,13 @@
 //! Layout (16 bytes — a multiple of 8 so the first rkyv doc blob that follows keeps its
 //! 8-byte alignment when accessed at `&bytes[HEADER_LEN..]`):
 //!
-//! | bytes  | meaning                                    |
-//! |--------|--------------------------------------------|
-//! | 0..8   | magic `b"HTMLARC1"`                        |
-//! | 8      | format version (12 = metadata columns)     |
-//! | 9      | endianness (0 = little-endian)             |
-//! | 10..16 | reserved (zero)                            |
+//! | bytes  | meaning                                              |
+//! |--------|------------------------------------------------------|
+//! | 0..8   | magic `b"HTMLARC1"`                                  |
+//! | 8      | format version (12 = metadata columns)               |
+//! | 9      | endianness (0 = little-endian)                       |
+//! | 10..16 | u48 LE: last-good trailer offset while an in-place   |
+//! |        | append is in flight (ADR 0010); 0 otherwise          |
 //!
 //! Version 12 adds an optional typed per-document metadata table (ADR 0009): a columnar
 //! rkyv blob in the footer region located via the trailer's `meta_offset`/`meta_len`
@@ -61,4 +62,32 @@ pub(crate) fn validate_header(bytes: &[u8]) -> Result<(), ArchiveErr> {
         )));
     }
     Ok(())
+}
+
+/// The byte offset within the header where the append-recovery offset lives.
+pub(crate) const PENDING_TRAILER_AT: usize = 10;
+
+/// The staged last-good trailer offset (header bytes `10..16`, u48 LE), set for the duration
+/// of an in-place append (ADR 0010). `None` when zero — no append in flight, the tail trailer
+/// is authoritative.
+pub(crate) fn pending_trailer_offset(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < HEADER_LEN {
+        return None;
+    }
+    let mut a = [0u8; 8];
+    a[..6].copy_from_slice(&bytes[PENDING_TRAILER_AT..HEADER_LEN]);
+    let off = u64::from_le_bytes(a);
+    (off != 0).then_some(off)
+}
+
+/// The 6-byte u48 LE encoding of `offset` for header bytes `10..16`. Errors only past 256 TiB.
+pub(crate) fn pending_trailer_bytes(offset: u64) -> Result<[u8; 6], ArchiveErr> {
+    if offset >= 1 << 48 {
+        return Err(ArchiveErr::Validate(
+            "archive too large for an in-place append recovery offset".into(),
+        ));
+    }
+    let mut b = [0u8; 6];
+    b.copy_from_slice(&offset.to_le_bytes()[..6]);
+    Ok(b)
 }

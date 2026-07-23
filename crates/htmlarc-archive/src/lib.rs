@@ -1,3 +1,4 @@
+mod append;
 mod archive;
 mod archive_trait;
 mod builder;
@@ -14,6 +15,7 @@ mod mmap;
 mod trailer;
 mod writer;
 
+pub use append::ArchiveAppender;
 pub use archive::HtmlArchive;
 pub use archive_trait::{Archive, ArchiveEntry};
 pub use builder::HtmlArchiveBuilder;

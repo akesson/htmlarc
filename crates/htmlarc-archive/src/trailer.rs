@@ -66,15 +66,38 @@ impl Trailer {
         b
     }
 
-    /// Read and validate the trailer from the tail of a whole-file byte slice. Bounds-checks
-    /// every footer region so a corrupt/truncated file becomes an `Err`, never a panic.
+    /// Read and validate the trailer from the tail of a whole-file byte slice, falling back to
+    /// the header's staged recovery offset (ADR 0010) when the tail is not a valid trailer —
+    /// which is exactly the state a crashed or in-progress in-place append leaves behind. The
+    /// recovered trailer describes the pre-append archive; bytes past it are ignored garbage.
     pub(crate) fn read_from_tail(file: &[u8]) -> Result<Trailer, ArchiveErr> {
         if file.len() < HEADER_LEN + TRAILER_LEN {
             return Err(ArchiveErr::Validate(
                 "file too small to contain a v4 trailer".into(),
             ));
         }
-        let tail = &file[file.len() - TRAILER_LEN..];
+        match Self::read_at(file, file.len() - TRAILER_LEN) {
+            Ok(t) => Ok(t),
+            Err(e) => match crate::header::pending_trailer_offset(file) {
+                Some(off) => Self::read_at(file, off as usize).map_err(|_| e),
+                None => Err(e),
+            },
+        }
+    }
+
+    /// Read and validate the trailer at `trailer_offset`. Bounds-checks every footer region
+    /// against that offset so a corrupt/truncated file becomes an `Err`, never a panic.
+    pub(crate) fn read_at(file: &[u8], trailer_offset: usize) -> Result<Trailer, ArchiveErr> {
+        if trailer_offset < HEADER_LEN
+            || trailer_offset
+                .checked_add(TRAILER_LEN)
+                .is_none_or(|end| end > file.len())
+        {
+            return Err(ArchiveErr::Validate(
+                "trailer offset lies outside the file".into(),
+            ));
+        }
+        let tail = &file[trailer_offset..trailer_offset + TRAILER_LEN];
         if &tail[96..104] != TRAILER_MAGIC {
             return Err(ArchiveErr::Validate(
                 "missing .htmlarc footer magic (truncated or not a v4 archive)".into(),
@@ -101,7 +124,7 @@ impl Trailer {
         };
 
         // Every footer region must live in the data area, between the header and the trailer.
-        let footer_start = (file.len() - TRAILER_LEN) as u64;
+        let footer_start = trailer_offset as u64;
         for (off, len, what) in [
             (t.doc_table_offset, t.doc_table_len, "doc table"),
             (t.bundle_table_offset, t.bundle_table_len, "bundle table"),
