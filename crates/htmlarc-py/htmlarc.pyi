@@ -3,6 +3,7 @@
 # are the authoritative behavior reference; the docstrings here mirror them so
 # editors (which read only this stub, never the compiled module) show them on
 # hover.
+"""Query pre-parsed HTML document archives (``.htmlarc``) with CSS selectors."""
 
 from collections.abc import Iterator, Sequence
 from os import PathLike
@@ -10,10 +11,10 @@ from os import PathLike
 __version__: str
 
 class Selector:
-    """A compiled CSS selector list — the ``re.compile`` of CSS.
+    """A compiled CSS selector list.
 
     Compile once and reuse across ``select()`` calls to skip re-parsing the
-    selector for every document.
+    selector for every document — the equivalent of ``re.compile`` for CSS.
     """
 
     def __init__(self, css: str) -> None: ...
@@ -22,11 +23,11 @@ class Selector:
         """The selector source text."""
 
 class Filter:
-    """Include/exclude predicate over archive documents, for ``Archive.matching()``.
+    """An include/exclude predicate over archive documents, for ``Archive.matching()``.
 
     A document is kept when it satisfies every include condition (or there are
     none) and no exclude condition. Multiple selectors in a list AND together;
-    a comma inside one selector string is a CSS selector list, i.e. OR. A pure
+    a comma *inside* one selector string is a CSS selector list, i.e. OR. A pure
     key filter (no css) never touches document bodies at all.
     """
 
@@ -40,7 +41,12 @@ class Filter:
     ) -> None: ...
 
 class Document:
-    """A parsed HTML document, from ``parse()`` or an ``Archive``."""
+    """A parsed HTML document.
+
+    Obtained from ``htmlarc.parse(html)`` or by indexing an ``Archive``; there
+    is no direct constructor. All access goes through elements, starting at
+    ``root``.
+    """
 
     @property
     def key(self) -> str | None:
@@ -73,8 +79,8 @@ class Document:
 
     def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The number of elements matching the selector; with ``attr``, only
-        elements where that attribute is present. Counts without materializing
-        elements or text."""
+        elements where that attribute is present (``"class"`` resolves like
+        ``Element.get()``). Counts without materializing elements or text."""
 
     def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]:
         """The rendered subtree of every element matching the selector, in
@@ -85,7 +91,11 @@ class Document:
         the raw compact form."""
 
 class Element:
-    """An element within a ``Document`` — a cheap (document, node index) handle."""
+    """An element within a ``Document``.
+
+    A lightweight handle (document reference + node index); creating and
+    dropping elements is cheap and never copies the document.
+    """
 
     @property
     def document(self) -> Document:
@@ -164,12 +174,12 @@ class Element:
 
     def select_attr(self, selector: str | Selector, name: str) -> list[str | None]:
         """The named attribute of every matching descendant element (``None``
-        where absent), in document order."""
+        where absent), in document order. ``"class"`` resolves like ``get()``."""
 
     def select_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The number of matching descendant elements; with ``attr``, only
-        elements where that attribute is present. Counts without materializing
-        elements or text."""
+        elements where that attribute is present (``"class"`` resolves like
+        ``get()``). Counts without materializing elements or text."""
 
     def select_html(self, selector: str | Selector, pretty: bool = False) -> list[str]:
         """The rendered subtree of every matching descendant element, in
@@ -183,7 +193,7 @@ class Element:
         default is the raw compact form."""
 
 class Archive:
-    """A read-only, memory-mapped ``.htmlarc`` archive of pre-parsed documents.
+    """A read-only, memory-mapped ``.htmlarc`` archive.
 
     Documents are stored pre-parsed: indexing returns a queryable ``Document``
     with no HTML parsing at read time. Index by position (``archive[0]``) or
@@ -237,9 +247,11 @@ class Archive:
 
     def scan_count(self, selector: str | Selector, attr: str | None = None) -> int:
         """The total number of matching elements across every document; with
-        ``attr``, only elements where that attribute is present. Runs across
+        ``attr``, only elements where that attribute is present, like
+        ``Document.select_count`` summed over the whole archive. Runs across
         all cores with the GIL released and returns a single int — nothing is
-        marshalled per match and counting never touches document text."""
+        marshalled per match, and counting never touches document text, so it
+        stays on the select-only fast path."""
 
     def scan_table(
         self,
@@ -252,32 +264,44 @@ class Archive:
         column (the document key, repeated once per matched element), an
         optional ``text`` column (each element's text content, when
         ``text=True``), and one nullable column per name in ``attrs`` (the
-        attribute value, ``null`` where the matched element lacks it). One row
-        per matched element, ordered by document then match.
+        attribute value, ``null`` where the matched element lacks it;
+        ``"class"`` is synthesized space-joined like ``Element.get``). One row
+        per matched element, ordered by document then match — the same ordering
+        as ``scan_text``/``scan_attr``. With ``text=False`` and no ``attrs``,
+        it returns a one-column inventory of which document each match came
+        from.
 
-        The sweep runs across all cores with the GIL released and hands the
-        Arrow buffers to Python zero-copy — no per-match Python object is
+        The sweep runs across all cores with the GIL released and assembles the
+        Arrow buffers entirely off-GIL, handing them to Python zero-copy over
+        the Arrow PyCapsule stream interface (``pyarrow.table(r)``,
+        ``polars.DataFrame(r)``, duckdb, ...). No per-match Python object is
         created, so this is far faster than ``scan_text``/``scan_attr`` when
-        extracting from every document. Consume with ``polars.DataFrame(r)``,
-        ``pyarrow.table(r)``, duckdb, … Raises ``ValueError`` if a requested
-        attribute name collides with ``key``/``text`` or duplicates another."""
+        extracting from every document. Raises ``ValueError`` if a requested
+        attribute name collides with the ``key``/``text`` columns or duplicates
+        another (names are matched case-insensitively)."""
 
 class ArrowResult:
-    """A columnar ``scan_table`` result, exported zero-copy over the Arrow PyCapsule
-    stream interface: consume with ``pyarrow.table(r)``, ``polars.DataFrame(r)``,
-    ``pandas.DataFrame.from_arrow(r)``, ``duckdb.sql("... from r")``, or any other
-    ``__arrow_c_stream__`` reader. Re-consumable.
+    """A columnar scan result (``Archive.scan_table``), exported zero-copy over
+    the Arrow PyCapsule *stream* interface. Consume it with
+    ``pyarrow.table(r)``, ``polars.DataFrame(r)``,
+    ``pandas.DataFrame.from_arrow(r)``, ``duckdb.sql("... from r")``, or any
+    other ``__arrow_c_stream__`` reader — htmlarc itself carries no
+    Python-side Arrow dependency. The result is re-consumable: each call
+    exports a fresh stream over the same buffers.
     """
 
     def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
         """Export the table as an Arrow C stream (a PyCapsule named
         ``"arrow_array_stream"``). The ``requested_schema`` hint is accepted
-        and ignored — the schema is fixed by the scan."""
+        and ignored — the schema is fixed by the scan, which the PyCapsule
+        spec permits."""
 
     def __len__(self) -> int:
         """The total number of rows (matched elements) across all batches."""
 
 class ArchiveIter:
+    """Iterator over an ``Archive``'s documents."""
+
     def __iter__(self) -> ArchiveIter: ...
     def __next__(self) -> Document: ...
 
@@ -298,7 +322,7 @@ class ArchiveBuilder:
     def add_document(self, key: str, doc: Document) -> None:
         """Add an already-parsed ``Document`` under ``key`` without re-parsing —
         the path for crawlers that parse each page anyway (e.g. for link
-        discovery): parse once, query for links, then store the same document.
+        discovery): parse once, query for links, then store the same ``Document``.
 
         Accepts documents from ``parse()``. Documents handed out by an
         ``Archive`` are backed by shared per-bundle storage and can't be
