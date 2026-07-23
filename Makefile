@@ -3,7 +3,7 @@
 # can reproduce any CI failure locally. Run `make` (or `make help`) for the list.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt fmt-check lint test bench ci
+.PHONY: help setup fmt fmt-check lint test bench ci py-dev
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -26,5 +26,11 @@ test: ## Run the test suite with nextest (CI test job)
 
 bench: ## Build the benchmarks without running them (CI bench step)
 	cargo bench --workspace --no-run
+
+py-dev: ## Build the Python wheel and install it + recipe deps into .venv (editor completions)
+	uv venv --allow-existing
+	uvx maturin build --release -m crates/htmlarc-py/Cargo.toml
+	uv pip install --reinstall-package htmlarc target/wheels/htmlarc-*-abi3-*.whl
+	uv pip install requests polars warcio trafilatura libzim
 
 ci: fmt-check lint test bench ## Run every CI check locally
