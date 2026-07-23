@@ -18,7 +18,7 @@ finds the next links, so the recipe has no bs4/lxml dependency — and
 `add_document` stores the already-parsed page, so each page is parsed once.
 """
 
-import sys
+import argparse
 import time
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -59,13 +59,16 @@ def first_text(arc: htmlarc.Archive, selector: str) -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 60
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--limit", type=int, default=60, help="pages to crawl (default 60)")
+    args = ap.parse_args()
     if not ARCHIVE.exists():
-        crawl(limit)
+        crawl(args.limit)
 
     arc = htmlarc.open(ARCHIVE)
 
     # 1. the audit table: one scan per field, joined on key
+    keys = arc.keys()
     fields = {
         "title": first_text(arc, "head > title"),
         "h1": first_text(arc, "h1"),
@@ -73,8 +76,7 @@ if __name__ == "__main__":
         "price": first_text(arc, "p.price_color"),
     }
     audit = pl.DataFrame(
-        {"key": arc.keys()}
-        | {name: [vals.get(k) for k in arc.keys()] for name, vals in fields.items()}
+        {"key": keys, **{name: [vals.get(k) for k in keys] for name, vals in fields.items()}}
     )
     print(audit.head(8))
 
