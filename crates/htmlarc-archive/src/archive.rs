@@ -31,6 +31,8 @@ pub struct HtmlArchive {
     /// `[bundle_starts[b], bundle_starts[b + 1])`. Always has `bundles.len() + 1` entries, so the
     /// last element is the total document count.
     bundle_starts: Vec<usize>,
+    /// The typed per-document metadata table (ADR 0009), row `i` = flat position `i`.
+    meta: Option<crate::meta::MetaTable>,
 }
 
 impl HtmlArchive {
@@ -202,7 +204,27 @@ impl HtmlArchive {
             ));
         }
 
-        Ok(Self::from_bundles(bundles))
+        // The typed metadata table (ADR 0009), if present — deserialized to owned so the
+        // in-memory archive round-trips it through `write_to`.
+        let meta = if trailer.meta_len > 0 {
+            let s = bounded(
+                &data,
+                trailer.meta_offset,
+                trailer.meta_len,
+                "metadata table",
+            )?;
+            let archived = rkyv::access::<crate::meta::ArchivedMetaTable, Error>(s)
+                .map_err(|e| ArchiveErr::Validate(e.to_string()))?;
+            crate::meta::validate_archived(archived, docs.len())?;
+            Some(
+                rkyv::from_bytes::<crate::meta::MetaTable, Error>(s)
+                    .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self::from_bundles(bundles).with_meta(meta))
     }
 
     /// Iterate every document, **bundle→doc order**.
@@ -280,7 +302,20 @@ impl HtmlArchive {
             bundles,
             sorted,
             bundle_starts,
+            meta: None,
         }
+    }
+
+    /// Attach (or clear) the typed metadata table. Row `i` must describe the document at flat
+    /// position `i`; the writer validates the row count on save.
+    pub fn with_meta(mut self, meta: Option<crate::meta::MetaTable>) -> Self {
+        self.meta = meta;
+        self
+    }
+
+    /// The typed metadata table (ADR 0009), or `None` when the archive carries none.
+    pub fn meta(&self) -> Option<&crate::meta::MetaTable> {
+        self.meta.as_ref()
     }
 
     /// Map a flat (bundle→doc) position to its `(bundle, slot)`.
@@ -297,6 +332,7 @@ impl HtmlArchive {
     /// block (relocation) rather than cloned.
     pub fn write_to<P: AsRef<Path>>(self, path: P) -> Result<(), ArchiveErr> {
         let mut writer = ArchiveWriter::create(path)?;
+        writer.set_meta_table(self.meta);
         for bundle in self.bundles {
             for entry in bundle.into_entries() {
                 writer.push_entry(entry)?;
