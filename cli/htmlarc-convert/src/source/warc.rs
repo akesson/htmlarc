@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use flate2::bufread::GzDecoder;
-use htmlarc_archive::BUNDLE_CAP;
+use htmlarc_archive::{BUNDLE_CAP, MetaSchema, MetaType, MetaValue};
 
 use super::{DocSink, Source, SourceStats};
 
@@ -41,6 +41,10 @@ struct Loc {
     member_offset: u64,
     in_member_ord: u32,
     key: String,
+    /// `WARC-Date` and HTTP status, captured in pass 1 so pass 2 need not re-parse headers;
+    /// they become the archive's metadata columns (ADR 0009).
+    fetched: Option<String>,
+    status: Option<i64>,
 }
 
 pub(crate) struct WarcSource {
@@ -79,6 +83,8 @@ pub(crate) fn gather_warc_files(input: &Path) -> Result<Vec<PathBuf>> {
 struct Record {
     warc_type: String,
     target_uri: String,
+    /// `WARC-Date` header verbatim (empty when absent).
+    date: String,
     block: Vec<u8>,
 }
 
@@ -116,6 +122,7 @@ fn read_record<R: BufRead>(r: &mut R) -> Result<Option<Record>> {
     let mut content_length = 0usize;
     let mut warc_type = String::new();
     let mut target_uri = String::new();
+    let mut date = String::new();
     loop {
         if !read_line(r, &mut line)? || line.is_empty() {
             break; // blank line ends the header block
@@ -133,6 +140,7 @@ fn read_record<R: BufRead>(r: &mut R) -> Result<Option<Record>> {
             "content-length" => content_length = value.parse().unwrap_or(0),
             "warc-type" => warc_type = value.to_ascii_lowercase(),
             "warc-target-uri" => target_uri = value,
+            "warc-date" => date = value,
             _ => {}
         }
     }
@@ -145,8 +153,16 @@ fn read_record<R: BufRead>(r: &mut R) -> Result<Option<Record>> {
     Ok(Some(Record {
         warc_type,
         target_uri,
+        date,
         block,
     }))
+}
+
+/// The HTTP status code from a `response` record's status line (`HTTP/1.1 200 OK`), if parsable.
+fn http_status(rec: &Record) -> Option<i64> {
+    let line_end = find(&rec.block, b"\r\n")?;
+    let line = std::str::from_utf8(&rec.block[..line_end]).ok()?;
+    line.split_whitespace().nth(1)?.parse().ok()
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -306,11 +322,14 @@ impl WarcSource {
                     stats.collapsed += 1;
                     continue;
                 }
+                let status = http_status(&rec);
                 locs.push(Loc {
                     file_idx,
                     member_offset,
                     in_member_ord,
                     key: rec.target_uri,
+                    fetched: (!rec.date.is_empty()).then_some(rec.date),
+                    status,
                 });
             }
         }
@@ -375,7 +394,14 @@ impl Source for WarcSource {
                     while i < run.len() && run[i].file_idx == file_idx {
                         let loc = &run[i];
                         match read_body(&mut file, gz, loc) {
-                            Ok(Some(body)) => sink.accept(&loc.key, &body),
+                            Ok(Some(body)) => sink.accept(
+                                &loc.key,
+                                &body,
+                                Some(vec![
+                                    loc.fetched.clone().map(MetaValue::Str),
+                                    loc.status.map(MetaValue::Int),
+                                ]),
+                            ),
                             Ok(None) => {
                                 eprintln!(
                                     "warc: '{}' no longer readable at its recorded offset",
@@ -403,6 +429,17 @@ impl Source for WarcSource {
         read_failed
     }
 
+    /// The key already is the `WARC-Target-URI`, so the columns carry what the key can't:
+    /// when the page was fetched and with what HTTP status.
+    fn meta_schema(&self) -> Option<MetaSchema> {
+        Some(MetaSchema {
+            fields: vec![
+                ("fetched".to_string(), MetaType::Str),
+                ("status".to_string(), MetaType::Int),
+            ],
+        })
+    }
+
     fn stats(&self) -> &SourceStats {
         &self.stats
     }
@@ -417,14 +454,35 @@ mod tests {
 
     struct Collect(Vec<(String, String)>);
     impl DocSink for Collect {
-        fn accept(&mut self, key: &str, html: &str) {
+        fn accept(&mut self, key: &str, html: &str, _meta: Option<super::super::MetaRow>) {
             self.0.push((key.to_string(), html.to_string()));
         }
     }
 
+    /// Captures the metadata rows alongside the keys.
+    struct CollectMeta(Vec<(String, Option<super::super::MetaRow>)>);
+    impl DocSink for CollectMeta {
+        fn accept(&mut self, key: &str, _html: &str, meta: Option<super::super::MetaRow>) {
+            self.0.push((key.to_string(), meta));
+        }
+    }
+
+    const DATE: &str = "2026-06-05T21:48:11Z";
+
     /// A minimal WARC `response` record (HTTP headers + body), trailing CRLFs as separators.
     fn record(uri: &str, body: &str) -> Vec<u8> {
         let http = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n{body}");
+        format!(
+            "WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: {uri}\r\nWARC-Date: {DATE}\r\nContent-Length: {}\r\n\r\n{http}\r\n\r\n",
+            http.len()
+        )
+        .into_bytes()
+    }
+
+    /// Like [`record`] but without `WARC-Date` and with an unparsable status line — both
+    /// metadata fields must come back null, never fail the read.
+    fn record_bare(uri: &str, body: &str) -> Vec<u8> {
+        let http = format!("ICY 999x OK\r\nContent-Type: text/html\r\n\r\n{body}");
         format!(
             "WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: {uri}\r\nContent-Length: {}\r\n\r\n{http}\r\n\r\n",
             http.len()
@@ -541,5 +599,45 @@ mod tests {
         assert_eq!(got, want(&[("http://dup/", "<html>first</html>")]));
         assert_eq!(src.stats().prepared, 1);
         assert_eq!(src.stats().collapsed, 1);
+    }
+
+    /// `WARC-Date` and HTTP status captured in pass 1 flow through `drive_run` as a metadata
+    /// row per document; a record missing both yields nulls, not a failure.
+    #[test]
+    fn meta_rows_flow_through() {
+        let mut file = Vec::new();
+        file.extend_from_slice(&gz_member(&record("http://dated/", "<html>a</html>")));
+        file.extend_from_slice(&gz_member(&record_bare("http://bare/", "<html>b</html>")));
+        let path = write_tmp("meta.warc.gz", &file);
+        let src = WarcSource::open(&path, None, None).unwrap();
+
+        let schema = src.meta_schema().expect("warc declares a meta schema");
+        assert_eq!(
+            schema.fields,
+            vec![
+                ("fetched".to_string(), MetaType::Str),
+                ("status".to_string(), MetaType::Int),
+            ]
+        );
+
+        let mut c = CollectMeta(Vec::new());
+        for rank in 0..src.run_count() {
+            src.drive_run(rank, &mut c);
+        }
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(
+            c.0,
+            vec![
+                (
+                    "http://dated/".to_string(),
+                    Some(vec![
+                        Some(MetaValue::Str(DATE.to_string())),
+                        Some(MetaValue::Int(200)),
+                    ]),
+                ),
+                ("http://bare/".to_string(), Some(vec![None, None])),
+            ]
+        );
     }
 }
