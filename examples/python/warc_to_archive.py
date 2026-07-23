@@ -1,17 +1,20 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["requests", "warcio", "polars"]
+# dependencies = ["requests", "warcio"]
 # ///
-"""Recipe 1 — Common Crawl WARC → .htmlarc archive + metadata sidecar.
+"""Recipe 1 — Common Crawl WARC → .htmlarc archive with typed metadata columns.
 
 Streams the first N text/html responses from the latest Common Crawl's first
-WARC file (no full-segment download), decodes the bytes, and builds:
+WARC file (no full-segment download), decodes the bytes, and builds one file:
 
-    data/cc_sample.htmlarc       the queryable pre-parsed archive
-    data/cc_sample_meta.parquet  per-document metadata sidecar (url, date, status)
+    data/cc_sample.htmlarc   pre-parsed DOMs + per-document metadata columns
+                             (url, fetch date, HTTP status, byte size — typed)
 
-The sidecar is the recommended pattern for carrying metadata alongside the DOM:
-`scan_table` results join back to it on the `key` column.
+The metadata rides inside the archive: readers get it back as `doc.meta`,
+`archive.meta_table()` (an Arrow table), or as extra typed columns on any
+`scan_table(...)` result — no sidecar file, no join. `on_error="skip"` drops
+the ~1-in-100k page that exceeds a per-document capacity limit instead of
+crashing the ingest.
 
 Run:  uv run --with <htmlarc wheel or 'htmlarc'> warc_to_archive.py [--limit N]
 """
@@ -21,13 +24,12 @@ import gzip
 import time
 
 import htmlarc
-import polars as pl
 from warcio.archiveiterator import ArchiveIterator
 
 from _common import DATA, decode_html, get
 
 ARCHIVE = DATA / "cc_sample.htmlarc"
-META = DATA / "cc_sample_meta.parquet"
+SCHEMA = {"url": str, "fetched": str, "status": int, "bytes": int}
 
 CDX_API = "https://index.commoncrawl.org/collinfo.json"
 CC_DATA = "https://data.commoncrawl.org"
@@ -48,46 +50,39 @@ def build(limit: int = 500) -> None:
     warc_url = f"{CC_DATA}/{first_warc_path(crawl)}"
     print(f"streaming {limit} docs from {crawl}\n  {warc_url}")
 
-    builder = htmlarc.ArchiveBuilder()
-    meta: list[dict] = []
-    skipped = 0
+    n, total_bytes = 0, 0
     t0 = time.perf_counter()
-    with get(warc_url, stream=True) as r:
-        for rec in ArchiveIterator(r.raw):
-            if rec.rec_type != "response" or rec.http_headers is None:
-                continue
-            ct = rec.http_headers.get_header("Content-Type")
-            if not ct or "text/html" not in ct or rec.http_headers.get_statuscode() != "200":
-                continue
-            body = rec.content_stream().read()
-            if not body:
-                continue
-            url = rec.rec_headers.get_header("WARC-Target-URI")
-            key = f"{url}#{len(meta)}"  # index suffix disambiguates re-fetched URLs
-            try:
-                builder.add(key, decode_html(body, ct))
-            except ValueError:
-                skipped += 1  # pathological page beyond per-document capacity (~1 in 100k)
-                continue
-            meta.append(
-                {
-                    "key": key,
-                    "url": url,
-                    "fetched": rec.rec_headers.get_header("WARC-Date"),
-                    "status": int(rec.http_headers.get_statuscode()),
-                    "bytes": len(body),
-                }
-            )
-            if len(meta) >= limit:
-                break
-
-    builder.write(ARCHIVE)
-    pl.DataFrame(meta).write_parquet(META)
+    with htmlarc.ArchiveBuilder(ARCHIVE, on_error="skip", meta_schema=SCHEMA) as builder:
+        with get(warc_url, stream=True) as r:
+            for rec in ArchiveIterator(r.raw):
+                if rec.rec_type != "response" or rec.http_headers is None:
+                    continue
+                ct = rec.http_headers.get_header("Content-Type")
+                if not ct or "text/html" not in ct or rec.http_headers.get_statuscode() != "200":
+                    continue
+                body = rec.content_stream().read()
+                if not body:
+                    continue
+                url = rec.rec_headers.get_header("WARC-Target-URI")
+                builder.add(
+                    f"{url}#{n}",  # index suffix disambiguates re-fetched URLs
+                    decode_html(body, ct),
+                    meta={
+                        "url": url,
+                        "fetched": rec.rec_headers.get_header("WARC-Date"),
+                        "status": int(rec.http_headers.get_statuscode()),
+                        "bytes": len(body),
+                    },
+                )
+                n += 1
+                total_bytes += len(body)
+                if n >= limit:
+                    break
+        skipped = builder.skipped
     secs = time.perf_counter() - t0
-    mb = sum(m["bytes"] for m in meta) / 1e6
-    print(f"{len(meta)} docs ({mb:.0f} MB html) -> {ARCHIVE.name} "
-          f"({ARCHIVE.stat().st_size / 1e6:.0f} MB) + {META.name} in {secs:.0f}s"
-          + (f" ({skipped} oversized doc(s) skipped)" if skipped else ""))
+    print(f"{n - len(skipped)} docs ({total_bytes / 1e6:.0f} MB html) -> {ARCHIVE.name} "
+          f"({ARCHIVE.stat().st_size / 1e6:.0f} MB, metadata columns included) in {secs:.0f}s"
+          + (f" ({len(skipped)} oversized doc(s) skipped)" if skipped else ""))
     print("next: uv run corpus_questions.py  (answers arrive in milliseconds)")
 
 

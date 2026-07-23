@@ -13,9 +13,11 @@ stores every page in an archive, then:
      answered from the archive with no re-crawl. Screaming Frog-style tools
      need extraction rules declared before crawling; the archive doesn't.
 
-htmlarc itself is the crawler's parser here: `doc.select_attr("a", "href")`
-finds the next links, so the recipe has no bs4/lxml dependency — and
-`add_document` stores the already-parsed page, so each page is parsed once.
+htmlarc itself is the crawler's parser here: `doc.select_attr("a[href]",
+"href", skip_missing=True)` finds the next links (typed `list[str]`, no None
+filtering), so the recipe has no bs4/lxml dependency — and `add_document`
+stores the already-parsed page with its url/status as typed metadata columns,
+so each page is parsed once and the crawl log lives inside the archive.
 """
 
 import argparse
@@ -34,23 +36,25 @@ DELAY_S = 0.15
 
 def crawl(limit: int) -> None:
     DATA.mkdir(exist_ok=True)
-    builder = htmlarc.ArchiveBuilder()
     queue, seen = [START], {START}
     host = urlparse(START).netloc
     n = 0
-    while queue and n < limit:
-        url = queue.pop(0)
-        r = get(url)
-        doc = htmlarc.parse(decode_html(r.content, r.headers.get("Content-Type")))
-        builder.add_document(urlparse(url).path or "/", doc)
-        n += 1
-        for href in doc.select_attr("a[href]", "href"):
-            nxt = urldefrag(urljoin(url, href)).url
-            if urlparse(nxt).netloc == host and nxt not in seen:
-                seen.add(nxt)
-                queue.append(nxt)
-        time.sleep(DELAY_S)
-    builder.write(ARCHIVE)
+    # Keyed by path; the full URL + HTTP status ride along as typed metadata columns.
+    with htmlarc.ArchiveBuilder(ARCHIVE, meta_schema={"url": str, "status": int}) as builder:
+        while queue and n < limit:
+            url = queue.pop(0)
+            r = get(url)
+            doc = htmlarc.parse(decode_html(r.content, r.headers.get("Content-Type")))
+            builder.add_document(
+                urlparse(url).path or "/", doc, meta={"url": url, "status": r.status_code}
+            )
+            n += 1
+            for href in doc.select_attr("a[href]", "href", skip_missing=True):
+                nxt = urldefrag(urljoin(url, href)).url
+                if urlparse(nxt).netloc == host and nxt not in seen:
+                    seen.add(nxt)
+                    queue.append(nxt)
+            time.sleep(DELAY_S)
     print(f"crawled {n} pages -> {ARCHIVE.name}")
 
 
@@ -84,6 +88,9 @@ if __name__ == "__main__":
     print(f"pages missing h1: {audit.filter(pl.col('h1').is_null()).height}")
     dups = audit.drop_nulls("title").group_by("title").len().filter(pl.col("len") > 1)
     print(f"duplicate titles: {dups.height}")
+
+    # the crawl's own metadata lives in the archive too (typed columns, no sidecar):
+    print(pl.DataFrame(arc.meta_table()).head(3))
 
     # 3. two weeks later, NEW questions - answered from the archive, no re-crawl:
     t0 = time.perf_counter()
