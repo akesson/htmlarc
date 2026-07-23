@@ -1,22 +1,24 @@
 //! The fixed-size **trailer** at the end of a `.htmlarc`, so a reader can bootstrap the
 //! whole file by reading just the last [`TRAILER_LEN`] bytes.
 //!
-//! Layout (88 bytes, hand-rolled little-endian like the header — *not* rkyv, so it has no
+//! Layout (104 bytes, hand-rolled little-endian like the header — *not* rkyv, so it has no
 //! alignment requirement and is read straight off the tail):
 //!
-//! | bytes  | meaning                                   |
-//! |--------|-------------------------------------------|
-//! | 0..8   | doc-table blob offset                     |
-//! | 8..16  | doc-table blob length (exact, unpadded)   |
-//! | 16..24 | bundle-table blob offset                  |
-//! | 24..32 | bundle-table blob length                  |
-//! | 32..40 | sort-index blob offset                    |
-//! | 40..48 | sort-index blob length                    |
-//! | 48..56 | dictionary-region offset                  |
-//! | 56..64 | dictionary-region length (0 = no dict)    |
-//! | 64..72 | document count                            |
-//! | 72..80 | bundle count                              |
-//! | 80..88 | magic `b"HARCFOOT"`                       |
+//! | bytes   | meaning                                   |
+//! |---------|-------------------------------------------|
+//! | 0..8    | doc-table blob offset                     |
+//! | 8..16   | doc-table blob length (exact, unpadded)   |
+//! | 16..24  | bundle-table blob offset                  |
+//! | 24..32  | bundle-table blob length                  |
+//! | 32..40  | sort-index blob offset                    |
+//! | 40..48  | sort-index blob length                    |
+//! | 48..56  | dictionary-region offset                  |
+//! | 56..64  | dictionary-region length (0 = no dict)    |
+//! | 64..72  | metadata-table blob offset                |
+//! | 72..80  | metadata-table blob length (0 = no meta)  |
+//! | 80..88  | document count                            |
+//! | 88..96  | bundle count                              |
+//! | 96..104 | magic `b"HARCFOOT"`                       |
 //!
 //! The per-bundle string blocks are interleaved with the document blobs and located via the
 //! bundle table (each [`BundleDesc`](crate::bundle::BundleDesc) carries its own offset/length).
@@ -27,7 +29,7 @@ use crate::error::ArchiveErr;
 use crate::header::HEADER_LEN;
 
 pub(crate) const TRAILER_MAGIC: &[u8; 8] = b"HARCFOOT";
-pub(crate) const TRAILER_LEN: usize = 88;
+pub(crate) const TRAILER_LEN: usize = 104;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Trailer {
@@ -39,6 +41,8 @@ pub(crate) struct Trailer {
     pub sort_index_len: u64,
     pub dict_offset: u64,
     pub dict_len: u64,
+    pub meta_offset: u64,
+    pub meta_len: u64,
     pub doc_count: u64,
     pub bundle_count: u64,
 }
@@ -54,9 +58,11 @@ impl Trailer {
         b[40..48].copy_from_slice(&self.sort_index_len.to_le_bytes());
         b[48..56].copy_from_slice(&self.dict_offset.to_le_bytes());
         b[56..64].copy_from_slice(&self.dict_len.to_le_bytes());
-        b[64..72].copy_from_slice(&self.doc_count.to_le_bytes());
-        b[72..80].copy_from_slice(&self.bundle_count.to_le_bytes());
-        b[80..88].copy_from_slice(TRAILER_MAGIC);
+        b[64..72].copy_from_slice(&self.meta_offset.to_le_bytes());
+        b[72..80].copy_from_slice(&self.meta_len.to_le_bytes());
+        b[80..88].copy_from_slice(&self.doc_count.to_le_bytes());
+        b[88..96].copy_from_slice(&self.bundle_count.to_le_bytes());
+        b[96..104].copy_from_slice(TRAILER_MAGIC);
         b
     }
 
@@ -69,7 +75,7 @@ impl Trailer {
             ));
         }
         let tail = &file[file.len() - TRAILER_LEN..];
-        if &tail[80..88] != TRAILER_MAGIC {
+        if &tail[96..104] != TRAILER_MAGIC {
             return Err(ArchiveErr::Validate(
                 "missing .htmlarc footer magic (truncated or not a v4 archive)".into(),
             ));
@@ -88,8 +94,10 @@ impl Trailer {
             sort_index_len: rd(40..48),
             dict_offset: rd(48..56),
             dict_len: rd(56..64),
-            doc_count: rd(64..72),
-            bundle_count: rd(72..80),
+            meta_offset: rd(64..72),
+            meta_len: rd(72..80),
+            doc_count: rd(80..88),
+            bundle_count: rd(88..96),
         };
 
         // Every footer region must live in the data area, between the header and the trailer.
@@ -99,6 +107,7 @@ impl Trailer {
             (t.bundle_table_offset, t.bundle_table_len, "bundle table"),
             (t.sort_index_offset, t.sort_index_len, "sort index"),
             (t.dict_offset, t.dict_len, "dictionary region"),
+            (t.meta_offset, t.meta_len, "metadata table"),
         ] {
             let end = off
                 .checked_add(len)

@@ -168,10 +168,10 @@ fn mmap_rejects_corrupt_blob() {
     // must materialize a blob surfaces the corruption as an `Err` — never UB, never absence.
     let mut bytes = std::fs::read(&path).unwrap();
     let n = bytes.len();
-    // The trailer is the last 88 bytes; doc_table_offset is its first field (bytes [0..8]). The
+    // The trailer is the last 104 bytes; doc_table_offset is its first field (bytes [0..8]). The
     // body — document blobs interleaved with per-bundle string blocks — spans
     // [HEADER_LEN, doc_table_offset); destroying it corrupts every document blob.
-    let doc_table_offset = u64::from_le_bytes(bytes[n - 88..n - 80].try_into().unwrap()) as usize;
+    let doc_table_offset = u64::from_le_bytes(bytes[n - 104..n - 96].try_into().unwrap()) as usize;
     for b in bytes[16..doc_table_offset].iter_mut() {
         *b ^= 0xFF;
     }
@@ -711,4 +711,107 @@ fn mutated_document_round_trips_through_blocks() {
     );
 
     std::fs::remove_file(&path).ok();
+}
+
+/// Typed metadata columns (ADR 0009) must round-trip identically through both readers,
+/// track dedup, and survive an owned re-save (`read_from` → `write_to`).
+#[test]
+fn meta_columns_round_trip() {
+    use htmlarc_archive::{MetaRef, MetaSchema, MetaType, MetaValue};
+
+    let schema = MetaSchema {
+        fields: vec![
+            ("url".to_string(), MetaType::Str),
+            ("status".to_string(), MetaType::Int),
+            ("score".to_string(), MetaType::Float),
+            ("ok".to_string(), MetaType::Bool),
+        ],
+    };
+    let mut b = HtmlArchiveBuilder::default();
+    b.set_meta_schema(schema.clone()).unwrap();
+    b.add_html_with_meta(
+        "one".to_string(),
+        HtmlDoc::parse("<p>1</p>").unwrap(),
+        vec![
+            Some(MetaValue::Str("https://one".to_string())),
+            Some(MetaValue::Int(200)),
+            None,
+            Some(MetaValue::Bool(true)),
+        ],
+    )
+    .unwrap();
+    // Duplicate key: both the document and its row must be dropped.
+    b.add_html_with_meta(
+        "one".to_string(),
+        HtmlDoc::parse("<p>dup</p>").unwrap(),
+        vec![
+            Some(MetaValue::Str("DROPPED".to_string())),
+            None,
+            None,
+            None,
+        ],
+    )
+    .unwrap();
+    // Plain add under a schema gets an all-null row.
+    b.add_html("two".to_string(), HtmlDoc::parse("<p>2</p>").unwrap());
+
+    let path = temp_path("meta");
+    b.write_to(&path).unwrap();
+
+    let mmap = MmapArchive::open(&path).unwrap();
+    assert_eq!(mmap.len(), 2);
+    assert_eq!(mmap.meta_schema().as_ref(), Some(&schema));
+    assert_eq!(mmap.meta_value(0, 0), Some(MetaRef::Str("https://one")));
+    assert_eq!(mmap.meta_value(0, 1), Some(MetaRef::Int(200)));
+    assert_eq!(mmap.meta_value(0, 2), None);
+    assert_eq!(mmap.meta_value(0, 3), Some(MetaRef::Bool(true)));
+    assert!((0..4).all(|f| mmap.meta_value(1, f).is_none()));
+
+    // Owned reader sees the same table, and re-saving preserves it.
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    assert_eq!(owned.meta().map(|m| m.schema()).as_ref(), Some(&schema));
+    let resaved = temp_path("meta_resave");
+    owned.write_to(&resaved).unwrap();
+    let mmap2 = MmapArchive::open(&resaved).unwrap();
+    assert_eq!(mmap2.meta_value(0, 0), Some(MetaRef::Str("https://one")));
+    assert!((0..4).all(|f| mmap2.meta_value(1, f).is_none()));
+
+    // An archive without metadata reports none.
+    let plain = temp_path("meta_none");
+    sample_archive().write_to(&plain).unwrap();
+    assert!(MmapArchive::open(&plain).unwrap().meta_schema().is_none());
+
+    for p in [&path, &resaved, &plain] {
+        std::fs::remove_file(p).ok();
+    }
+}
+
+/// A type-mismatched row must fail cleanly and leave the builder consistent (the key can be
+/// retried with a correct row).
+#[test]
+fn meta_type_mismatch_leaves_builder_consistent() {
+    use htmlarc_archive::{MetaSchema, MetaType, MetaValue};
+
+    let mut b = HtmlArchiveBuilder::default();
+    b.set_meta_schema(MetaSchema {
+        fields: vec![("n".to_string(), MetaType::Int)],
+    })
+    .unwrap();
+    assert!(
+        b.add_html_with_meta(
+            "k".to_string(),
+            HtmlDoc::parse("<p>x</p>").unwrap(),
+            vec![Some(MetaValue::Str("not an int".to_string()))],
+        )
+        .is_err()
+    );
+    // The failed add must not have consumed the key.
+    b.add_html_with_meta(
+        "k".to_string(),
+        HtmlDoc::parse("<p>x</p>").unwrap(),
+        vec![Some(MetaValue::Int(7))],
+    )
+    .unwrap();
+    let archive = b.build();
+    assert_eq!(archive.len(), 1);
 }

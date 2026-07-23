@@ -3,14 +3,17 @@
 //! Layout (16 bytes — a multiple of 8 so the first rkyv doc blob that follows keeps its
 //! 8-byte alignment when accessed at `&bytes[HEADER_LEN..]`):
 //!
-//! | bytes  | meaning                                   |
-//! |--------|-------------------------------------------|
-//! | 0..8   | magic `b"HTMLARC1"`                       |
-//! | 8      | format version (11 = block-split strings) |
-//! | 9      | endianness (0 = little-endian)            |
-//! | 10..16 | reserved (zero)                           |
+//! | bytes  | meaning                                    |
+//! |--------|--------------------------------------------|
+//! | 0..8   | magic `b"HTMLARC1"`                        |
+//! | 8      | format version (12 = metadata columns)     |
+//! | 9      | endianness (0 = little-endian)             |
+//! | 10..16 | reserved (zero)                            |
 //!
-//! Version 11 is a bundle-segmented, footer-indexed container (see [`crate::trailer`],
+//! Version 12 adds an optional typed per-document metadata table (ADR 0009): a columnar
+//! rkyv blob in the footer region located via the trailer's `meta_offset`/`meta_len`
+//! (the trailer grew 88 → 104 bytes), one row per document in arrival order. Otherwise
+//! the layout is v11's: a bundle-segmented, footer-indexed container (see [`crate::trailer`],
 //! [`crate::doc_table`], [`crate::bundle`]) whose per-document DOM unifies standard, `data-*`,
 //! and unknown attributes into one attribute store (ADR 0002 §3) and stores extended
 //! (custom/unknown) tag names in a per-document vocab encoded in the node tag byte (ADR 0002
@@ -18,12 +21,12 @@
 //! [`BundleStrings`](crate::bundle_strings) block (ADR 0006) and stored as ~16 KiB zstd blocks
 //! cut at text-node boundaries (ADR 0008; v10 stored one frame per document, v9 stored the
 //! block uncompressed), optionally against one archive-wide dictionary recorded in the trailer
-//! (ADR 0005). v10 and older layouts are no longer read — re-pack to upgrade.
+//! (ADR 0005). v11 and older layouts are no longer read — re-pack to upgrade.
 
 use crate::error::ArchiveErr;
 
 pub(crate) const MAGIC: &[u8; 8] = b"HTMLARC1";
-pub(crate) const VERSION: u8 = 11;
+pub(crate) const VERSION: u8 = 12;
 pub(crate) const ENDIAN_LITTLE: u8 = 0;
 pub(crate) const HEADER_LEN: usize = 16;
 
