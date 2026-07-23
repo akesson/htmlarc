@@ -16,8 +16,11 @@
 //! without natural boundaries (a directory pack, a flat re-save) seal every [`BUNDLE_CAP`]
 //! documents. Either way the boundaries are a deterministic function of the input, not of the
 //! thread count. Every blob/region is 8-byte aligned (rkyv with `pointer_width_64` needs
-//! 8-aligned starts). The file is written to a sibling temp path and atomically renamed on
-//! `finish`, so an open `MmapArchive` over a previous build is never corrupted in place.
+//! 8-aligned starts). A fresh archive ([`create`](ArchiveWriter::create)) is written to a
+//! sibling temp path and atomically renamed on `finish`, so an open `MmapArchive` over a
+//! previous build is never corrupted in place; [`append`](ArchiveWriter::append) instead
+//! extends an existing file past its old footer under the header-staged recovery contract
+//! (ADR 0010).
 
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
@@ -71,8 +74,19 @@ pub struct ArchiveWriter {
     bundle_start_doc: usize,
     seen: HashSet<String>,
     collapsed: u64,
-    tmp_path: PathBuf,
-    final_path: PathBuf,
+    target: WriteTarget,
+}
+
+/// Where [`finish`](ArchiveWriter::finish) lands the bytes.
+enum WriteTarget {
+    /// Fresh archive: writes went to `tmp_path`, atomically renamed to `final_path`.
+    Create {
+        tmp_path: PathBuf,
+        final_path: PathBuf,
+    },
+    /// In-place append (ADR 0010): writes go directly into the existing file, after its old
+    /// EOF; the header carries the staged recovery offset until `finish` clears it.
+    Append,
 }
 
 impl ArchiveWriter {
@@ -101,18 +115,154 @@ impl ArchiveWriter {
             bundle_start_doc: 0,
             seen: HashSet::new(),
             collapsed: 0,
-            tmp_path,
-            final_path,
+            target: WriteTarget::Create {
+                tmp_path,
+                final_path,
+            },
         })
+    }
+
+    /// Open an existing archive for **in-place append** (ADR 0010): the writer is pre-seeded
+    /// with the old doc table, bundle table, dictionary, and keys; new documents append after
+    /// the old EOF and [`finish`](Self::finish) writes a fresh footer at the new tail. The old
+    /// footer stays behind as dead bytes (reclaimed by a re-pack).
+    ///
+    /// Crash safety: before any byte is written, the old trailer's offset is staged into the
+    /// header (bytes `10..16`); every read path falls back to it when the tail is not a valid
+    /// trailer, so a crashed or in-progress append leaves the file readable as the pre-append
+    /// archive, and the next append overwrites the abandoned tail. `finish` clears the staged
+    /// offset last.
+    ///
+    /// Returns the writer plus the archive's metadata table (rows for the pre-existing
+    /// documents); with a schema present the caller must extend it — one row per *stored* new
+    /// document — and hand the full table back via [`set_meta_table`](Self::set_meta_table).
+    pub fn append<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(Self, Option<crate::meta::MetaTable>), ArchiveErr> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let path = path.as_ref();
+
+        // Read the existing footer through the owned-file path (validates header + trailer,
+        // with recovery). Only footer-sized regions are copied out — not the document bodies.
+        let (docs, bundles, dict, meta, append_start, old_trailer_offset) = {
+            let data = fs::read(path).map_err(ArchiveErr::FileRead)?;
+            crate::header::validate_header(&data)?;
+            let trailer = Trailer::read_from_tail(&data)?;
+
+            let docs = rkyv::from_bytes::<Vec<DocEntry>, Error>(crate::archive::bounded(
+                &data,
+                trailer.doc_table_offset,
+                trailer.doc_table_len,
+                "doc table",
+            )?)
+            .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
+            let bundles = rkyv::from_bytes::<Vec<BundleDesc>, Error>(crate::archive::bounded(
+                &data,
+                trailer.bundle_table_offset,
+                trailer.bundle_table_len,
+                "bundle table",
+            )?)
+            .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
+            let dict = if trailer.dict_len > 0 {
+                Some(
+                    crate::archive::bounded(
+                        &data,
+                        trailer.dict_offset,
+                        trailer.dict_len,
+                        "dictionary",
+                    )?
+                    .to_vec(),
+                )
+            } else {
+                None
+            };
+            let meta = if trailer.meta_len > 0 {
+                Some(
+                    rkyv::from_bytes::<crate::meta::MetaTable, Error>(crate::archive::bounded(
+                        &data,
+                        trailer.meta_offset,
+                        trailer.meta_len,
+                        "metadata table",
+                    )?)
+                    .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?,
+                )
+            } else {
+                None
+            };
+
+            // The authoritative trailer's position: at the tail normally, or wherever the
+            // recovery offset pointed after an abandoned append. New data starts right after
+            // it, overwriting any abandoned garbage.
+            let trailer_offset = match crate::header::pending_trailer_offset(&data) {
+                Some(off) if Trailer::read_at(&data, off as usize).is_ok() => off,
+                _ => (data.len() - crate::trailer::TRAILER_LEN) as u64,
+            };
+            let append_start = trailer_offset + crate::trailer::TRAILER_LEN as u64;
+            (docs, bundles, dict, meta, append_start, trailer_offset)
+        };
+
+        // Stage the recovery offset, then position the write handle at the append start.
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_err(ArchiveErr::FileWrite)?;
+        file.seek(SeekFrom::Start(crate::header::PENDING_TRAILER_AT as u64))
+            .map_err(ArchiveErr::FileWrite)?;
+        file.write_all(&crate::header::pending_trailer_bytes(old_trailer_offset)?)
+            .map_err(ArchiveErr::FileWrite)?;
+        file.sync_data().map_err(ArchiveErr::FileWrite)?;
+        // Verify the staged offset reads back (belt and braces for the recovery contract).
+        {
+            let mut hdr = [0u8; HEADER_LEN];
+            file.seek(SeekFrom::Start(0))
+                .map_err(ArchiveErr::FileWrite)?;
+            file.read_exact(&mut hdr).map_err(ArchiveErr::FileRead)?;
+            debug_assert_eq!(
+                crate::header::pending_trailer_offset(&hdr),
+                Some(old_trailer_offset)
+            );
+        }
+        file.seek(SeekFrom::Start(append_start))
+            .map_err(ArchiveErr::FileWrite)?;
+        file.set_len(append_start).map_err(ArchiveErr::FileWrite)?;
+
+        let compressor = match &dict {
+            Some(d) => Compressor::with_dictionary(codec::COMPRESSION_LEVEL, d)
+                .map_err(|e| ArchiveErr::Serialize(e.to_string()))?,
+            None => codec::build_compressor()?,
+        };
+        let seen = docs.iter().map(|d| d.key.clone()).collect();
+        let bundle_start_doc = docs.len();
+
+        let mut writer = Self {
+            out: BufWriter::new(file),
+            pos: append_start,
+            docs,
+            bundles,
+            cur_strings: BundleStrings::default(),
+            compressor,
+            dict,
+            meta: None,
+            bundle_start_doc,
+            seen,
+            collapsed: 0,
+            target: WriteTarget::Append,
+        };
+        // The append start sits right after a trailer, which need not be 8-aligned relative
+        // to the blobs; align before the first rkyv blob lands.
+        writer.pad_to_align()?;
+        Ok((writer, meta))
     }
 
     /// Parse-built push: build the [`HtmlEntry`] (optimal node width + checksum) and append it.
     /// Duplicate keys are skipped (first wins) — the check happens *before* building so
-    /// duplicates cost nothing.
-    pub fn push(&mut self, key: String, html: HtmlDoc) -> Result<(), ArchiveErr> {
+    /// duplicates cost nothing. Returns whether the document was stored (`false` = duplicate).
+    pub fn push(&mut self, key: String, html: HtmlDoc) -> Result<bool, ArchiveErr> {
         if self.seen.contains(&key) {
             self.collapsed += 1;
-            return Ok(());
+            return Ok(false);
         }
         let entry = HtmlEntry::new(key, html);
         self.push_entry(entry)
@@ -121,11 +271,11 @@ impl ArchiveWriter {
     /// Append an already-built entry (used when re-saving an in-memory archive). Same first-wins
     /// dedup as [`push`](Self::push). Consumes the entry so its text pool can be relocated into
     /// the current bundle's string block, leaving the per-document blob string-less.
-    pub fn push_entry(&mut self, mut entry: HtmlEntry) -> Result<(), ArchiveErr> {
+    pub fn push_entry(&mut self, mut entry: HtmlEntry) -> Result<bool, ArchiveErr> {
         // Dedup before serializing so duplicates cost nothing.
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
-            return Ok(());
+            return Ok(false);
         }
         // Block boundaries need the node text ranges, so cut before the topology loses its pool.
         let ranges = entry.html.text_ranges();
@@ -140,7 +290,8 @@ impl ArchiveWriter {
             &bytes,
             &strings,
             &raw_ends,
-        )
+        )?;
+        Ok(true)
     }
 
     /// Append a document that was already serialized off-thread (the parallel `convert` path
@@ -149,10 +300,10 @@ impl ArchiveWriter {
     /// into its block frames** by the worker / two-phase coordinator
     /// ([`SerializedEntry::compress_blocks`], ADR 0005 + ADR 0008), so the writer stores it
     /// verbatim. Same first-wins dedup as [`push_entry`](Self::push_entry).
-    pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<(), ArchiveErr> {
+    pub fn push_serialized(&mut self, entry: &SerializedEntry) -> Result<bool, ArchiveErr> {
         if !self.seen.insert(entry.key.clone()) {
             self.collapsed += 1;
-            return Ok(());
+            return Ok(false);
         }
         // A raw pool reaching this point would be stored verbatim as if it were frames and read
         // back as garbage — refuse it loudly instead.
@@ -170,7 +321,8 @@ impl ArchiveWriter {
             &entry.strings,
             &entry.frame_ends,
             &entry.raw_ends,
-        )
+        )?;
+        Ok(true)
     }
 
     /// The raw-text append path (the in-memory builder's [`push_entry`](Self::push_entry)):
@@ -382,9 +534,32 @@ impl ArchiveWriter {
             .write_all(&trailer.to_bytes())
             .map_err(ArchiveErr::FileWrite)?;
         self.out.flush().map_err(ArchiveErr::FileWrite)?;
-        drop(self.out);
 
-        fs::rename(&self.tmp_path, &self.final_path).map_err(ArchiveErr::FileWrite)?;
+        match self.target {
+            WriteTarget::Create {
+                tmp_path,
+                final_path,
+            } => {
+                drop(self.out);
+                fs::rename(&tmp_path, &final_path).map_err(ArchiveErr::FileWrite)?;
+            }
+            WriteTarget::Append => {
+                // Commit order matters (ADR 0010): the new tail must be durable *before* the
+                // staged recovery offset is cleared — after this, the tail trailer is
+                // authoritative again.
+                use std::io::{Seek, SeekFrom};
+                let mut file = self
+                    .out
+                    .into_inner()
+                    .map_err(|e| ArchiveErr::FileWrite(std::io::Error::other(e.to_string())))?;
+                file.sync_data().map_err(ArchiveErr::FileWrite)?;
+                file.seek(SeekFrom::Start(0))
+                    .map_err(ArchiveErr::FileWrite)?;
+                file.write_all(&header_bytes())
+                    .map_err(ArchiveErr::FileWrite)?;
+                file.sync_data().map_err(ArchiveErr::FileWrite)?;
+            }
+        }
         Ok(())
     }
 

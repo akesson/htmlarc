@@ -94,6 +94,31 @@ impl MetaSchema {
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.fields.iter().position(|(n, _)| n == name)
     }
+
+    /// Check a row's arity and value types against this schema without storing anything —
+    /// the pre-flight for streaming writers that must validate *before* committing the
+    /// document the row belongs to.
+    pub fn validate_row(&self, row: &[Option<MetaValue>]) -> Result<(), ArchiveErr> {
+        if row.len() != self.fields.len() {
+            return Err(ArchiveErr::Validate(format!(
+                "metadata row has {} values, schema has {} fields",
+                row.len(),
+                self.fields.len()
+            )));
+        }
+        for (value, (name, declared)) in row.iter().zip(&self.fields) {
+            if let Some(v) = value
+                && v.type_of() != *declared
+            {
+                return Err(ArchiveErr::Validate(format!(
+                    "metadata field '{name}' is {}, got {}",
+                    declared.name(),
+                    v.type_of().name()
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// One serialized column. Validity is one byte per row (0 = null); `Str` stores the
@@ -230,6 +255,24 @@ impl MetaTableBuilder {
 
     pub fn schema(&self) -> &MetaSchema {
         &self.schema
+    }
+
+    /// Rehydrate a builder from a finished table so more rows can be appended — the
+    /// in-place-append continuation (ADR 0010). The column shapes are identical, so this
+    /// is a move, not a copy.
+    pub fn from_table(table: MetaTable) -> Self {
+        let schema = table.schema();
+        let columns = table
+            .columns
+            .into_iter()
+            .map(|c| match c {
+                MetaColumn::Str { ends, bytes, valid } => ColumnBuilder::Str { ends, bytes, valid },
+                MetaColumn::Int { values, valid } => ColumnBuilder::Int { values, valid },
+                MetaColumn::Float { values, valid } => ColumnBuilder::Float { values, valid },
+                MetaColumn::Bool { values, valid } => ColumnBuilder::Bool { values, valid },
+            })
+            .collect();
+        MetaTableBuilder { schema, columns }
     }
 
     /// Append one row; `row[i]` corresponds to `schema.fields[i]`, `None` = null.
