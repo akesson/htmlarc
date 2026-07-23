@@ -13,9 +13,9 @@ The same shape answers monitoring questions ("what changed since the selector
 was patched?") and migration audits ("did the re-platform lose canonicals?").
 """
 
+import argparse
 import io
 import json
-import sys
 import time
 
 import htmlarc
@@ -75,7 +75,9 @@ def titles(arc: htmlarc.Archive, name: str) -> pl.DataFrame:
 
 
 if __name__ == "__main__":
-    limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 100
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--limit", type=int, default=100, help="pages per snapshot (default 100)")
+    limit = ap.parse_args().limit
     DATA.mkdir(exist_ok=True)
     old_id, new_id = crawl_ids()
     print(f"comparing {old_id} vs {new_id} for {DOMAIN}")
