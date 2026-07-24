@@ -10,7 +10,7 @@ and makes one point:
 | [`warc_to_archive.py`](warc_to_archive.py) | Common Crawl WARC → one archive with **typed in-archive metadata columns** (url/date/status); `on_error="skip"` survives wild pages; correct bytes→str decoding; `--append` **grows the archive in place** (`htmlarc.append`, crash-safe, metadata table continues) | streams ~500 docs (~35 MB) from the latest crawl — well under a minute |
 | [`corpus_questions.py`](corpus_questions.py) | three corpus questions answered in milliseconds; metadata rides on every `scan_table` row (no sidecar, no join) | archive from recipe 1; runs in seconds |
 | [`site_audit.py`](site_audit.py) | SEO audit table + a question invented *after* the crawl (no re-crawl) | polite ~60-page crawl of books.toscrape.com, ~1 min |
-| [`snapshot_diff.py`](snapshot_diff.py) | same site from two crawls a year apart, diffed with a polars join; archive-per-batch pattern | CDX index + ~200 single-record range requests, ~2 min |
+| [`snapshot_diff.py`](snapshot_diff.py) | same site from two crawls a year apart, diffed with a polars join; archive-per-batch pattern | CDX index + ~200 single-record range requests, ~3 min |
 | [`zim_wiktionary.py`](zim_wiktionary.py) | ZIM → structured dictionary via CSS on rendered HTML (no wikitext templates) | ~4 MB Wiktionary ZIM from Kiwix; converts in ~2 s |
 | [`rag_chunking.py`](rag_chunking.py) | heading-aware, boilerplate-free RAG chunks ("select in, don't strip out") | archive from recipe 1; runs in seconds |
 | [`extractor_from_archive.py`](extractor_from_archive.py) | LLM-pipeline loop: re-run extractors without re-reading the crawl | archive from recipe 1; runs in seconds |
