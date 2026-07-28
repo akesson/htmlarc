@@ -26,7 +26,7 @@ function_name = "0.3"
 hashbrown = "0.17"
 # Function-level CPU/alloc profiler. Inert (zero cost) unless a crate's `hotpath` feature
 # enables `hotpath/hotpath`; used by the `profile_walk` example to profile the select walk.
-hotpath = "0.21"
+hotpath = "0.22"
 html-escape = "0.2"
 html5gum = "0.8.3"
 indexmap = "2.11"
