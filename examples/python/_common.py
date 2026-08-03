@@ -9,21 +9,22 @@ DATA = Path(__file__).resolve().parent / "data"
 USER_AGENT = "htmlarc-recipes/0.1 (+https://github.com/akesson/htmlarc)"
 
 
-def get(url: str, tries: int = 6, **kw) -> requests.Response:
+def get(url: str, tries: int = 9, **kw) -> requests.Response:
     """GET with a proper User-Agent and a retry loop for transient failures.
 
     Common Crawl 503s ("Slow Down") readily under load, and much more so from
     datacenter IPs (CI runners); its frontend also 502/504s when the index
     backend is overloaded, and can drop connections outright. Backs off
-    exponentially — honoring a Retry-After header when one is sent — for up
-    to ~1 minute total.
+    exponentially, capped at 60s per wait (~4 minutes total) — CC's bad
+    spells routinely outlast a shorter window — honoring a Retry-After
+    header when one is sent.
     """
     import time
 
     kw.setdefault("timeout", 60)
     headers = {"User-Agent": USER_AGENT, **kw.pop("headers", {})}
     for attempt in range(tries):
-        wait = 2 ** (attempt + 1)
+        wait = min(2 ** (attempt + 1), 60)
         try:
             r = requests.get(url, headers=headers, **kw)
         except (requests.ConnectionError, requests.Timeout):
