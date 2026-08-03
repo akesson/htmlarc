@@ -10,21 +10,29 @@ USER_AGENT = "htmlarc-recipes/0.1 (+https://github.com/akesson/htmlarc)"
 
 
 def get(url: str, tries: int = 6, **kw) -> requests.Response:
-    """GET with a proper User-Agent and a retry loop for throttling.
+    """GET with a proper User-Agent and a retry loop for transient failures.
 
     Common Crawl 503s ("Slow Down") readily under load, and much more so from
-    datacenter IPs (CI runners). Backs off exponentially — honoring a
-    Retry-After header when one is sent — for up to ~1 minute total.
+    datacenter IPs (CI runners); its frontend also 502/504s when the index
+    backend is overloaded, and can drop connections outright. Backs off
+    exponentially — honoring a Retry-After header when one is sent — for up
+    to ~1 minute total.
     """
     import time
 
     kw.setdefault("timeout", 60)
     headers = {"User-Agent": USER_AGENT, **kw.pop("headers", {})}
     for attempt in range(tries):
-        r = requests.get(url, headers=headers, **kw)
-        if r.status_code in (503, 429) and attempt < tries - 1:
+        wait = 2 ** (attempt + 1)
+        try:
+            r = requests.get(url, headers=headers, **kw)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt < tries - 1:
+                time.sleep(wait)
+                continue
+            raise
+        if r.status_code in (503, 429, 502, 504) and attempt < tries - 1:
             retry_after = r.headers.get("Retry-After")
-            wait = 2 ** (attempt + 1)
             if retry_after and retry_after.isdigit():
                 wait = max(wait, min(int(retry_after), 60))
             time.sleep(wait)
