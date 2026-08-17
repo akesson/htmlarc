@@ -1,5 +1,9 @@
 # Runnable Python recipes
 
+New here? **[`quickstart.py`](quickstart.py)** shows every core idea in 5
+minutes on generated data — no downloads, and each section works as a notebook
+cell.
+
 Self-contained scripts showing htmlarc on real, freely downloadable data. Each
 recipe fetches what it needs into `data/` (gitignored, nothing redistributed
 here), keeps downloads small (streamed samples, single-record range requests),

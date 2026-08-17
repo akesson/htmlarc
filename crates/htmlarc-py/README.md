@@ -76,6 +76,23 @@ keys = archive.matching(f)
 The module ships type stubs (`htmlarc.pyi`), so editors and type checkers see the
 full API.
 
+## License
+
+htmlarc is **dual-licensed**: [AGPL-3.0](https://github.com/akesson/htmlarc/blob/main/LICENSE)
+or a paid commercial license. The wheel statically links the Rust core, so the whole
+package — bindings included — is AGPL.
+
+What that means in practice:
+
+- **Scripts, research, internal analysis, anything you'd release under the AGPL** — free,
+  no strings beyond the AGPL's own.
+- **Shipping htmlarc inside a closed-source product, or serving its functionality to users
+  over a network (SaaS)** — the AGPL requires releasing your source; the
+  [commercial license](https://github.com/akesson/htmlarc/blob/main/COMMERCIAL.md) removes
+  that obligation. Pricing is public in that document.
+- **Organization bans AGPL dependencies?** Same answer — the commercial license is the
+  supported path.
+
 ## Building from source
 
 Requires Rust and [maturin](https://github.com/PyO3/maturin):
