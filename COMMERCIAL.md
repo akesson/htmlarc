@@ -48,7 +48,7 @@ Custom terms (OEM, redistribution to your own customers' deployments, multi-year
 
 ## Contact
 
-**Email:** h.m.akesson@gmail.com · **GitHub:** [@akesson](https://github.com/akesson)
+**Email:** [license@akesson.io](mailto:license@akesson.io) · **GitHub:** [@akesson](https://github.com/akesson)
 
 I'm also available for **paid contract work** to extend, integrate, or maintain htmlarc for your
 use case — same contact. License and contract inquiries are answered within one business day.
