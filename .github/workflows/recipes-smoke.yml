@@ -36,3 +36,14 @@ jobs:
           uv run --with "$WHEEL" zim_wiktionary.py
           uv run --with "$WHEEL" site_audit.py
           uv run --with "$WHEEL" snapshot_diff.py
+      # The Common Crawl notebook hits the same live endpoints; execute it
+      # headless (small sample — politeness, and CI wall clock).
+      - name: execute common_crawl.ipynb
+        working-directory: examples/python
+        run: |
+          WHEEL=$(ls ../../dist/htmlarc-*.whl)
+          CC_SAMPLE_DOCS=200 uv run --with "$WHEEL" \
+            --with nbconvert --with ipykernel \
+            --with polars --with lxml --with cssselect --with warcio --with requests \
+            jupyter-nbconvert --to notebook --execute --stdout \
+            --ExecutePreprocessor.timeout=600 common_crawl.ipynb > /dev/null
