@@ -4,6 +4,11 @@ New here? **[`quickstart.py`](quickstart.py)** shows every core idea in 5
 minutes on generated data — no downloads, and each section works as a notebook
 cell.
 
+Prefer a story with numbers? **[`common_crawl.ipynb`](common_crawl.ipynb)**
+streams a sample of the latest Common Crawl, builds an archive, and races lxml
+live: per-question milliseconds against re-parse seconds, measured in the
+notebook itself.
+
 Self-contained scripts showing htmlarc on real, freely downloadable data. Each
 recipe fetches what it needs into `data/` (gitignored, nothing redistributed
 here), keeps downloads small (streamed samples, single-record range requests),

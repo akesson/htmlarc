@@ -14,7 +14,9 @@ jobs:
   recipes:
     name: run all recipes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Build + 8 recipes fit well inside 30; the notebook step adds a download
+    # cell whose worst-case retry budget (see below) needs the extra headroom.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -36,3 +38,20 @@ jobs:
           uv run --with "$WHEEL" zim_wiktionary.py
           uv run --with "$WHEEL" site_audit.py
           uv run --with "$WHEEL" snapshot_diff.py
+      # The Common Crawl notebook hits the same live endpoints; execute it
+      # headless (small sample — politeness, and CI wall clock). The --with
+      # list is the notebook's "Requirements" line (cell 0) plus
+      # nbconvert/ipykernel to drive it — keep the two in sync. The cell
+      # timeout is sized for the download cell's worst case (three requests,
+      # each with a ~4-minute backoff ladder, plus up to two mid-stream
+      # restarts), so a CC bad spell surfaces as an HTTP error from the retry
+      # loop rather than a CellTimeoutError that masks it.
+      - name: execute common_crawl.ipynb
+        working-directory: examples/python
+        run: |
+          WHEEL=$(ls ../../dist/htmlarc-*.whl)
+          CC_SAMPLE_DOCS=200 uv run --with "$WHEEL" \
+            --with nbconvert --with ipykernel \
+            --with polars --with lxml --with cssselect --with warcio --with requests \
+            jupyter-nbconvert --to notebook --execute --stdout \
+            --ExecutePreprocessor.timeout=1500 common_crawl.ipynb > /dev/null
