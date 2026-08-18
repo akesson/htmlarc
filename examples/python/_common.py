@@ -36,6 +36,7 @@ def get(url: str, tries: int = 9, **kw) -> requests.Response:
             retry_after = r.headers.get("Retry-After")
             if retry_after and retry_after.isdigit():
                 wait = max(wait, min(int(retry_after), 60))
+            r.close()  # release the pooled connection; a streamed body would pin it
             time.sleep(wait)
             continue
         r.raise_for_status()
