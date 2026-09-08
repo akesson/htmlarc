@@ -28,6 +28,7 @@ thousands of small files.
 
 ```sh
 cargo build --release
+export PATH="$PWD/target/release:$PATH"
 
 # Every command takes a <source>, which is one of:
 #   • a .htmlarc archive file   (loaded directly, no parsing)
