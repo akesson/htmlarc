@@ -57,9 +57,9 @@ The formatter/parser snapshots and cleaned article bodies are modified extracts;
 synthetic parser fixtures are htmlarc project code, not Wikimedia content.
 
 Compiled dependencies:
-See THIRD_PARTY_NOTICES.md for Rust dependency licenses and copyrights,
-THIRD_PARTY_NATIVE.txt for native-code licenses and supplementary upstream
-notices, and THIRD_PARTY_RUST.html for the Rust standard library notices.
+Compiled wheels and CLI downloads include THIRD_PARTY_NOTICES.txt for their
+respective dependencies, native code, and Rust standard library. Source-only
+Cargo packages do not bundle dependency implementations.
 These third-party terms also apply when using htmlarc under a commercial license.
 
 ================================================================================

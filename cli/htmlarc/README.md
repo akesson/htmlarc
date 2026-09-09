@@ -13,4 +13,4 @@ htmlarc list pages.htmlarc
 ```
 
 Licensed under AGPL-3.0-only or a separate commercial license. See LICENSE,
-NOTICE, COMMERCIAL.md, and THIRD_PARTY_NOTICES.md in this package.
+NOTICE and COMMERCIAL.md in this package.

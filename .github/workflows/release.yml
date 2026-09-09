@@ -162,7 +162,7 @@ jobs:
           target/release/htmlarc-convert convert smoke/pages smoke/converted.htmlarc
           target/release/htmlarc list smoke/converted.htmlarc
           mkdir -p dist bundle
-          cp target/release/htmlarc target/release/htmlarc-convert LICENSE NOTICE COMMERCIAL.md THIRD_PARTY_NOTICES.md THIRD_PARTY_NATIVE.txt THIRD_PARTY_RUST.html README.md bundle/
+          cp target/release/htmlarc target/release/htmlarc-convert LICENSE NOTICE COMMERCIAL.md cli/htmlarc-convert/THIRD_PARTY_NOTICES.txt README.md bundle/
           tar -czf "dist/htmlarc-${RELEASE_TARGET}.tar.gz" -C bundle .
       - uses: actions/upload-artifact@v6
         with:
