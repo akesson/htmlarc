@@ -30,6 +30,10 @@ pub struct ArchiveAppender {
 impl ArchiveAppender {
     /// Open `path` for appending. Fails on a missing/older-version archive (re-pack to
     /// upgrade). An abandoned earlier append is healed: its garbage tail is overwritten.
+    /// On Windows, recovering an abandoned append requires dropping all memory mappings
+    /// of the file first, including those held by document handles or other processes:
+    /// Windows rejects truncation of a mapped file. Concurrent appenders are not
+    /// supported on any platform.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveErr> {
         let (writer, meta) = ArchiveWriter::append(path)?;
         Ok(Self {
