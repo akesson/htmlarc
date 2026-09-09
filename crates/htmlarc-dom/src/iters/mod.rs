@@ -78,7 +78,7 @@ pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'d
     {
         MatchIter::new(self, selectors)
     }
-    /// Wrap this walk in an [`Exactly`] cardinality check over `range`. Provided on the trait so
+    /// Wrap this walk in an `Exactly` cardinality check over `range`. Provided on the trait so
     /// every `DomIterator` (tree-walk or [`LinearSweep`]) shares one implementation. (`MatchIter`
     /// is `Iterator`-only, not a `DomIterator`, so it keeps its own inherent `exactly`.)
     fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self>

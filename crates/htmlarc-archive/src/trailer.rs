@@ -71,18 +71,59 @@ impl Trailer {
     /// which is exactly the state a crashed or in-progress in-place append leaves behind. The
     /// recovered trailer describes the pre-append archive; bytes past it are ignored garbage.
     pub(crate) fn read_from_tail(file: &[u8]) -> Result<Trailer, ArchiveErr> {
-        if file.len() < HEADER_LEN + TRAILER_LEN {
+        Self::select(
+            file.len() as u64,
+            crate::header::pending_trailer_offset(file),
+            |off| {
+                let off = usize::try_from(off).map_err(|_| {
+                    ArchiveErr::Validate("trailer offset exceeds address space".into())
+                })?;
+                Self::read_at(file, off)
+            },
+        )
+        .map(|(trailer, _)| trailer)
+    }
+
+    /// Select the same authoritative trailer for every reader and for append truncation.
+    /// A complete new tail wins even if interruption left the recovery marker uncleared.
+    fn select(
+        len: u64,
+        pending: Option<u64>,
+        mut read: impl FnMut(u64) -> Result<Self, ArchiveErr>,
+    ) -> Result<(Self, u64), ArchiveErr> {
+        if len < (HEADER_LEN + TRAILER_LEN) as u64 {
             return Err(ArchiveErr::Validate(
-                "file too small to contain a v4 trailer".into(),
+                "file too small to contain a trailer".into(),
             ));
         }
-        match Self::read_at(file, file.len() - TRAILER_LEN) {
-            Ok(t) => Ok(t),
-            Err(e) => match crate::header::pending_trailer_offset(file) {
-                Some(off) => Self::read_at(file, off as usize).map_err(|_| e),
+        let tail = len - TRAILER_LEN as u64;
+        match read(tail) {
+            Ok(t) => Ok((t, tail)),
+            Err(e) => match pending.filter(|off| *off >= HEADER_LEN as u64 && *off <= tail) {
+                Some(off) => read(off).map(|t| (t, off)).map_err(|_| e),
                 None => Err(e),
             },
         }
+    }
+
+    /// Read only the header and candidate trailers, never the document body or abandoned tail.
+    pub(crate) fn read_from_file(
+        file: &mut (impl std::io::Read + std::io::Seek),
+    ) -> Result<(Self, u64), ArchiveErr> {
+        use std::io::SeekFrom;
+        let len = file.seek(SeekFrom::End(0)).map_err(ArchiveErr::FileRead)?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(ArchiveErr::FileRead)?;
+        let mut header = [0; HEADER_LEN];
+        file.read_exact(&mut header).map_err(ArchiveErr::FileRead)?;
+        crate::header::validate_header(&header)?;
+        Self::select(len, crate::header::pending_trailer_offset(&header), |off| {
+            file.seek(SeekFrom::Start(off))
+                .map_err(ArchiveErr::FileRead)?;
+            let mut bytes = [0; TRAILER_LEN];
+            file.read_exact(&mut bytes).map_err(ArchiveErr::FileRead)?;
+            Self::decode(&bytes, off)
+        })
     }
 
     /// Read and validate the trailer at `trailer_offset`. Bounds-checks every footer region
@@ -97,10 +138,16 @@ impl Trailer {
                 "trailer offset lies outside the file".into(),
             ));
         }
-        let tail = &file[trailer_offset..trailer_offset + TRAILER_LEN];
+        Self::decode(
+            &file[trailer_offset..trailer_offset + TRAILER_LEN],
+            trailer_offset as u64,
+        )
+    }
+
+    fn decode(tail: &[u8], trailer_offset: u64) -> Result<Self, ArchiveErr> {
         if &tail[96..104] != TRAILER_MAGIC {
             return Err(ArchiveErr::Validate(
-                "missing .htmlarc footer magic (truncated or not a v4 archive)".into(),
+                "missing .htmlarc footer magic (truncated or not an htmlarc archive)".into(),
             ));
         }
         let rd = |r: std::ops::Range<usize>| {
@@ -124,7 +171,7 @@ impl Trailer {
         };
 
         // Every footer region must live in the data area, between the header and the trailer.
-        let footer_start = trailer_offset as u64;
+        let footer_start = trailer_offset;
         for (off, len, what) in [
             (t.doc_table_offset, t.doc_table_len, "doc table"),
             (t.bundle_table_offset, t.bundle_table_len, "bundle table"),

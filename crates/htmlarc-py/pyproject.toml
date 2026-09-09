@@ -7,7 +7,7 @@ name = "htmlarc"
 description = "Query pre-parsed HTML document archives (.htmlarc) with CSS selectors"
 readme = "README.md"
 license = "AGPL-3.0-only"
-license-files = ["LICENSE", "NOTICE", "COMMERCIAL.md"]
+license-files = ["LICENSE", "NOTICE", "COMMERCIAL.md", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NATIVE.txt", "THIRD_PARTY_RUST.html"]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",

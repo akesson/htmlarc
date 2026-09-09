@@ -22,13 +22,14 @@ Corpora: wikt | cc  (pickles of list[(key, html)] made by extract.py, in data/)
 """
 
 import json
+import os
 import pickle
 import resource
 import sys
 import time
 from pathlib import Path
 
-DIR = Path(__file__).resolve().parent / "data"
+DIR = Path(os.environ.get("HTMLARC_BENCH_DATA", Path(__file__).resolve().parent / "data"))
 
 Q_LINKS = "a[href]"
 Q_HEADS = "h1, h2, h3"
@@ -41,7 +42,8 @@ def load(corpus):
 
 
 def rss_mb():
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6  # bytes on macOS
+    scale = 1e6 if sys.platform == "darwin" else 1e3
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / scale
 
 
 def emit(phase, corpus, secs, counts, failures=0, **extra):

@@ -24,6 +24,24 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --all --check
 
+  release-hygiene:
+    name: documentation and dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
+      - run: cargo doc --no-deps --locked -p htmlarc-dom -p htmlarc-archive -p htmlarc -p htmlarc-convert
+        env:
+          RUSTDOCFLAGS: '-D warnings'
+      # Separate invocation avoids the Python library and CLI sharing a rustdoc path.
+      - run: cargo doc --no-deps --locked -p htmlarc-py
+        env:
+          RUSTDOCFLAGS: '-D warnings'
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest

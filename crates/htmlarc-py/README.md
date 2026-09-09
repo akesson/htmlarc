@@ -7,6 +7,11 @@ An `.htmlarc` file stores documents as ready-to-query DOMs, so opening an archiv
 millions of pages and selecting into any of them requires **no HTML parsing at read
 time** — the archive is memory-mapped and documents resolve lazily.
 
+Install with `pip install htmlarc` (CPython 3.10+). Wheels cover Linux and macOS
+on x86-64/ARM64 and Windows on x86-64. A source build requires Rust 1.96+ and a C
+compiler. See [compatibility and archive safety](https://github.com/akesson/htmlarc#compatibility-and-archive-safety)
+before storing irreplaceable data.
+
 ```python
 import htmlarc
 

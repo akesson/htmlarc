@@ -14,8 +14,8 @@ HTML pages from the Wikimedia projects (Wiktionary), retrieved from
 and CSS engine against real-world markup.
 
 These pages are licensed under the Creative Commons Attribution-ShareAlike
-License (CC BY-SA); some embedded content may also be available under the GNU
-Free Documentation License. See https://www.wiktionary.org and
+License (CC BY-SA), with versions identified below; some embedded content may
+also be available under the GNU Free Documentation License. See https://www.wiktionary.org and
 https://creativecommons.org/licenses/by-sa/4.0/ for details.
 
 Affected repository paths (test/bench/example data, included in source packages
@@ -35,3 +35,29 @@ We use a fork (https://github.com/akesson/zim) of the unmaintained upstream
 (https://crates.io/crates/zim) that adds support for modern ZIM files. No ZIM
 file is bundled in this repository; the optional end-to-end test fetches one on
 demand (see cli/htmlarc-convert/fetch-testdata.sh).
+
+Fixture attribution and changes:
+- aerodynamik.html and axel.html (including their snapshots) are from
+  https://sv.wiktionary.org/wiki/aerodynamik and https://sv.wiktionary.org/wiki/axel
+  by their Wiktionary contributors, CC BY-SA 3.0 as recorded in their footers:
+  https://creativecommons.org/licenses/by-sa/3.0/
+- en.interest.html and fr.serrer.html are from
+  https://en.wiktionary.org/wiki/interest and https://fr.wiktionary.org/wiki/serrer
+  by their Wiktionary contributors, CC BY-SA 4.0 as recorded in their footers:
+  https://creativecommons.org/licenses/by-sa/4.0/
+- cli/htmlarc/src/testdata/{enterprises,monetize,reopens,scenarios}.html
+  are extracted article bodies from the corresponding English Wiktionary pages:
+  https://en.wiktionary.org/wiki/enterprises
+  https://en.wiktionary.org/wiki/monetize
+  https://en.wiktionary.org/wiki/reopens
+  https://en.wiktionary.org/wiki/scenarios
+  Contributors and revision history are available through each page's History tab.
+  These extracted fixtures and their derived snapshots retain CC BY-SA terms.
+The formatter/parser snapshots and cleaned article bodies are modified extracts;
+synthetic parser fixtures are htmlarc project code, not Wikimedia content.
+
+Compiled dependencies:
+See THIRD_PARTY_NOTICES.md for Rust dependency licenses and copyrights,
+THIRD_PARTY_NATIVE.txt for native-code licenses and supplementary upstream
+notices, and THIRD_PARTY_RUST.html for the Rust standard library notices.
+These third-party terms also apply when using htmlarc under a commercial license.

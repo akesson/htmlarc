@@ -297,7 +297,7 @@ impl WidthImpact {
 /// compressed general-web archive and the next size lever. Unlike the cardinality counters
 /// this needs the *real* parser (a tolerant token pass can't build a tree), so it runs the
 /// exact production path (`parse → into_optimal_width`) and aggregates each document's
-/// [`TopologyReport`]. It also measures the blob after a document-order [`rebuild`], to
+/// [`TopologyReport`]. It also measures the blob after a document-order `rebuild`, to
 /// separate the "reorder + drop dead slots" win from the "delta-encode the links" win.
 /// Documents that fail to parse are skipped (as in production) and tallied.
 #[derive(Default)]

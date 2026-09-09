@@ -100,3 +100,36 @@ the tagged commit. Likewise, upload only missing Python artifacts after checking
 that existing files belong to this release. Do not move an already published tag
 or rebuild different contents under a published version. Use a new patch version
 for code changes. If only GitHub draft creation failed, rerun that job.
+
+## Notices, documentation, and release notes
+
+Before each release or dependency change, regenerate the complete notices with
+Rust 1.96's docs component and cargo-about 0.9.2. The generated Rust dependency
+notice covers the workspace's default-feature runtime/build graph on all targets;
+individual artifacts use subsets. The supplementary files cover upstream NOTICE
+files, bundled zstd/liblzma, and the Rust standard library.
+
+```sh
+cargo install cargo-about --version 0.9.2 --locked --features cli
+rustup component add rust-docs
+python3 scripts/generate_notices.py
+python3 scripts/package_notices.py --sync
+```
+
+Review changes in license texts and copyright attribution, not just the SPDX
+identifiers. Commit the root files and package-local copies. The notice check
+rejects stale dependency inputs as well as stale copies. Package license files
+include `THIRD_PARTY_NOTICES.md`, `THIRD_PARTY_NATIVE.txt`, and
+`THIRD_PARTY_RUST.html` alongside htmlarc's own notices.
+
+Create `docs/releases/v<version>.md` and update CHANGELOG.md before rehearsing.
+The release workflow requires that notes file and uses it for the GitHub draft.
+`cargo audit --deny warnings` gates CI and release checks; do not ignore a new
+advisory merely to get a release through. Rustdoc warnings also fail CI.
+Unix artifacts are checked for unexpected dynamic dependencies before upload;
+for example, a converter linked to `/opt/homebrew/opt/xz/...` fails the check.
+
+Archive format policy and migration limitations are in the root README. Keep
+`crates/htmlarc-archive/tests/data/v12.bin` frozen as a reader compatibility
+fixture. Performance claims for the initial release must use the v12 write-up,
+not the historical v11 benchmark tables.
