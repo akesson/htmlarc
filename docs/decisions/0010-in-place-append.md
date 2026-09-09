@@ -37,9 +37,10 @@ header cleared → synced. Consequences:
   and overwrites the garbage).
 - On Unix, concurrent *readers* that already mapped the file are unaffected (append only writes
   past their mapped EOF plus the header bytes, which they never re-read). Concurrent
-  *appenders* are not supported. On Windows, all mapped readers must be released
-  before opening an appender: Windows rejects the truncation call while any mapping
-  is open, including mappings retained by document handles or other processes.
+  *appenders* are not supported. On Windows, recovering an abandoned append requires
+  releasing all mapped readers: Windows rejects truncation while any mapping is open,
+  including mappings retained by document handles or other processes. A normal append
+  does not shrink the file and can keep readers open.
 
 **Dedup and metadata stay aligned.** The writer is pre-seeded with all existing keys
 (first wins, old document wins); `push` reports whether a document was stored, and
