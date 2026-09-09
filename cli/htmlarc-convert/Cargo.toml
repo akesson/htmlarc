@@ -5,6 +5,9 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The patched ZIM reader is Git-only. Distribute this CLI as release binaries
+# and via `cargo install --git` until the fork has a crates.io release.
+publish = false
 
 [[bin]]
 name = "htmlarc-convert"
