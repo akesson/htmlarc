@@ -2054,9 +2054,10 @@ impl ArchiveBuilder {
 /// and an abandoned append is healed by the next one. Each append leaves the previous
 /// footer behind as a few dead bytes; re-pack to reclaim them. Don't append while another
 /// process is appending. On Unix, concurrent *readers* of the already-open file
-/// are fine. On Windows, release all Archive, Document, and Element handles for
-/// the file before appending (including readers in other processes); otherwise
-/// opening the appender raises OSError because Windows forbids truncating a mapped file.
+/// are fine. On Windows, recovering an abandoned append requires releasing all
+/// Archive, Document, and Element handles for the file (including readers in other
+/// processes); otherwise opening the appender raises OSError because Windows
+/// forbids truncating a mapped file.
 #[pyfunction]
 #[pyo3(signature = (path, *, on_error = "raise"))]
 fn append(path: PathBuf, on_error: &str) -> PyResult<ArchiveBuilder> {
