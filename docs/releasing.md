@@ -55,6 +55,11 @@ select the unpatched upstream crate for registry consumers.
 
 ## Rehearse and release
 
+The source packages contain local copies of `LICENSE`, `NOTICE`, and
+`COMMERCIAL.md`; Python wheels include them under `.dist-info/licenses/`.
+After editing a root notice, run `python3 scripts/package_notices.py --sync`
+and commit the copies too. CI checks that they match.
+
 1. Update `[workspace.package].version` and the two internal dependency versions
    in `Cargo.toml` together; update the lockfile. Python inherits this version.
 2. Commit the release changes. Run **Release → Run workflow** on that commit's
