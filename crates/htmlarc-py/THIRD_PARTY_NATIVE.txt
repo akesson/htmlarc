@@ -1,0 +1,207 @@
+Native licenses and supplementary upstream notices
+=================================================
+
+This supplements THIRD_PARTY_NOTICES.md. Individual distributions use
+a subset. Only liblzma from XZ Utils is linked, not its command-line tools.
+
+
+arrow-array 59.1.0 — NOTICE.txt
+------------------------------------------------------------------------
+Apache Arrow
+Copyright 2016-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This product includes software from the chronoutil crate (MIT)
+ * Copyright (c) 2020-2022 Oliver Margetts
+ * https://github.com/olliemath/chronoutil
+
+This product includes software from the compact-thrift project (Apache 2.0)
+ * Copyright Jörn Horstmann
+ * https://github.com/jhorstmann/compact-thrift
+
+
+arrow-buffer 59.1.0 — NOTICE.txt
+------------------------------------------------------------------------
+Apache Arrow
+Copyright 2016-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This product includes software from the chronoutil crate (MIT)
+ * Copyright (c) 2020-2022 Oliver Margetts
+ * https://github.com/olliemath/chronoutil
+
+This product includes software from the compact-thrift project (Apache 2.0)
+ * Copyright Jörn Horstmann
+ * https://github.com/jhorstmann/compact-thrift
+
+
+arrow-data 59.1.0 — NOTICE.txt
+------------------------------------------------------------------------
+Apache Arrow
+Copyright 2016-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This product includes software from the chronoutil crate (MIT)
+ * Copyright (c) 2020-2022 Oliver Margetts
+ * https://github.com/olliemath/chronoutil
+
+This product includes software from the compact-thrift project (Apache 2.0)
+ * Copyright Jörn Horstmann
+ * https://github.com/jhorstmann/compact-thrift
+
+
+arrow-schema 59.1.0 — NOTICE.txt
+------------------------------------------------------------------------
+Apache Arrow
+Copyright 2016-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This product includes software from the chronoutil crate (MIT)
+ * Copyright (c) 2020-2022 Oliver Margetts
+ * https://github.com/olliemath/chronoutil
+
+This product includes software from the compact-thrift project (Apache 2.0)
+ * Copyright Jörn Horstmann
+ * https://github.com/jhorstmann/compact-thrift
+
+
+lzma-sys 0.1.20 — xz-5.2/COPYING
+------------------------------------------------------------------------
+
+XZ Utils Licensing
+==================
+
+    Different licenses apply to different files in this package. Here
+    is a rough summary of which licenses apply to which parts of this
+    package (but check the individual files to be sure!):
+
+      - liblzma is in the public domain.
+
+      - xz, xzdec, and lzmadec command line tools are in the public
+        domain unless GNU getopt_long had to be compiled and linked
+        in from the lib directory. The getopt_long code is under
+        GNU LGPLv2.1+.
+
+      - The scripts to grep, diff, and view compressed files have been
+        adapted from gzip. These scripts and their documentation are
+        under GNU GPLv2+.
+
+      - All the documentation in the doc directory and most of the
+        XZ Utils specific documentation files in other directories
+        are in the public domain.
+
+      - Translated messages are in the public domain.
+
+      - The build system contains public domain files, and files that
+        are under GNU GPLv2+ or GNU GPLv3+. None of these files end up
+        in the binaries being built.
+
+      - Test files and test code in the tests directory, and debugging
+        utilities in the debug directory are in the public domain.
+
+      - The extra directory may contain public domain files, and files
+        that are under various free software licenses.
+
+    You can do whatever you want with the files that have been put into
+    the public domain. If you find public domain legally problematic,
+    take the previous sentence as a license grant. If you still find
+    the lack of copyright legally problematic, you have too many
+    lawyers.
+
+    As usual, this software is provided "as is", without any warranty.
+
+    If you copy significant amounts of public domain code from XZ Utils
+    into your project, acknowledging this somewhere in your software is
+    polite (especially if it is proprietary, non-free software), but
+    naturally it is not legally required. Here is an example of a good
+    notice to put into "about box" or into documentation:
+
+        This software includes code from XZ Utils <https://tukaani.org/xz/>.
+
+    The following license texts are included in the following files:
+      - COPYING.LGPLv2.1: GNU Lesser General Public License version 2.1
+      - COPYING.GPLv2: GNU General Public License version 2
+      - COPYING.GPLv3: GNU General Public License version 3
+
+    Note that the toolchain (compiler, linker etc.) may add some code
+    pieces that are copyrighted. Thus, it is possible that e.g. liblzma
+    binary wouldn't actually be in the public domain in its entirety
+    even though it contains no copyrighted code from the XZ Utils source
+    package.
+
+    If you have questions, don't hesitate to ask the author(s) for more
+    information.
+
+
+
+lzma-sys 0.1.20 — xz-5.2/AUTHORS
+------------------------------------------------------------------------
+
+Authors of XZ Utils
+===================
+
+    XZ Utils is developed and maintained by Lasse Collin
+    <lasse.collin@tukaani.org>.
+
+    Major parts of liblzma are based on code written by Igor Pavlov,
+    specifically the LZMA SDK <http://7-zip.org/sdk.html>. Without
+    this code, XZ Utils wouldn't exist.
+
+    The SHA-256 implementation in liblzma is based on the code found from
+    7-Zip <http://7-zip.org/>, which has a modified version of the SHA-256
+    code found from Crypto++ <http://www.cryptopp.com/>. The SHA-256 code
+    in Crypto++ was written by Kevin Springle and Wei Dai.
+
+    Some scripts have been adapted from gzip. The original versions
+    were written by Jean-loup Gailly, Charles Levert, and Paul Eggert.
+    Andrew Dudman helped adapting the scripts and their man pages for
+    XZ Utils.
+
+    The GNU Autotools-based build system contains files from many authors,
+    which I'm not trying to list here.
+
+    Several people have contributed fixes or reported bugs. Most of them
+    are mentioned in the file THANKS.
+
+
+
+zstd-sys 2.0.16+zstd.1.5.7 — zstd/LICENSE
+------------------------------------------------------------------------
+BSD License
+
+For Zstandard software
+
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ * Neither the name Facebook, nor Meta, nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

@@ -5,17 +5,31 @@ on Windows as well as Unix, without requiring symlink support or build hooks.
 """
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ("crates/htmlarc-dom", "crates/htmlarc-archive", "crates/htmlarc-py", "cli/htmlarc")
-NOTICES = ("LICENSE", "NOTICE", "COMMERCIAL.md")
+NOTICES = ("LICENSE", "NOTICE", "COMMERCIAL.md", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NATIVE.txt", "THIRD_PARTY_RUST.html")
+
+
+def notice_inputs():
+    paths = [ROOT / "Cargo.lock", ROOT / "Cargo.toml", ROOT / "about.toml",
+             ROOT / "rust-toolchain.toml", ROOT / "scripts/licenses.hbs",
+             ROOT / "scripts/generate_notices.py"]
+    paths += sorted(ROOT.glob("crates/*/Cargo.toml")) + sorted(ROOT.glob("cli/*/Cargo.toml"))
+    return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in paths}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sync", action="store_true")
     args = parser.parse_args()
+    recorded = json.loads((ROOT / "licenses-inputs.json").read_text(encoding="utf-8"))
+    if recorded != notice_inputs():
+        parser.exit(1, "License inputs changed; regenerate notices as documented in docs/releasing.md\n")
     stale = []
     for package in PACKAGES:
         for name in NOTICES:

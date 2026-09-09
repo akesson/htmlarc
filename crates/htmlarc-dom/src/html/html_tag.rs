@@ -145,7 +145,7 @@ pub enum HtmlTag {
     video,
     wbr,
     /// Normalization marker for an *extended* (custom/unknown) tag — any name not in this
-    /// enum (ADR 0002 §4). It is the in-memory result of [`crate::dom::nodes`] decoding a
+    /// enum (ADR 0002 §4). It is the in-memory result of `crate::dom::nodes` decoding a
     /// node byte `>= EXT_BASE`; the real name lives in the per-document `ext_tags` vocab and
     /// is resolved via `DomView::tag_name`. It is **never stored as a node's own
     /// discriminant** (a node byte is either a sub-`EXT_BASE` discriminant or a vocab index)
@@ -334,7 +334,7 @@ impl HtmlTag {
         )
     }
 
-    /// see: https://html.spec.whatwg.org/multipage/syntax.html#optional-tags
+    /// see: <https://html.spec.whatwg.org/multipage/syntax.html#optional-tags>
     pub fn auto_close_when_parent(&self, parent: Self) -> bool {
         use HtmlTag::{
             datalist, dd, dl, li, menu, ol, optgroup, option, rp, rt, ruby, select, table, tbody,
@@ -353,7 +353,7 @@ impl HtmlTag {
         }
     }
 
-    /// see: https://html.spec.whatwg.org/multipage/syntax.html#optional-tags
+    /// see: <https://html.spec.whatwg.org/multipage/syntax.html#optional-tags>
     pub fn auto_close_when_next(&self, next: Self) -> bool {
         use HtmlTag::{
             colgroup, dd, dt, hr, li, optgroup, option, rp, rt, tbody, td, tfoot, th, thead, tr,

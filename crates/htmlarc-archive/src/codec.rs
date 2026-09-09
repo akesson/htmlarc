@@ -34,7 +34,7 @@ pub(crate) const DICT_MIN_SAMPLE_BYTES: usize = 4 << 20;
 
 /// Train one archive-wide dictionary from a sample of raw document text pools. Returns `None` when
 /// there is too little to train on — zstd needs a handful of non-trivial samples, and below
-/// [`DICT_MIN_SAMPLE_BYTES`] the stored dictionary would not pay for itself — in which case the
+/// `DICT_MIN_SAMPLE_BYTES` the stored dictionary would not pay for itself — in which case the
 /// caller compresses dictionary-less, still a valid archive.
 pub fn train_string_dict<S: AsRef<[u8]>>(samples: &[S]) -> Option<Vec<u8>> {
     let usable = samples.iter().filter(|s| !s.as_ref().is_empty()).count();
@@ -89,7 +89,7 @@ pub struct StringCompressor<'a> {
 
 impl StringCompressor<'_> {
     /// Compress one document's raw pool as independent block frames (cut at `raw_ends`, from
-    /// [`crate::bundle_strings::block_cuts`]): the concatenated frames plus their cumulative ends.
+    /// `crate::bundle_strings::block_cuts`): the concatenated frames plus their cumulative ends.
     pub fn compress_pool(
         &mut self,
         raw: &[u8],

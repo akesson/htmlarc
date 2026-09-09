@@ -6,7 +6,7 @@ useful when you have gigabytes of HTML (e.g. a Wiktionary dump) split across hun
 thousands of small files.
 
 > [!NOTE]
-> **Stable, but not under active development.** Dual-licensed: **[AGPL-3.0](LICENSE)** for
+> **Initial 0.1 release; limited maintenance.** Dual-licensed: **[AGPL-3.0](LICENSE)** for
 > open-source use, or a **[commercial license](COMMERCIAL.md)** to use it in closed-source or
 > SaaS software without AGPL obligations. There is no free support or roadmap, but **I'm
 > available for paid contract work** to extend, integrate, or maintain it for your use case —
@@ -24,11 +24,39 @@ thousands of small files.
 - **A real CSS3 selector engine** runs over that DOM (compound/complex/relative selectors,
   `:has()`, `nth-*`, attribute operators), at speeds comparable to a pointer-tree DOM.
 
+## Install
+
+Python (CPython 3.10 or later):
+
+```sh
+pip install htmlarc
+```
+
+See the [Python guide](https://github.com/akesson/htmlarc/blob/main/crates/htmlarc-py/README.md)
+and [runnable quickstart](https://github.com/akesson/htmlarc/blob/main/examples/python/quickstart.py).
+
+Install the CLI with Rust 1.96 or later and a C compiler:
+
+```sh
+cargo install htmlarc --locked
+```
+
+Prebuilt Unix downloads include both `htmlarc` and `htmlarc-convert`; see
+[GitHub releases](https://github.com/akesson/htmlarc/releases). Registry installation
+commands become available with the first published release.
+
+To build from this repository:
+
+```sh
+git clone https://github.com/akesson/htmlarc.git
+cd htmlarc
+cargo build --release --locked
+export PATH="$PWD/target/release:$PATH"
+```
+
 ## Quick start
 
 ```sh
-cargo build --release
-export PATH="$PWD/target/release:$PATH"
 
 # Every command takes a <source>, which is one of:
 #   • a .htmlarc archive file   (loaded directly, no parsing)
@@ -78,10 +106,10 @@ htmlarc-convert extract wikipedia.zim 'Some Title' # print one document's HTML
 
 Then query the result with `htmlarc` as usual (`htmlarc probe wikipedia.htmlarc -p '…'`).
 
-- ZIM is read via the pure-Rust [`zim`] crate (MIT/Apache), so **no system libzim** is
+- ZIM is read via the Rust [`zim`] crate (MIT/Apache), so **no system libzim** is
   required — but building it does need a **C compiler** (`zstd-sys`/`lzma-sys` compile bundled
-  C) and pulls in ~110 transitive crates. This is isolated to the `htmlarc-convert` binary; the
-  three core `htmlarc-*` crates stay pure-Rust with no C dependencies.
+  C). `htmlarc-dom` is pure Rust; `htmlarc-archive` and the Python extension also compile
+  bundled zstd C code when built from source. Prebuilt wheels need neither Rust nor a C compiler.
 - We depend on a **fork** of `zim` 0.4: the upstream crate is unmaintained and fails to open
   any current Kiwix dump (modern ZIMs omit the legacy title pointer list, which upstream slices
   unconditionally → `OutOfBounds`). The fork guards that sentinel.
@@ -108,7 +136,7 @@ An archive (`htmlarc-archive`) is a **bundle-segmented, footer-indexed** contain
 grouped into bundles (up to 1,000) and written with rkyv, with a sorted key index in the footer.
 `get` binary-searches that index by key, and `MmapArchive` reads the archived topology **zero-copy**
 from a memory-map. Each document's text/comment payload is relocated into a per-bundle block and
-stored as an independent zstd frame, inflated lazily per document on first text read — so
+split into roughly 16 KiB zstd blocks at text-node boundaries. Blocks inflate on first access — so
 selector/topology queries, which touch none of it, stay fully zero-copy.
 
 ## Honest limitations
@@ -122,7 +150,24 @@ selector/topology queries, which touch none of it, stay fully zero-copy.
   recovery** (stray/mismatched end tags, foreign SVG/MathML, optional tags) rather than the full
   WHATWG tree-construction algorithm (no adoption-agency / foster-parenting). On a 2.04M-document
   Common Crawl corpus it parses **99.9995%** of `text/html` documents; the ~0.0005% dropped are
-  genuine capacity overflow (the node ceiling above), not malformed markup.
+  capacity overflow, including nesting beyond 8,192 elements and per-document side-table
+  limits, not malformed markup. These historical measurements are corpus-specific.
+
+## Compatibility and archive safety
+
+Version 0.1.0 reads and writes **format v12**, on 64-bit little-endian platforms.
+For example, a v11 archive must be exported with its original reader or rebuilt
+from source HTML before v0.1.0 can use it; this release has no built-in migration.
+Keep source inputs and the tool version that produced your archives.
+
+Patch releases in the 0.1 series are intended to preserve v12 readability; future
+minor releases may change the format or APIs before 1.0. Treat archives as trusted
+local data: validation is not a sandbox for hostile files. Use one writer per
+archive; do not truncate or replace mapped file contents while readers use them.
+Append recovery handles an interrupted process, including interruption during the
+footer commit. Memory scales with document/key metadata plus the active bundle,
+not total stored HTML bytes. This is not a guarantee against storage corruption
+or arbitrary power-loss behavior.
 
 ## Workspace layout
 
@@ -214,9 +259,9 @@ definitions out — printing the size shrink at every step. See
 
 Dual-licensed:
 
-- **[GNU AGPL-3.0](LICENSE)** — free for open-source use. If you distribute htmlarc (or a work
-  based on it), or offer it to users over a network, the AGPL requires you to make the
-  corresponding source available under the AGPL.
+- **[GNU AGPL-3.0-only](LICENSE)** — use, modification, and redistribution under the
+  license terms, including applicable corresponding-source obligations for distribution
+  and modified versions used over a network. See [COMMERCIAL.md](COMMERCIAL.md) for scope.
 - **[Commercial license](COMMERCIAL.md)** — to use htmlarc in closed-source or SaaS software
   without AGPL obligations. Contact [@akesson](https://github.com/akesson).
 

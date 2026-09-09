@@ -168,7 +168,7 @@ impl DocBlocks {
 
 /// A whole bundle's native-`u32` block tables plus one inflate cache per block, built once per
 /// bundle by [`ArchivedBundleStrings::arena`] so a sweep converts the archived (little-endian)
-/// tables a single time — not per document — and [`lazy_states`](ArchivedBundleStrings::lazy_states)
+/// tables a single time — not per document — and `ArchivedBundleStrings::lazy_states`
 /// can hand every document a subslice.
 pub struct StringsArena {
     bufs: Box<[OnceLock<Vec<u8>>]>,

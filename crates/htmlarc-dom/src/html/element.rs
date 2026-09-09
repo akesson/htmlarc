@@ -304,7 +304,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     /// Runs `f` on the borrowed value of the attribute named `name` (`None` when absent) — the
-    /// zero-allocation counterpart to [`get_attribute`](Self::get_attribute), with the identical
+    /// zero-allocation counterpart to [`Self::get_attribute`](Self::get_attribute), with the identical
     /// string-name resolution (standard names via [`HtmlAttr`], everything else matched against the
     /// extended names, ASCII case-insensitive). The value borrows the backing store only for the
     /// duration of the call.
@@ -329,7 +329,7 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     }
 
     /// Whether an attribute named `name` is present (ASCII case-insensitive), without
-    /// materializing its value — the presence-only counterpart to [`get_attribute`].
+    /// materializing its value — the presence-only counterpart to [`Self::get_attribute`].
     pub fn has_attribute(&self, name: &str) -> bool {
         use std::str::FromStr;
         let target = HtmlAttr::from_str(name).map_or(AttrName::Ext(name), AttrName::Std);

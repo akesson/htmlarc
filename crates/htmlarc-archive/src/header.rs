@@ -22,7 +22,8 @@
 //! [`BundleStrings`](crate::bundle_strings) block (ADR 0006) and stored as ~16 KiB zstd blocks
 //! cut at text-node boundaries (ADR 0008; v10 stored one frame per document, v9 stored the
 //! block uncompressed), optionally against one archive-wide dictionary recorded in the trailer
-//! (ADR 0005). v11 and older layouts are no longer read — re-pack to upgrade.
+//! (ADR 0005). v11 and older layouts are no longer read. Rebuild from source HTML, or export
+//! with the original reader before importing into this version.
 
 use crate::error::ArchiveErr;
 
@@ -42,17 +43,17 @@ pub(crate) fn header_bytes() -> [u8; HEADER_LEN] {
 
 /// Validate the front header. Errors on a missing magic (legacy/header-less or not a
 /// `.htmlarc`) or a recognized-but-unsupported version/endianness — old archives must be
-/// re-packed with this build.
+/// exported with their original reader or rebuilt from source HTML.
 pub(crate) fn validate_header(bytes: &[u8]) -> Result<(), ArchiveErr> {
     if bytes.len() < HEADER_LEN || &bytes[0..8] != MAGIC {
         return Err(ArchiveErr::Header(
-            "not a .htmlarc file (missing magic — legacy archives must be re-packed)".into(),
+            "not a .htmlarc file (missing magic — rebuild legacy archives from source HTML)".into(),
         ));
     }
     let version = bytes[8];
     if version != VERSION {
         return Err(ArchiveErr::Header(format!(
-            "unsupported .htmlarc version {version} (this build reads/writes {VERSION}; re-pack to upgrade)"
+            "unsupported .htmlarc version {version} (this build reads/writes {VERSION}; rebuild from source HTML or export with the original reader)"
         )));
     }
     let endian = bytes[9];

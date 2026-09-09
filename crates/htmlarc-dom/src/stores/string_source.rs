@@ -10,24 +10,6 @@ pub trait FrameDecoder: Sync {
     fn decode(&self, frame: &[u8], raw_len: usize) -> Vec<u8>;
 }
 
-/// Borrowed, read-only source of a document's text/comment pool, the single seam through
-/// which [`DomView`](crate::dom::DomView) reads text. It abstracts *how* the bytes are stored
-/// so the query layer is agnostic to it:
-///
-/// - [`Plain`](Self::Plain): the bytes are available verbatim — an owned `Vec` (a live
-///   document) or an already-inflated pool. Reads are zero-copy.
-/// - [`Lazy`](Self::Lazy): the pool is split into independently compressed blocks; a read
-///   inflates only the block containing its range, so a sweep that touches a fraction of a
-///   document's text never pays to inflate the rest. Block boundaries coincide with text-node
-///   boundaries (a write-side invariant), so a single node's range never straddles blocks and
-///   reads stay borrowed slices. `decoder` is injected by the archive layer so this crate stays
-///   codec-agnostic; the enum stays `Copy` because the whole [`LazyState`] sits behind one
-///   reference.
-///
-/// All byte offsets handed to [`get`](Self::get) are document-local; for `Plain` the slice is
-/// already narrowed to the document, and for `Lazy` `base` locates the document within the
-/// bundle-cumulative block tables.
-///
 /// The per-block inflate state behind [`StringSource::Lazy`], held behind a shared reference so
 /// the enum stays small (two words) — keeping the hot `Plain` path, and the `Copy`
 /// [`DomView`](crate::dom::DomView) that carries it, as cheap as a bare slice.
@@ -63,6 +45,24 @@ impl<'a> LazyState<'a> {
     }
 }
 
+/// Borrowed, read-only source of a document's text/comment pool, the single seam through
+/// which [`DomView`](crate::dom::DomView) reads text. It abstracts *how* the bytes are stored
+/// so the query layer is agnostic to it:
+///
+/// - [`Plain`](Self::Plain): the bytes are available verbatim — an owned `Vec` (a live
+///   document) or an already-inflated pool. Reads are zero-copy.
+/// - [`Lazy`](Self::Lazy): the pool is split into independently compressed blocks; a read
+///   inflates only the block containing its range, so a sweep that touches a fraction of a
+///   document's text never pays to inflate the rest. Block boundaries coincide with text-node
+///   boundaries (a write-side invariant), so a single node's range never straddles blocks and
+///   reads stay borrowed slices. `decoder` is injected by the archive layer so this crate stays
+///   codec-agnostic; the enum stays `Copy` because the whole [`LazyState`] sits behind one
+///   reference.
+///
+/// All byte offsets handed to `get` are document-local; for `Plain` the slice is
+/// already narrowed to the document, and for `Lazy` `base` locates the document within the
+/// bundle-cumulative block tables.
+///
 #[derive(Clone, Copy)]
 pub enum StringSource<'a> {
     Plain(&'a [u8]),

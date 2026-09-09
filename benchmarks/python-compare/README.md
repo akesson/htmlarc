@@ -1,5 +1,8 @@
 # Querying HTML corpora from Python: BeautifulSoup vs lxml vs htmlarc
 
+> Historical results below use format v11 (July 2026), not the v12 release.
+> See [the v12 release measurements](release-v12.md) for current results.
+
 Head-to-head measurement of the two standard Python HTML-querying stacks against the
 `htmlarc` Python bindings, on two real corpora. Basis for an article; all numbers
 reproduced by the scripts next to this file (`extract.py`, `bench.py`).

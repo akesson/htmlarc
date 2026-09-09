@@ -4,6 +4,7 @@ members = ["crates/*", "cli/*"]
 
 [workspace.package]
 edition = "2024"
+rust-version = "1.96"
 version = "0.1.0"
 license = "AGPL-3.0-only"
 repository = "https://github.com/akesson/htmlarc"
@@ -57,7 +58,7 @@ xflags = "0.3"
 zstd = "0.13"
 # Fork of the unmaintained `zim` 0.4 crate, patched to open modern ZIMs (header
 # minor version >= 2, which omit the legacy title pointer list). See akesson/zim.
-zim = { git = "https://github.com/akesson/zim", branch = "fix-modern-zim-title-ptr" }
+zim = { git = "https://github.com/akesson/zim", rev = "6759b44" }
 
 # internal crates
 htmlarc-dom = { version = "0.1.0", path = "crates/htmlarc-dom" }

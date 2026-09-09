@@ -146,7 +146,7 @@ pub enum MetaColumn {
 }
 
 /// The complete metadata table as serialized into the footer blob: parallel
-/// `names`/`types` (schema, `types[i]` is a [`MetaType::code`]) plus one column per field.
+/// `names`/`types` (schema, `types[i]` is a `MetaType::code`) plus one column per field.
 #[derive(RkyvArchive, Serialize, Deserialize, Debug, Default)]
 pub struct MetaTable {
     pub names: Vec<String>,

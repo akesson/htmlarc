@@ -1727,7 +1727,7 @@ fn build_batches(
     Ok(batches)
 }
 
-/// A columnar scan result ([`Archive::scan_table`]), exported zero-copy over the Arrow PyCapsule
+/// A columnar scan result (`Archive::scan_table`), exported zero-copy over the Arrow PyCapsule
 /// *stream* interface. Consume it with `pyarrow.table(r)`, `polars.DataFrame(r)`,
 /// `pandas.DataFrame.from_arrow(r)`, `duckdb.sql("... from r")`, or any other
 /// `__arrow_c_stream__` reader — htmlarc itself carries no Python-side Arrow dependency. The

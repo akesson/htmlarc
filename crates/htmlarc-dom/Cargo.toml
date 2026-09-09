@@ -2,9 +2,11 @@
 name = "htmlarc-dom"
 description = "A flat, byte-array, rkyv-archivable HTML DOM with a parser and CSS3 selector engine"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 function_name.workspace = true

@@ -2,6 +2,7 @@
 name = "htmlarc-convert"
 description = "Convert ZIM, WARC, or a directory of HTML files into an .htmlarc archive, and probe corpus statistics"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
