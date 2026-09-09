@@ -100,3 +100,54 @@ the tagged commit. Likewise, upload only missing Python artifacts after checking
 that existing files belong to this release. Do not move an already published tag
 or rebuild different contents under a published version. Use a new patch version
 for code changes. If only GitHub draft creation failed, rerun that job.
+
+## Notices, documentation, and release notes
+
+Generate notices once per dependency or toolchain change:
+
+```sh
+cargo install cargo-about --version 0.9.2 --locked --features cli
+rustup component add rust-src rust-docs
+python3 scripts/generate_notices.py
+python3 scripts/package_notices.py --sync
+```
+
+There are two generated files:
+
+- `crates/htmlarc-py/THIRD_PARTY_NOTICES.txt` ships in wheels and the Python sdist
+  (so a wheel built from the sdist retains the notices).
+- `cli/htmlarc-convert/THIRD_PARTY_NOTICES.txt` ships with the two-CLI binary download.
+
+Source-only Cargo packages retain LICENSE, NOTICE and COMMERCIAL.md, including
+fixture attribution. They do not redistribute dependency implementations, so
+no compiled-dependency notice copies are added to them.
+
+The generator selects each artifact's default-feature dependency graph and
+supported targets, excludes development/build-only dependencies, and retains
+procedural macros that may contribute generated code. It includes applicable
+upstream NOTICE files and the bundled zstd license. liblzma is public domain;
+the unrelated XZ command-line utilities' GPL/LGPL terms are omitted.
+
+Rust runtime dependencies are resolved from a disposable copy of the pinned
+`rust-src`, with backtrace/panic-unwind enabled. `RUSTC_BOOTSTRAP=1` is used only
+for Cargo metadata in that copy, never to build htmlarc. Rust's in-tree copyright
+notices and compiler-runtime terms are retained explicitly. Toolchain upgrades
+require reviewing this selection. Unsupported targets and Rust's test/build
+dependencies are excluded instead of copying its entire HTML notice report.
+
+Identical terms share a section while preserving the associated component names
+and copyright notices. htmlarc's AGPL text is not repeated in these files.
+Review generated changes before committing. CI rejects stale dependency inputs
+and stale copies of the project notices.
+
+Create `docs/releases/v<version>.md` and update CHANGELOG.md before rehearsing.
+The release workflow requires that notes file and uses it for the GitHub draft.
+`cargo audit --deny warnings` gates CI and release checks; do not ignore a new
+advisory merely to get a release through. Rustdoc warnings also fail CI.
+Unix artifacts are checked for unexpected dynamic dependencies before upload;
+for example, a converter linked to `/opt/homebrew/opt/xz/...` fails the check.
+
+Archive format policy and migration limitations are in the root README. Keep
+`crates/htmlarc-archive/tests/data/v12.bin` frozen as a reader compatibility
+fixture. Performance claims for the initial release must use the v12 write-up,
+not the historical v11 benchmark tables.

@@ -56,7 +56,7 @@ impl Display for Sym {
     }
 }
 
-/// A single CSS class name, borrowed either from a document's [`SymbolTable`] (when a
+/// A single CSS class name, borrowed either from a document's `SymbolTable` (when a
 /// class list is iterated) or from a selector string. The one user-facing handle the
 /// store layer exposes (re-exported through the crate prelude).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

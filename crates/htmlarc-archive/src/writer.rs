@@ -1,9 +1,9 @@
 //! The streaming archive writer.
 //!
 //! [`ArchiveWriter`] serializes and appends each document the moment it's pushed, then drops it.
-//! Only a small in-RAM doc table (one [`DocEntry`] per doc), the per-bundle descriptors, and the
-//! *current* bundle's relocated text survive across the pack, so peak RSS scales with one bundle,
-//! never the whole corpus.
+//! Only an in-RAM doc table (one [`DocEntry`] per doc), the per-bundle descriptors, and the
+//! *current* bundle's relocated text survive across the pack, so memory scales with document/key metadata plus one bundle,
+//! not the corpus's document bodies.
 //!
 //! On-disk result (bundle-segmented): each document's text/comment pool is relocated out of its
 //! blob into its bundle's [`BundleStrings`] block, written right after that bundle's document
@@ -129,8 +129,9 @@ impl ArchiveWriter {
     ///
     /// Crash safety: before any byte is written, the old trailer's offset is staged into the
     /// header (bytes `10..16`); every read path falls back to it when the tail is not a valid
-    /// trailer, so a crashed or in-progress append leaves the file readable as the pre-append
-    /// archive, and the next append overwrites the abandoned tail. `finish` clears the staged
+    /// trailer. Until a complete new footer exists, an interrupted append exposes the pre-append
+    /// archive. A valid new footer wins even if the marker is still set. The next append
+    /// preserves that selected state and overwrites only the abandoned tail. `finish` clears the staged
     /// offset last.
     ///
     /// Returns the writer plus the archive's metadata table (rows for the pre-existing
@@ -143,71 +144,54 @@ impl ArchiveWriter {
 
         let path = path.as_ref();
 
-        // Read the existing footer through the owned-file path (validates header + trailer,
-        // with recovery). Only footer-sized regions are copied out — not the document bodies.
-        let (docs, bundles, dict, meta, append_start, old_trailer_offset) = {
-            let data = fs::read(path).map_err(ArchiveErr::FileRead)?;
-            crate::header::validate_header(&data)?;
-            let trailer = Trailer::read_from_tail(&data)?;
-
-            let docs = rkyv::from_bytes::<Vec<DocEntry>, Error>(crate::archive::bounded(
-                &data,
-                trailer.doc_table_offset,
-                trailer.doc_table_len,
-                "doc table",
-            )?)
-            .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
-            let bundles = rkyv::from_bytes::<Vec<BundleDesc>, Error>(crate::archive::bounded(
-                &data,
-                trailer.bundle_table_offset,
-                trailer.bundle_table_len,
-                "bundle table",
-            )?)
-            .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
-            let dict = if trailer.dict_len > 0 {
-                Some(
-                    crate::archive::bounded(
-                        &data,
-                        trailer.dict_offset,
-                        trailer.dict_len,
-                        "dictionary",
-                    )?
-                    .to_vec(),
-                )
-            } else {
-                None
-            };
-            let meta = if trailer.meta_len > 0 {
-                Some(
-                    rkyv::from_bytes::<crate::meta::MetaTable, Error>(crate::archive::bounded(
-                        &data,
-                        trailer.meta_offset,
-                        trailer.meta_len,
-                        "metadata table",
-                    )?)
-                    .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?,
-                )
-            } else {
-                None
-            };
-
-            // The authoritative trailer's position: at the tail normally, or wherever the
-            // recovery offset pointed after an abandoned append. New data starts right after
-            // it, overwriting any abandoned garbage.
-            let trailer_offset = match crate::header::pending_trailer_offset(&data) {
-                Some(off) if Trailer::read_at(&data, off as usize).is_ok() => off,
-                _ => (data.len() - crate::trailer::TRAILER_LEN) as u64,
-            };
-            let append_start = trailer_offset + crate::trailer::TRAILER_LEN as u64;
-            (docs, bundles, dict, meta, append_start, trailer_offset)
-        };
-
-        // Stage the recovery offset, then position the write handle at the append start.
         let mut file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(ArchiveErr::FileWrite)?;
+        let (trailer, old_trailer_offset) = Trailer::read_from_file(&mut file)?;
+        let append_start = old_trailer_offset + crate::trailer::TRAILER_LEN as u64;
+        // Trailer validation bounds all these regions before any allocation or mutation.
+        let mut read_region = |offset: u64,
+                               len: u64|
+         -> Result<rkyv::util::AlignedVec, ArchiveErr> {
+            let len = usize::try_from(len)
+                .map_err(|_| ArchiveErr::Validate("footer region exceeds address space".into()))?;
+            let mut bytes = rkyv::util::AlignedVec::with_capacity(len);
+            bytes.resize(len, 0);
+            file.seek(SeekFrom::Start(offset))
+                .map_err(ArchiveErr::FileRead)?;
+            file.read_exact(&mut bytes).map_err(ArchiveErr::FileRead)?;
+            Ok(bytes)
+        };
+        let docs = rkyv::from_bytes::<Vec<DocEntry>, Error>(&read_region(
+            trailer.doc_table_offset,
+            trailer.doc_table_len,
+        )?)
+        .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
+        let bundles = rkyv::from_bytes::<Vec<BundleDesc>, Error>(&read_region(
+            trailer.bundle_table_offset,
+            trailer.bundle_table_len,
+        )?)
+        .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?;
+        let dict = if trailer.dict_len > 0 {
+            Some(read_region(trailer.dict_offset, trailer.dict_len)?.to_vec())
+        } else {
+            None
+        };
+        let meta = if trailer.meta_len > 0 {
+            Some(
+                rkyv::from_bytes::<crate::meta::MetaTable, Error>(&read_region(
+                    trailer.meta_offset,
+                    trailer.meta_len,
+                )?)
+                .map_err(|e| ArchiveErr::Deserialize(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+
+        // Stage the selected trailer, then discard only bytes beyond that same trailer.
         file.seek(SeekFrom::Start(crate::header::PENDING_TRAILER_AT as u64))
             .map_err(ArchiveErr::FileWrite)?;
         file.write_all(&crate::header::pending_trailer_bytes(old_trailer_offset)?)

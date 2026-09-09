@@ -120,7 +120,7 @@ impl PartialEq<Class<'_>> for AttributePattern<'_> {
 /// differ by name kind: standard values are case-INsensitive unless the attribute is
 /// case-sensitive (`id`, `role`, `aria-*`); extended values default to case-SENSITIVE. An
 /// explicit `s`/`i` flag overrides either default.
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description
+/// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
 impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
     fn eq(&self, other: &Attribute) -> bool {
         let insensitive_default = match (&self.name, &other.name) {
@@ -211,7 +211,7 @@ impl<'s> AttributePattern<'s> {
     }
 
     /// By default, class attributes are case-sensitive. <br>
-    /// https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description
+    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
     ///
     /// # Note
     /// This implementation doesn't follow the CSS spec for class matching.

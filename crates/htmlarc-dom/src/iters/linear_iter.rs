@@ -85,7 +85,7 @@ fn debug_check_contiguous(nodes: NodesView, front: u32, back: u32) {
 
 impl<'dom, Dom: ContiguousDfs> LinearSweep<'dom, Dom> {
     /// Every node after the node at `start` to the end of the document — the linear form of
-    /// [`ElementIter::forwards_at`](super::ElementIter::forwards_at). `pub` so out-of-crate backings
+    /// `ElementIter::forwards_at`. `pub` so out-of-crate backings
     /// (e.g. the archive's mmap `Doc` handle) can return it from `DomRead::forward_from`.
     pub fn forwards_at(dom: &'dom Dom, start: NodeIndex) -> Self {
         let (front, back) = dom.with_nodes(|nodes| {
@@ -98,7 +98,7 @@ impl<'dom, Dom: ContiguousDfs> LinearSweep<'dom, Dom> {
     }
 
     /// The subtree rooted at `start` (excluding `start`) — the linear form of
-    /// [`ElementIter::descendants_at`](super::ElementIter::descendants_at). `pub`; see
+    /// `ElementIter::descendants_at`. `pub`; see
     /// [`forwards_at`](Self::forwards_at).
     pub fn descendants_at(dom: &'dom Dom, start: NodeIndex) -> Self {
         let (front, back) = dom.with_nodes(|nodes| {

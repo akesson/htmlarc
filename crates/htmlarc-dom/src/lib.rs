@@ -24,7 +24,7 @@ pub use logging::debug;
 
 pub mod prelude {
     //! Convenience glob: everything needed to query a DOM, including the concrete
-    //! iterator/accessor/error types that the [`HtmlElement`](crate::html::HtmlElement)
+    //! iterator/accessor/error types that the [`HtmlElement`]
     //! methods return — so callers can name what the API hands back. The same items
     //! are also reachable through their domain modules (`crate::iters`, `crate::css`, …).
     pub use crate::accessors::{Attributes, AttributesMut, Classes, ClassesMut};

@@ -5,7 +5,7 @@ use htmlarc_archive::{
     ArchiveAppender, HtmlArchive, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue,
     MmapArchive,
 };
-use htmlarc_dom::prelude::HtmlDoc;
+use htmlarc_dom::prelude::*;
 
 fn temp_path(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -213,4 +213,100 @@ fn repeated_appends_then_repack() {
 
     std::fs::remove_file(&path).ok();
     std::fs::remove_file(&repacked).ok();
+}
+
+/// Model every footer write boundary, including a fully durable footer with its
+/// recovery marker not yet cleared. A subsequent append must preserve keys AND bodies.
+#[test]
+fn interrupted_commit_preserves_document_bodies() {
+    use std::io::{Seek, SeekFrom, Write};
+    for missing in 0..=104 {
+        let path = temp_path(&format!("commit_boundary_{missing}"));
+        let mut b = HtmlArchiveBuilder::default();
+        b.set_meta_schema(MetaSchema {
+            fields: vec![("generation".into(), MetaType::Int)],
+        })
+        .unwrap();
+        b.add_html_with_meta("old".into(), doc("old body"), vec![Some(MetaValue::Int(0))])
+            .unwrap();
+        b.write_to(&path).unwrap();
+        let old_trailer = std::fs::metadata(&path).unwrap().len() - 104;
+        let mut app = ArchiveAppender::open(&path).unwrap();
+        app.add_html_with_meta("new".into(), doc("new body"), vec![Some(MetaValue::Int(1))])
+            .unwrap();
+        app.commit().unwrap();
+        {
+            let mut f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            f.seek(SeekFrom::Start(10)).unwrap();
+            f.write_all(&old_trailer.to_le_bytes()[..6]).unwrap();
+            f.set_len(f.metadata().unwrap().len() - missing).unwrap();
+        }
+        let mut app = ArchiveAppender::open(&path).unwrap();
+        app.add_html_with_meta(
+            "third".into(),
+            doc("third body"),
+            vec![Some(MetaValue::Int(2))],
+        )
+        .unwrap();
+        app.commit().unwrap();
+        let owned = HtmlArchive::read_from(&path).unwrap();
+        let mmap = MmapArchive::open(&path).unwrap();
+        for (key, expected) in [("old", "old body"), ("third", "third body")] {
+            let text: String = owned
+                .get(key)
+                .unwrap()
+                .root()
+                .descendants()
+                .text_chars()
+                .collect();
+            assert_eq!(text, expected, "missing={missing}, key={key}");
+            let text: String = mmap
+                .doc_by_key(key)
+                .unwrap()
+                .unwrap()
+                .root()
+                .descendants()
+                .text_chars()
+                .collect();
+            assert_eq!(text, expected, "missing={missing}, key={key}");
+        }
+        if missing == 0 {
+            let text: String = owned
+                .get("new")
+                .unwrap()
+                .root()
+                .descendants()
+                .text_chars()
+                .collect();
+            assert_eq!(text, "new body");
+            assert_eq!(mmap.meta_value(1, 0), Some(MetaRef::Int(1)));
+        } else {
+            assert!(owned.get("new").is_none());
+        }
+        assert_eq!(mmap.meta_value(mmap.len() - 1, 0), Some(MetaRef::Int(2)));
+        drop(mmap);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+/// A sparse abandoned tail is discarded without loading it into memory.
+#[test]
+fn append_recovers_large_sparse_tail() {
+    use std::io::{Seek, SeekFrom, Write};
+    let path = temp_path("sparse_tail");
+    base_archive(&path);
+    let original_size = std::fs::metadata(&path).unwrap().len();
+    {
+        let mut f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.seek(SeekFrom::Start(10)).unwrap();
+        f.write_all(&(original_size - 104).to_le_bytes()[..6])
+            .unwrap();
+        f.set_len(original_size + 128 * 1024 * 1024).unwrap();
+    }
+    let mut app = ArchiveAppender::open(&path).unwrap();
+    app.add_html("kept".into(), doc("kept body")).unwrap();
+    app.commit().unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() < original_size + 4096);
+    assert_eq!(HtmlArchive::read_from(&path).unwrap().len(), 3);
+    std::fs::remove_file(path).unwrap();
 }

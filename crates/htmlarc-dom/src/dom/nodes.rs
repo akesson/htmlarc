@@ -167,7 +167,7 @@ pub(crate) struct Nodes {
 /// A borrowed, read-only view over the node-topology blob.
 ///
 /// The blob is a flat `[u8]` of fixed-width node records read with `from_le_bytes`,
-/// so the exact same view serves the owned `Nodes` (via [`Nodes::view`]) and the
+/// so the exact same view serves the owned `Nodes` (via `Nodes::view`) and the
 /// rkyv-archived `ArchivedNodes` (whose `ArchivedVec<u8>` derefs to the
 /// byte-identical `&[u8]`). This is what makes zero-copy querying of an mmap'd
 /// archive possible without re-parsing or deserializing — at either width.
@@ -396,7 +396,7 @@ impl<'a> NodesView<'a> {
     }
 }
 
-/// Per-document topology measurement produced by [`NodesView::topology_report`] and
+/// Per-document topology measurement produced by `NodesView::topology_report` and
 /// aggregated by the `stats --topology` probe. Every field is additive across documents
 /// ([`merge`](TopologyReport::merge)); byte fields are already in bytes, so a mix of u16/u24
 /// per-document node widths merges correctly.

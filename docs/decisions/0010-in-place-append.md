@@ -32,7 +32,10 @@ read path's trailer lookup (`Trailer::read_from_tail`) falls back to this offset
 tail is not a valid trailer. Commit order in `finish`: new tail durable (`sync_data`) →
 header cleared → synced. Consequences:
 
-- A crashed or in-progress append leaves the file **readable as the pre-append archive**.
+- Until a complete new trailer is written, an interrupted append exposes the
+  **pre-append archive**. Once the new trailer is valid it is authoritative, even
+  if the process stops before clearing the recovery marker. The next append must
+  load tables and choose its truncation point from that same trailer.
 - The next append heals an abandoned tail (it truncates to just past the recovered trailer
   and overwrites the garbage).
 - On Unix, concurrent *readers* that already mapped the file are unaffected (append only writes
