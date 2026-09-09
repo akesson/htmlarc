@@ -79,7 +79,7 @@ jobs:
           python-version: '3.10'
       - uses: PyO3/maturin-action@v1
         with:
-          version: '1.15.0'
+          maturin-version: '1.15.0'
           target: ${{ matrix.target }}
           manylinux: '2014'
           args: --release --locked --strip -m crates/htmlarc-py/Cargo.toml -o dist
