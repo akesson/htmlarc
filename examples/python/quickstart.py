@@ -10,6 +10,8 @@ Each numbered section works as a standalone notebook cell.
 Run:  uv run --with ../../target/wheels/htmlarc-*.whl quickstart.py
 (plain `uv run quickstart.py` once htmlarc is on PyPI)
 """
+from pathlib import Path
+
 import htmlarc
 import polars as pl
 
@@ -36,6 +38,7 @@ print("1.", el.text)
 # ---- 2. Build an archive — parse each page ONCE, keep the DOMs --------------
 # meta_schema stores typed per-document columns inside the archive: no sidecar
 # file to join later.
+Path("data").mkdir(parents=True, exist_ok=True)
 with htmlarc.ArchiveBuilder("data/quickstart.htmlarc",
                             meta_schema={"author": str, "topic": int}) as b:
     for i, (key, html) in enumerate(pages.items()):
