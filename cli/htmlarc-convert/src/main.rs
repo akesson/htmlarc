@@ -35,7 +35,8 @@ fn main() -> ExitCode {
 }
 
 fn run_cli() -> Result<()> {
-    let cli = HtmlarcConvert::from_env()?;
+    // xflags distinguishes a successful help request from invalid arguments.
+    let cli = HtmlarcConvert::from_env().unwrap_or_else(|err| err.exit());
     match cli.subcommand {
         HtmlarcConvertCmd::List(a) => commands::list(a),
         HtmlarcConvertCmd::Extract(a) => commands::extract(a),

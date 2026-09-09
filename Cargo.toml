@@ -60,8 +60,8 @@ zstd = "0.13"
 zim = { git = "https://github.com/akesson/zim", branch = "fix-modern-zim-title-ptr" }
 
 # internal crates
-htmlarc-dom = { path = "crates/htmlarc-dom" }
-htmlarc-archive = { path = "crates/htmlarc-archive" }
+htmlarc-dom = { version = "0.1.0", path = "crates/htmlarc-dom" }
+htmlarc-archive = { version = "0.1.0", path = "crates/htmlarc-archive" }
 
 # Speed up insta/similar in dev so snapshot tests run fast.
 [profile.dev.package.insta]

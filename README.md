@@ -140,6 +140,9 @@ corpus/             local-only measurement corpus, gitignored (see below)
 
 ## Building & testing
 
+Maintainers: see [the release guide](docs/releasing.md) for package builds,
+platform coverage, publishing setup, and release rehearsals.
+
 ```sh
 cargo build --workspace
 cargo nextest run            # tests use cargo-nextest (process-per-test)

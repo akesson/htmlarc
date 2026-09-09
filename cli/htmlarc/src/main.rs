@@ -41,7 +41,8 @@ fn main() -> ExitCode {
 }
 
 fn run_cli() -> Result<()> {
-    let cli = Htmlarc::from_env()?;
+    // xflags distinguishes a successful help request from invalid arguments.
+    let cli = Htmlarc::from_env().unwrap_or_else(|err| err.exit());
     let mut operator = Operator::new();
     let data_manager = Manager;
     process(&mut operator, data_manager, cli)
