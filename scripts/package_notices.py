@@ -11,12 +11,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ("crates/htmlarc-dom", "crates/htmlarc-archive", "crates/htmlarc-py", "cli/htmlarc")
-NOTICES = ("LICENSE", "NOTICE", "COMMERCIAL.md", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NATIVE.txt", "THIRD_PARTY_RUST.html")
+NOTICES = ("LICENSE", "NOTICE", "COMMERCIAL.md")
 
 
 def notice_inputs():
     paths = [ROOT / "Cargo.lock", ROOT / "Cargo.toml", ROOT / "about.toml",
-             ROOT / "rust-toolchain.toml", ROOT / "scripts/licenses.hbs",
+             ROOT / "rust-toolchain.toml",
              ROOT / "scripts/generate_notices.py"]
     paths += sorted(ROOT.glob("crates/*/Cargo.toml")) + sorted(ROOT.glob("cli/*/Cargo.toml"))
     return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -30,7 +30,10 @@ def main():
     recorded = json.loads((ROOT / "licenses-inputs.json").read_text(encoding="utf-8"))
     if recorded != notice_inputs():
         parser.exit(1, "License inputs changed; regenerate notices as documented in docs/releasing.md\n")
-    stale = []
+    generated = (ROOT / "cli/htmlarc-convert/THIRD_PARTY_NOTICES.txt",
+                 ROOT / "crates/htmlarc-py/THIRD_PARTY_NOTICES.txt")
+    stale = [str(p.relative_to(ROOT)) for p in generated if not p.is_file()]
+
     for package in PACKAGES:
         for name in NOTICES:
             source = (ROOT / name).read_bytes()

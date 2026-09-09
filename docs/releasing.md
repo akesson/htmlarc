@@ -103,24 +103,42 @@ for code changes. If only GitHub draft creation failed, rerun that job.
 
 ## Notices, documentation, and release notes
 
-Before each release or dependency change, regenerate the complete notices with
-Rust 1.96's docs component and cargo-about 0.9.2. The generated Rust dependency
-notice covers the workspace's default-feature runtime/build graph on all targets;
-individual artifacts use subsets. The supplementary files cover upstream NOTICE
-files, bundled zstd/liblzma, and the Rust standard library.
+Generate notices once per dependency or toolchain change:
 
 ```sh
 cargo install cargo-about --version 0.9.2 --locked --features cli
-rustup component add rust-docs
+rustup component add rust-src rust-docs
 python3 scripts/generate_notices.py
 python3 scripts/package_notices.py --sync
 ```
 
-Review changes in license texts and copyright attribution, not just the SPDX
-identifiers. Commit the root files and package-local copies. The notice check
-rejects stale dependency inputs as well as stale copies. Package license files
-include `THIRD_PARTY_NOTICES.md`, `THIRD_PARTY_NATIVE.txt`, and
-`THIRD_PARTY_RUST.html` alongside htmlarc's own notices.
+There are two generated files:
+
+- `crates/htmlarc-py/THIRD_PARTY_NOTICES.txt` ships in wheels and the Python sdist
+  (so a wheel built from the sdist retains the notices).
+- `cli/htmlarc-convert/THIRD_PARTY_NOTICES.txt` ships with the two-CLI binary download.
+
+Source-only Cargo packages retain LICENSE, NOTICE and COMMERCIAL.md, including
+fixture attribution. They do not redistribute dependency implementations, so
+no compiled-dependency notice copies are added to them.
+
+The generator selects each artifact's default-feature dependency graph and
+supported targets, excludes development/build-only dependencies, and retains
+procedural macros that may contribute generated code. It includes applicable
+upstream NOTICE files and the bundled zstd license. liblzma is public domain;
+the unrelated XZ command-line utilities' GPL/LGPL terms are omitted.
+
+Rust runtime dependencies are resolved from a disposable copy of the pinned
+`rust-src`, with backtrace/panic-unwind enabled. `RUSTC_BOOTSTRAP=1` is used only
+for Cargo metadata in that copy, never to build htmlarc. Rust's in-tree copyright
+notices and compiler-runtime terms are retained explicitly. Toolchain upgrades
+require reviewing this selection. Unsupported targets and Rust's test/build
+dependencies are excluded instead of copying its entire HTML notice report.
+
+Identical terms share a section while preserving the associated component names
+and copyright notices. htmlarc's AGPL text is not repeated in these files.
+Review generated changes before committing. CI rejects stale dependency inputs
+and stale copies of the project notices.
 
 Create `docs/releases/v<version>.md` and update CHANGELOG.md before rehearsing.
 The release workflow requires that notes file and uses it for the GitHub draft.

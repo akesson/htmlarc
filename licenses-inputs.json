@@ -1,13 +1,12 @@
 {
   "Cargo.lock": "b0777bfa36713460f6f99c0b16f894f214307efbb8ddf4fb9d40bca99fd38576",
   "Cargo.toml": "411ceded97f17df35f5aae5442bb96fdda34f12de9f3ced5a41b82df9a05b4df",
-  "about.toml": "675ddacba5e840edc2dd6435300b803f2357f5fb71a4330871f0d38fe641146b",
+  "about.toml": "83c3ab64daa3e801e6b534b47474749d6038a67e3ddda1de7409d0cdf3546fc4",
   "cli/htmlarc-convert/Cargo.toml": "8926a4e8391c2a7477df7b5e7e3e449c5853a5c1804b38dd5c29243db53f3c7b",
   "cli/htmlarc/Cargo.toml": "a0b516bbfc1f7c1b77c20d2fabe8816b1310a9684580432260149b990e6bb25f",
   "crates/htmlarc-archive/Cargo.toml": "6b7c1a18781bdb391312750c8b734c47c077c29cac5d0b46d5ee3d99d791116b",
   "crates/htmlarc-dom/Cargo.toml": "590a8e7b86dd349a7f75c7f9ac2b674c8546623e4f64b9004366e0e57f67a78a",
   "crates/htmlarc-py/Cargo.toml": "1d86463df32f205f86e5f9eb54b767520aa7c8865ce8cafb799f473f809cd1a1",
   "rust-toolchain.toml": "e59c5da37d1f9f4e0f815bc188cb6056fc7410c9cdaa9673c2d44da557c75d12",
-  "scripts/generate_notices.py": "26aaf73d3b284bfc74f5e8875e4849a67ddd03537a7bceb312ccef1fb8c2a784",
-  "scripts/licenses.hbs": "a36b2150f3d0f6fe28efb4602589bdd08eb02ee4d6d3b01484464dfe8a8125f5"
+  "scripts/generate_notices.py": "4a872e6e7946aa77efcf270c59f1a26067eb0feb2bb09f5dddc86ee2aeb09c0d"
 }
