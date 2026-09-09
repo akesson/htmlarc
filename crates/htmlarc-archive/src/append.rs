@@ -1,8 +1,8 @@
 //! Streaming in-place append to an existing `.htmlarc` (ADR 0010).
 //!
 //! [`ArchiveAppender`] wraps an [`ArchiveWriter`](crate::writer::ArchiveWriter) opened in
-//! append mode: new documents stream into the file the moment they are added (memory stays
-//! flat regardless of archive size), duplicates dedup against **all** keys — existing and
+//! append mode: new documents stream into the file the moment they are added. Memory scales
+//! with document/key metadata plus the active bundle. Duplicates dedup against **all** keys — existing and
 //! new, first wins — and the metadata table, if the archive carries one, is continued row
 //! for row. [`commit`](ArchiveAppender::commit) writes the new footer and makes the tail
 //! authoritative again; dropping the appender without committing leaves the file readable
@@ -28,8 +28,8 @@ pub struct ArchiveAppender {
 }
 
 impl ArchiveAppender {
-    /// Open `path` for appending. Fails on a missing/older-version archive (re-pack to
-    /// upgrade). An abandoned earlier append is healed: its garbage tail is overwritten.
+    /// Open `path` for appending. Fails on a missing/older-version archive (rebuild from source HTML,
+    /// or export using the original reader). An abandoned earlier append is healed: its garbage tail is overwritten.
     /// On Windows, recovering an abandoned append requires dropping all memory mappings
     /// of the file first, including those held by document handles or other processes:
     /// Windows rejects truncation of a mapped file. Concurrent appenders are not
