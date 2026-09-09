@@ -18,6 +18,11 @@ Python wheels use CPython's stable ABI (3.10+); each wheel is tested on 3.10 and
 this initial wheel matrix. The sdist is installed and tested independently, so
 it must include the Rust dependencies needed to build outside the checkout.
 
+On Windows, recovering an abandoned append requires releasing all readers first:
+Archive, Document, and Element handles retain its memory mapping. Windows rejects
+recovery's truncation while any mapping remains open, even in another process.
+Normal appends do not shrink the file and can keep readers open.
+
 Linux wheels target manylinux2014 (glibc 2.17+). CLI binaries are native builds:
 the x86-64 Linux build uses Ubuntu 22.04 and ARM64 uses Ubuntu 24.04. They do not
 promise the wheels' glibc compatibility. Windows CLI builds are excluded because

@@ -35,9 +35,12 @@ header cleared → synced. Consequences:
 - A crashed or in-progress append leaves the file **readable as the pre-append archive**.
 - The next append heals an abandoned tail (it truncates to just past the recovered trailer
   and overwrites the garbage).
-- Concurrent *readers* that already mapped the file are unaffected (append only writes
+- On Unix, concurrent *readers* that already mapped the file are unaffected (append only writes
   past their mapped EOF plus the header bytes, which they never re-read). Concurrent
-  *appenders* are not supported.
+  *appenders* are not supported. On Windows, recovering an abandoned append requires
+  releasing all mapped readers: Windows rejects truncation while any mapping is open,
+  including mappings retained by document handles or other processes. A normal append
+  does not shrink the file and can keep readers open.
 
 **Dedup and metadata stay aligned.** The writer is pre-seeded with all existing keys
 (first wins, old document wins); `push` reports whether a document was stored, and

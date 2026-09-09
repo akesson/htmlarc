@@ -54,7 +54,7 @@ def stub_members(node: ast.ClassDef) -> dict[str, str]:
 
 
 def collect_mismatches() -> list[str]:
-    tree = ast.parse(STUB.read_text())
+    tree = ast.parse(STUB.read_text(encoding="utf-8"))
     problems: list[str] = []
 
     def compare(where: str, stub_doc: str, run_doc: str) -> None:

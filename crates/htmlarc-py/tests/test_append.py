@@ -1,5 +1,7 @@
 """In-place append (htmlarc.append): round-trip, dedup, meta continuation, recovery."""
 
+import sys
+
 import pytest
 
 import htmlarc
@@ -70,10 +72,36 @@ def test_abandoned_append_leaves_archive_readable(tmp_path):
     del a  # dropped without write(): recovery contract kicks in
     arc = htmlarc.open(out)
     assert arc.keys() == ["old"]
+    del arc  # Windows requires releasing mapped readers before append can truncate.
     # ... and the next append heals the abandoned tail.
     with htmlarc.append(out) as a:
         a.add("kept", "<p>committed</p>")
     assert htmlarc.open(out).keys() == ["old", "kept"]
+
+
+@pytest.mark.parametrize("abandoned", [False, True])
+def test_append_with_open_reader(tmp_path, abandoned):
+    out = base(tmp_path)
+    if abandoned:
+        original_size = out.stat().st_size
+        a = htmlarc.append(out)
+        a.add("lost", "<p>never committed</p>")
+        del a
+        assert out.stat().st_size > original_size  # Recovery must actually truncate.
+    arc = htmlarc.open(out)
+    doc = arc["old"]
+    del arc  # Document handles also keep the mapping alive.
+    must_release = sys.platform == "win32" and abandoned
+    if must_release:
+        with pytest.raises(OSError, match="Failed to write archive"):
+            htmlarc.append(out)
+        assert doc.select_first("p").text == "old"
+        del doc
+    with htmlarc.append(out) as a:
+        a.add("new", "<p>new</p>")
+    if not must_release:
+        assert doc.select_first("p").text == "old"
+    assert htmlarc.open(out).keys() == ["old", "new"]
 
 
 def test_append_exception_in_with_block_skips_commit(tmp_path):
