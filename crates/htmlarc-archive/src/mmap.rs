@@ -20,7 +20,7 @@ use crate::entry::ArchivedHtmlEntry;
 use crate::error::ArchiveErr;
 use crate::trailer::Trailer;
 
-/// A memory-mapped v4 `.htmlarc` archive, queried **lazily and zero-copy**: opening maps the file
+/// A memory-mapped v12 `.htmlarc` archive, queried **lazily and zero-copy**: opening maps the file
 /// and validates only the footer (trailer + doc table + sort index + bundle table); each
 /// document's blob is validated and read in place the moment it is fetched — never deserialized,
 /// never all faulted in at once.
@@ -61,7 +61,7 @@ pub struct MmapArchive {
 }
 
 impl MmapArchive {
-    /// Memory-map a v4 `.htmlarc` and validate its footer (trailer bounds + the doc table, sort
+    /// Memory-map a v12 `.htmlarc` and validate its footer (trailer bounds + the doc table, sort
     /// index, and bundle table). Individual document blobs are validated lazily on access.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveErr> {
         let file = std::fs::File::open(path.as_ref()).map_err(ArchiveErr::FileRead)?;
