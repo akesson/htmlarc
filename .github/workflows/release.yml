@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Check release version
@@ -38,7 +38,10 @@ jobs:
               assert os.environ['GITHUB_REF_NAME'] == f'v{version}', 'Tag must match Cargo.toml'
           PY
       - run: python scripts/package_notices.py
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - uses: taiki-e/install-action@nextest
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -65,7 +68,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.10'
       - uses: PyO3/maturin-action@v1
@@ -88,7 +91,7 @@ jobs:
             "$python" -m pytest crates/htmlarc-py/tests
             rm -rf wheel-test
           done
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: python-${{ matrix.target }}
           path: dist/*.whl
@@ -99,7 +102,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - uses: astral-sh/setup-uv@v7
       - run: uvx maturin==1.15.0 sdist -m crates/htmlarc-py/Cargo.toml -o dist
       - name: Build and test from the source distribution
@@ -107,7 +113,7 @@ jobs:
           uv venv --python 3.12 sdist-test
           uv pip install --python sdist-test/bin/python dist/*.tar.gz pytest pyarrow polars
           sdist-test/bin/python -m pytest crates/htmlarc-py/tests
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: python-sdist
           path: dist/*.tar.gz
@@ -130,7 +136,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - run: cargo build --release --locked -p htmlarc -p htmlarc-convert
       - name: Smoke-test binaries and assemble download
         env:
@@ -153,7 +162,7 @@ jobs:
           mkdir -p dist bundle
           cp target/release/htmlarc target/release/htmlarc-convert LICENSE NOTICE COMMERCIAL.md README.md bundle/
           tar -czf "dist/htmlarc-${RELEASE_TARGET}.tar.gz" -C bundle .
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.target }}
           path: dist/*.tar.gz
@@ -168,7 +177,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: python-*
           merge-multiple: true
@@ -182,7 +191,10 @@ jobs:
     environment: crates-io
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - name: Publish crates in dependency order
         run: cargo publish --locked -p htmlarc-dom -p htmlarc-archive -p htmlarc
         env:
@@ -196,7 +208,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: binaries-*
           merge-multiple: true
