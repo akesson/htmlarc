@@ -29,7 +29,7 @@ pub struct SerializedEntry {
     /// concatenated block frames (ADR 0005 + ADR 0008).
     pub strings: Vec<u8>,
     /// Cumulative raw block ends (doc-relative), cut at text-node boundaries by
-    /// [`crate::bundle_strings::block_cuts`] while the topology was still in scope. One entry per
+    /// `crate::bundle_strings::block_cuts` while the topology was still in scope. One entry per
     /// block; the last equals the raw pool length; empty for a text-free document.
     pub raw_ends: Vec<u32>,
     /// Cumulative frame ends into [`strings`](Self::strings), one per block — empty until

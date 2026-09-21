@@ -377,7 +377,7 @@ impl DomInner {
 
     /// ADR 0002 topology-packing probe: tally the redundancy in the node-link slots so the
     /// delta/implicit-link packing ceiling can be measured on real corpora before committing
-    /// to an encoding. Read-only; call on the serialized form (after [`into_optimal_width`])
+    /// to an encoding. Read-only; call on the serialized form (after [`Self::into_optimal_width`])
     /// to measure the on-disk topology, or after [`rebuild`](Self::rebuild) for the
     /// document-order baseline.
     pub fn topology_report(&self) -> TopologyReport {

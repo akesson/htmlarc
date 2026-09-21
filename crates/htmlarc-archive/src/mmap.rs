@@ -20,7 +20,7 @@ use crate::entry::ArchivedHtmlEntry;
 use crate::error::ArchiveErr;
 use crate::trailer::Trailer;
 
-/// A memory-mapped v4 `.htmlarc` archive, queried **lazily and zero-copy**: opening maps the file
+/// A memory-mapped v12 `.htmlarc` archive, queried **lazily and zero-copy**: opening maps the file
 /// and validates only the footer (trailer + doc table + sort index + bundle table); each
 /// document's blob is validated and read in place the moment it is fetched — never deserialized,
 /// never all faulted in at once.
@@ -61,7 +61,7 @@ pub struct MmapArchive {
 }
 
 impl MmapArchive {
-    /// Memory-map a v4 `.htmlarc` and validate its footer (trailer bounds + the doc table, sort
+    /// Memory-map a v12 `.htmlarc` and validate its footer (trailer bounds + the doc table, sort
     /// index, and bundle table). Individual document blobs are validated lazily on access.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, ArchiveErr> {
         let file = std::fs::File::open(path.as_ref()).map_err(ArchiveErr::FileRead)?;
@@ -307,7 +307,7 @@ impl MmapArchive {
     }
 
     /// The [`FrameDecoder`] for this archive's string frames (holds the archive-wide dictionary,
-    /// if any). Sweeps pass it to [`ArchivedBundleStrings::lazy_states`].
+    /// if any). Sweeps pass it to `ArchivedBundleStrings::lazy_states`.
     pub fn decoder(&self) -> &dyn FrameDecoder {
         &self.decoder
     }
@@ -345,7 +345,7 @@ impl MmapArchive {
     /// bundle (a binary search) and sets up a fresh inflate cache on each call, so for a large
     /// sweep prefer reading the block once with [`bundle_strings`](Self::bundle_strings) over a
     /// [`bundle_range`](Self::bundle_range) and binding each entry through
-    /// [`lazy_states`](ArchivedBundleStrings::lazy_states) (as `entries_matching` and the `probe`
+    /// `ArchivedBundleStrings::lazy_states` (as `entries_matching` and the `probe`
     /// sweep do).
     pub fn doc(&self, i: usize) -> Doc<'_> {
         self.try_doc(i).expect("corrupt document or bundle blob")
@@ -493,7 +493,7 @@ impl crate::Archive for MmapArchive {
 /// document (`doc.root()`, `doc.to_html(..)`, `filter.keep(key, &doc)`).
 ///
 /// For sweeping a whole bundle, prefer reading the block once via
-/// [`MmapArchive::bundle_strings`] + [`ArchivedBundleStrings::lazy_states`]; `doc()` re-resolves the
+/// [`MmapArchive::bundle_strings`] + `ArchivedBundleStrings::lazy_states`; `doc()` re-resolves the
 /// bundle and sets up fresh inflate caches on every call (though it no longer re-validates the
 /// block — that happens once per bundle).
 pub struct Doc<'a> {

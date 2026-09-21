@@ -14,8 +14,8 @@ HTML pages from the Wikimedia projects (Wiktionary), retrieved from
 and CSS engine against real-world markup.
 
 These pages are licensed under the Creative Commons Attribution-ShareAlike
-License (CC BY-SA); some embedded content may also be available under the GNU
-Free Documentation License. See https://www.wiktionary.org and
+License (CC BY-SA), with versions identified below; some embedded content may
+also be available under the GNU Free Documentation License. See https://www.wiktionary.org and
 https://creativecommons.org/licenses/by-sa/4.0/ for details.
 
 Affected repository paths (test/bench/example data, included in source packages
@@ -35,3 +35,69 @@ We use a fork (https://github.com/akesson/zim) of the unmaintained upstream
 (https://crates.io/crates/zim) that adds support for modern ZIM files. No ZIM
 file is bundled in this repository; the optional end-to-end test fetches one on
 demand (see cli/htmlarc-convert/fetch-testdata.sh).
+
+Fixture attribution and changes:
+- aerodynamik.html and axel.html (including their snapshots) are from
+  https://sv.wiktionary.org/wiki/aerodynamik and https://sv.wiktionary.org/wiki/axel
+  by their Wiktionary contributors, CC BY-SA 3.0 as recorded in their footers:
+  https://creativecommons.org/licenses/by-sa/3.0/
+- en.interest.html and fr.serrer.html are from
+  https://en.wiktionary.org/wiki/interest and https://fr.wiktionary.org/wiki/serrer
+  by their Wiktionary contributors, CC BY-SA 4.0 as recorded in their footers:
+  https://creativecommons.org/licenses/by-sa/4.0/
+- cli/htmlarc/src/testdata/{enterprises,monetize,reopens,scenarios}.html
+  are extracted article bodies from the corresponding English Wiktionary pages:
+  https://en.wiktionary.org/wiki/enterprises
+  https://en.wiktionary.org/wiki/monetize
+  https://en.wiktionary.org/wiki/reopens
+  https://en.wiktionary.org/wiki/scenarios
+  Contributors and revision history are available through each page's History tab.
+  These extracted fixtures and their derived snapshots retain CC BY-SA terms.
+The formatter/parser snapshots and cleaned article bodies are modified extracts;
+synthetic parser fixtures are htmlarc project code, not Wikimedia content.
+
+Compiled dependencies:
+Compiled wheels and CLI downloads include THIRD_PARTY_NOTICES.txt for their
+respective dependencies, native code, and Rust standard library. Source-only
+Cargo packages do not bundle dependency implementations.
+These third-party terms also apply when using htmlarc under a commercial license.
+
+================================================================================
+W3C selector test adaptations
+================================================================================
+
+crates/htmlarc-dom/src/css/tests/css3.rs adapts markup and selector cases from:
+https://www.w3.org/Style/CSS/Test/CSS3/Selectors/current/
+Original authors: Daniel Glazman, Ian Hickson and Lachlan Hunt.
+Copyright ©2001 W3C (MIT, INRIA, Keio), All Rights Reserved.
+Individual source pages are linked above the tests. These modified tests are
+used for software development under the W3C 3-clause BSD license, not as an
+unmodified authoritative conformance suite. The original suite's terms and
+available license choice are described at https://www.w3.org/Style/CSS/Test/
+and https://www.w3.org/copyright/test-suites-licenses/.
+
+W3C BSD test suite license (in effect since 20 August 2008)
+https://www.w3.org/copyright/3-clause-bsd-license-2008/
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of works must retain the original copyright notice, this list
+  of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the original copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of W3C nor the names of its contributors may be used to
+  endorse or promote products derived from this work without specific prior
+  written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

@@ -2,9 +2,11 @@
 name = "htmlarc"
 description = "Pack a corpus of HTML into one archive and CSS-query it without re-parsing"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true

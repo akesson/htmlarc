@@ -1727,7 +1727,7 @@ fn build_batches(
     Ok(batches)
 }
 
-/// A columnar scan result ([`Archive::scan_table`]), exported zero-copy over the Arrow PyCapsule
+/// A columnar scan result (`Archive::scan_table`), exported zero-copy over the Arrow PyCapsule
 /// *stream* interface. Consume it with `pyarrow.table(r)`, `polars.DataFrame(r)`,
 /// `pandas.DataFrame.from_arrow(r)`, `duckdb.sql("... from r")`, or any other
 /// `__arrow_c_stream__` reader — htmlarc itself carries no Python-side Arrow dependency. The
@@ -2045,18 +2045,21 @@ impl ArchiveBuilder {
     }
 }
 
-/// Open an existing `.htmlarc` for **in-place appending**: returns an [`ArchiveBuilder`]
-/// whose adds stream into the file (memory stays flat regardless of archive size) and whose
-/// `write()` commits the new footer. Keys already present are skipped (first wins), and the
-/// archive's metadata schema, if any, carries over — `add(meta={...})` continues the table.
+/// Open an existing `.htmlarc` for **in-place appending**: returns an `ArchiveBuilder`
+/// whose adds stream into the file and whose `write()` commits the new footer.
+/// Memory scales with document/key metadata plus the active bundle, not total HTML bytes.
+/// Keys already present are skipped (first wins), and the archive's metadata schema,
+/// if any, carries over — `add(meta={...})` continues the table.
 ///
-/// Crash-safe: until `write()` returns, the file still reads as the pre-append archive,
-/// and an abandoned append is healed by the next one. Each append leaves the previous
-/// footer behind as a few dead bytes; re-pack to reclaim them. Don't append while another
-/// process is appending. On Unix, concurrent *readers* of the already-open file
-/// are fine. On Windows, recovering an abandoned append requires releasing all
-/// Archive, Document, and Element handles for the file (including readers in other
-/// processes); otherwise opening the appender raises OSError because Windows
+/// Interrupted-process recovery: the old archive remains readable until a complete
+/// new footer is written. That new footer is authoritative even if the process stops
+/// before `write()` returns. The next append discards only an incomplete tail.
+/// This does not guarantee recovery from storage corruption or arbitrary power loss.
+/// Each append leaves the previous footer behind as dead bytes; re-pack to reclaim them.
+/// Don't append while another process is appending. On Unix, concurrent *readers* of
+/// the already-open file are fine. On Windows, recovering an abandoned append requires
+/// releasing all Archive, Document, and Element handles for the file (including readers
+/// in other processes); otherwise opening the appender raises OSError because Windows
 /// forbids truncating a mapped file.
 #[pyfunction]
 #[pyo3(signature = (path, *, on_error = "raise"))]

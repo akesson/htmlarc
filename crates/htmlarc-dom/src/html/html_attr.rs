@@ -214,7 +214,7 @@ impl Display for HtmlAttr {
 
 impl HtmlAttr {
     /// By default these attributes are case-sensitive.<br>
-    /// https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description
+    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
     pub const fn is_case_sensitive(&self) -> bool {
         matches!(
             self,
