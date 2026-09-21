@@ -22,6 +22,9 @@ jobs:
       - run: python3 scripts/package_notices.py
       # Honors the channel + components pinned in rust-toolchain.toml.
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - run: cargo fmt --all --check
 
   clippy:
@@ -30,6 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -38,6 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       # Tests run under nextest (process-per-test): some glob! snapshot tests rely
       # on that isolation, and plain `cargo test` can be flaky for them.
       - uses: taiki-e/install-action@nextest
@@ -55,6 +64,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
+          rustflags: "-D warnings"
       - uses: astral-sh/setup-uv@v7
       # Debug build: this job gates correctness of the FFI layer, not wheel speed;
       # release wheels are a separate publishing concern.
