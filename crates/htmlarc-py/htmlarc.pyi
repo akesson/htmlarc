@@ -470,7 +470,7 @@ def append(
     Memory scales with document/key metadata plus the active bundle, not total HTML bytes.
     Keys already present are skipped (first wins), and the archive's metadata schema,
     if any, carries over — ``add(meta={...})`` continues the table.
-    
+
     Interrupted-process recovery: the old archive remains readable until a complete
     new footer is written. That new footer is authoritative even if the process stops
     before ``write()`` returns. The next append discards only an incomplete tail.

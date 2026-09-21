@@ -64,7 +64,9 @@ and commit the copies too. CI checks that they match.
    in `Cargo.toml` together; update the lockfile. Python inherits this version.
 2. Commit the release changes. Run **Release → Run workflow** on that commit's
    branch. Manual runs never publish, including when a tag is selected.
-3. Require every job to pass. Download and try the artifacts. This is the first
+3. Require every build and the `verify-artifacts` job to pass. The latter downloads
+   the artifacts, checks Python package metadata, and checks binary bundle notices.
+   Download and try the artifacts. This is the first
    real verification of platforms unavailable on the developer's machine.
 4. Push `v<version>` pointing at the verified commit. The workflow checks the tag,
    formatting, clippy, Rust tests, and a multi-package Cargo publishing dry run.
