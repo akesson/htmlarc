@@ -249,7 +249,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 MIT
 ========================================================================
-Components: Rust standard library: adler2 2.0.1; adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.17; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.19; thiserror-impl 1.0.69; thiserror-impl 2.0.19; tinyvec 1.12.0; unicode-ident 1.0.24
+Components: Rust standard library: adler2 2.0.1; adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.20; thiserror-impl 1.0.69; thiserror-impl 2.0.20; tinyvec 1.13.3; unicode-ident 1.0.24
 Components: pbr 1.1.1
 # MIT License
 
@@ -265,9 +265,9 @@ Copyright (c) 2013-2014 The Rust Project Developers.
 Copyright (c) 2015-2020 The rust-hex Developers
 Components: Rust backtrace; Rust standard library: cfg-if 1.0.4; Rust standard library: rustc-demangle 0.1.27; cfg-if 1.0.4
 Copyright (c) 2014 Alex Crichton
-Components: log 0.4.33; regex 1.12.4; regex-automata 0.4.14; regex-syntax 0.8.11
+Components: log 0.4.34; regex 1.12.4; regex-automata 0.4.14; regex-syntax 0.8.11
 Copyright (c) 2014 The Rust Project Developers
-Components: flate2 1.1.9
+Components: flate2 1.1.10
 Copyright (c) 2014-2026 Alex Crichton
 Components: either 1.16.0
 Copyright (c) 2015
@@ -289,7 +289,7 @@ Components: Rust standard library: hashbrown 0.16.1; hashbrown 0.17.1
 Copyright (c) 2016 Amanieu d'Antras
 Components: utf8parse 0.2.2
 Copyright (c) 2016 Joe Wilm
-Components: indexmap 2.14.0
+Components: indexmap 2.14.2
 Copyright (c) 2016--2017
 Components: equivalent 1.0.2
 Copyright (c) 2016--2023
@@ -299,7 +299,7 @@ Components: digest 0.10.7
 Copyright (c) 2017 Artyom Pavlov
 Components: Rust stdarch
 Copyright (c) 2017 The Rust Project Developers
-Components: smallvec 1.15.2
+Components: smallvec 1.16.1
 Copyright (c) 2018 The Servo Project Developers
 Components: block-buffer 0.10.4
 Copyright (c) 2018-2019 The RustCrypto Project Developers
@@ -322,7 +322,7 @@ Components: arrayvec 0.7.6
 Copyright (c) Ulrik Sverdrup "bluss" 2015-2023
 Components: bytecheck_derive 0.8.2
 Copyright 2020 David Koloski
-Components: ptr_meta 0.3.1; ptr_meta_derive 0.3.1; rend 0.5.3; rkyv 0.8.17; rkyv_derive 0.8.17
+Components: ptr_meta 0.3.1; ptr_meta_derive 0.3.1; rend 0.5.3; rkyv 0.8.18; rkyv_derive 0.8.18
 Copyright 2021 David Koloski
 Components: bytecheck 0.8.2; rancor 0.1.1
 Copyright 2023 David Koloski
@@ -358,11 +358,7 @@ Components: strum 0.28.0; strum_macros 0.28.0
 MIT License
 
 Copyright (c) 2019 Peter Glotfelty
-Components: tinyvec_macros 0.1.1
-MIT License
-
-Copyright (c) 2020 Soveu
-Components: html-escape 0.2.14
+Components: html-escape 0.2.15
 MIT License
 
 Copyright (c) 2020 magiclen.org (Ron Li)
@@ -370,7 +366,7 @@ Components: unit-prefix 0.5.2
 MIT License
 
 Copyright (c) 2024 Benjamin Sago, Fabio Valentini
-Components: function_name-proc-macro 0.3.0; hotpath 0.21.5; hotpath-macros 0.21.5; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
+Components: function_name-proc-macro 0.3.0; hotpath 0.22.0; hotpath-macros 0.22.0; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
 MIT License
 
 Copyright (c) <year> <copyright holders>
@@ -382,7 +378,7 @@ Components: colorful 0.3.2
 MIT License
 
 Copyright (c) da2018 <da2018t@gmail.com>
-Components: Rust standard library: miniz_oxide 0.8.9; miniz_oxide 0.8.9
+Components: Rust standard library: miniz_oxide 0.8.9; miniz_oxide 0.9.1
 MIT License
 
 Copyright 2013-2014 RAD Game Tools and Valve Software
