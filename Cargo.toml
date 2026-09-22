@@ -15,7 +15,7 @@ anyhow = "1.0"
 # array/buffer/schema crates plus arrow-array's `ffi` feature for the PyCapsule stream.
 # No `pyarrow` bridge crate and no compute kernels — the wheel gains no Python-side dependency
 # and the capsule glue is ours, so arrow's quarterly majors never fight the pyo3 pin.
-arrow-array = { version = "59", features = ["ffi"] }
+arrow-array = { version = "60", features = ["ffi"] }
 arrow-buffer = "59"
 arrow-schema = "59"
 colorful = "0.3"
