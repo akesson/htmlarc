@@ -17,7 +17,7 @@ anyhow = "1.0"
 # and the capsule glue is ours, so arrow's quarterly majors never fight the pyo3 pin.
 arrow-array = { version = "59", features = ["ffi"] }
 arrow-buffer = "59"
-arrow-schema = "59"
+arrow-schema = "60"
 colorful = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
 # Pure-Rust gzip (miniz_oxide backend) for reading `.warc.gz` crawl segments.
