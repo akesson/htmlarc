@@ -1,5 +1,5 @@
 Third-party notices — Python wheel
-Generated from locked release dependencies and Rust 1.96.0.
+Generated from locked release dependencies and Rust 1.98.1.
 Shared license terms below apply to each listed component.
 htmlarc's own terms are in LICENSE and COMMERCIAL.md.
 
@@ -353,7 +353,7 @@ Components: Rust standard library: gimli 0.32.3; heck 0.5.0; unicode-segmentatio
 Copyright (c) 2015 The Rust Project Developers
 Components: jetscii 0.5.3
 Copyright (c) 2015-2018 Jake Goulding
-Components: Rust standard library: hashbrown 0.16.1; hashbrown 0.17.1
+Components: Rust standard library: hashbrown 0.17.1; hashbrown 0.17.1
 Copyright (c) 2016 Amanieu d'Antras
 Components: indexmap 2.14.2
 Copyright (c) 2016--2017
@@ -381,7 +381,7 @@ Components: html5gum 0.8.4
 Copyright (c) 2021 Markus Unterwaditzer
 Components: pyo3 0.29.2; pyo3-ffi 0.29.2; pyo3-macros 0.29.2; pyo3-macros-backend 0.29.2
 Copyright (c) 2023-present PyO3 Project and Contributors.  https://github.com/PyO3
-Components: Rust standard library: libc 0.2.183; libc 0.2.186
+Components: Rust standard library: libc 0.2.185; libc 0.2.186
 Copyright (c) The Rust Project Developers
 Components: bytecheck_derive 0.8.2
 Copyright 2020 David Koloski
@@ -422,7 +422,7 @@ Copyright 2013-2014 RAD Game Tools and Valve Software
 Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 Copyright (c) 2017 Frommi
 Copyright (c) 2017-2024 oyvindln
-Components: Rust standard library 1.96.0
+Components: Rust standard library 1.98.1
 MIT License
 
 Copyright The Rust Project Developers (https://thanks.rust-lang.org)

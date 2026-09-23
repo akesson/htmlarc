@@ -66,7 +66,7 @@ def rust_source_notices(sysroot, library):
         "Copyright The Rust Project Developers (https://thanks.rust-lang.org)\n"
         "Copyright (c) 2019 The Crossbeam Project Developers",
     )
-    result = [("MIT", mit, {"Rust standard library 1.96.0"}),
+    result = [("MIT", mit, {"Rust standard library 1.98.1"}),
               ("Unicode-3.0", (docs / "licenses/Unicode-3.0.txt").read_text(),
                {"Rust standard library Unicode data"})]
     for name in ("backtrace", "stdarch", "portable-simd"):
@@ -93,7 +93,7 @@ def render(notices, artifact):
         group = groups.setdefault(key, {"text": text, "attributions": {}})
         group["attributions"].setdefault(prefix.strip(), set()).update(names)
     lines = [f"Third-party notices — {artifact}",
-             "Generated from locked release dependencies and Rust 1.96.0.",
+             "Generated from locked release dependencies and Rust 1.98.1.",
              "Shared license terms below apply to each listed component.",
              "htmlarc's own terms are in LICENSE and COMMERCIAL.md.\n"]
     for (license, _), group in sorted(groups.items()):
@@ -111,8 +111,8 @@ def main():
     if version != "cargo-about 0.9.2":
         raise SystemExit("Install cargo-about 0.9.2 with --locked --features cli")
     rust = subprocess.check_output(["rustc", "--version"], text=True)
-    if not rust.startswith("rustc 1.96.0 "):
-        raise SystemExit("Review the standard-library notice selection before changing Rust 1.96.0")
+    if not rust.startswith("rustc 1.98.1 "):
+        raise SystemExit("Review the standard-library notice selection before changing Rust 1.98.1")
     sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
     source = sysroot / "lib/rustlib/src/rust/library"
     if not source.is_dir() or not (sysroot / "share/doc/rust/licenses/MIT.txt").is_file():

@@ -20,9 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
-          rustflags: "-D warnings"
       - uses: astral-sh/setup-uv@v7
       # Release build: the recipes chew through real corpora; debug parse speed
       # would dominate the job's wall clock.

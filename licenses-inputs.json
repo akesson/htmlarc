@@ -7,6 +7,6 @@
   "crates/htmlarc-archive/Cargo.toml": "6b7c1a18781bdb391312750c8b734c47c077c29cac5d0b46d5ee3d99d791116b",
   "crates/htmlarc-dom/Cargo.toml": "590a8e7b86dd349a7f75c7f9ac2b674c8546623e4f64b9004366e0e57f67a78a",
   "crates/htmlarc-py/Cargo.toml": "1d86463df32f205f86e5f9eb54b767520aa7c8865ce8cafb799f473f809cd1a1",
-  "rust-toolchain.toml": "e59c5da37d1f9f4e0f815bc188cb6056fc7410c9cdaa9673c2d44da557c75d12",
-  "scripts/generate_notices.py": "4a872e6e7946aa77efcf270c59f1a26067eb0feb2bb09f5dddc86ee2aeb09c0d"
+  "rust-toolchain.toml": "a7a23801522d469e93021507fc88e9f5651056fce0e6aa22b3d3157c5f3dc6fe",
+  "scripts/generate_notices.py": "354e5713633e87f90492e2d09744e5d3453c7e2ad678297b2c3c393c3a94f823"
 }
