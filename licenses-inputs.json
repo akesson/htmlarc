@@ -1,8 +1,8 @@
 {
-  "Cargo.lock": "7c41ea22adfed25be0f0c12a467e28877f4bca6c1fdcbcbfcf5cf252e5b3fadd",
-  "Cargo.toml": "e5d1e4701aadf2d0b2bb721489828e41ac2502850ec15d53ceab0534ff0a5c01",
+  "Cargo.lock": "3e2ae4e72f9677cce2186933864afafbebfe88bc32c01ff0aff76968d3a557f2",
+  "Cargo.toml": "1f77b562c3a89842fb8b5184c5cbbcb2eef394b2eef8ff6bd7f84e4364e754fc",
   "about.toml": "83c3ab64daa3e801e6b534b47474749d6038a67e3ddda1de7409d0cdf3546fc4",
-  "cli/htmlarc-convert/Cargo.toml": "6ab5369590b8bcf35ff8dc33334ef4145bd274a51ff0f64d891b88e14b35449d",
+  "cli/htmlarc-convert/Cargo.toml": "b39bfb8fa5f9ddf16e6065d3f195c533da03468d6259a5e96ed46d642920be15",
   "cli/htmlarc/Cargo.toml": "a0b516bbfc1f7c1b77c20d2fabe8816b1310a9684580432260149b990e6bb25f",
   "crates/htmlarc-archive/Cargo.toml": "6b7c1a18781bdb391312750c8b734c47c077c29cac5d0b46d5ee3d99d791116b",
   "crates/htmlarc-dom/Cargo.toml": "590a8e7b86dd349a7f75c7f9ac2b674c8546623e4f64b9004366e0e57f67a78a",
