@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 (initial release, pending publication)
+## 0.1.1
+
+Adds a Python wheel for Windows ARM64. See [release notes](docs/releases/v0.1.1.md).
+
+## 0.1.0 (initial release)
 
 See [release notes](docs/releases/v0.1.0.md) for features, installation, platform
 coverage, archive compatibility, and limitations.

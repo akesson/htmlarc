@@ -71,12 +71,19 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-2022
             target: x86_64-pc-windows-msvc
+          # Windows ARM64 CPython starts at 3.11, so this wheel is tested there.
+          # pyarrow has no Windows ARM64 wheel; its tests skip and polars
+          # still covers Arrow export.
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            python: '3.11'
+            test-deps: pytest polars
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python || '3.10' }}
       - name: Build C dependencies for the same minimum macOS as Rust
         if: runner.os == 'macOS'
         run: echo "MACOSX_DEPLOYMENT_TARGET=$(rustc --print deployment-target --target ${{ matrix.target }} | cut -d= -f2)" >> "$GITHUB_ENV"
@@ -91,16 +98,19 @@ jobs:
         run: python3 scripts/check_macho_alignment.py dist/*.whl
       - uses: astral-sh/setup-uv@v7
       - name: Test installed wheel on minimum and recent CPython
+        env:
+          MIN_PYTHON: ${{ matrix.python || '3.10' }}
+          TEST_DEPS: ${{ matrix.test-deps || 'pytest pyarrow polars' }}
         run: |
-          for version in 3.10 3.14; do
+          for version in "$MIN_PYTHON" 3.14; do
             uv venv --python "$version" wheel-test
             if [[ "$RUNNER_OS" == Windows ]]; then
               python=wheel-test/Scripts/python.exe
             else
               python=wheel-test/bin/python
             fi
-            uv pip install --python "$python" dist/*.whl pytest pyarrow polars
-            "$python" -m pytest crates/htmlarc-py/tests
+            uv pip install --python "$python" dist/*.whl $TEST_DEPS
+            "$python" -m pytest -rs crates/htmlarc-py/tests
             rm -rf wheel-test
           done
       - uses: actions/upload-artifact@v7

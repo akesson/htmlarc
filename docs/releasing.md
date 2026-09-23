@@ -9,13 +9,13 @@ Publishing that draft is a separate editorial step; the packages are already pub
 
 | Artifact | Distribution | Platforms |
 | --- | --- | --- |
-| Python `htmlarc` | PyPI wheels + source distribution | Linux glibc x86-64/ARM64, macOS Intel/Apple Silicon, Windows x86-64 |
+| Python `htmlarc` | PyPI wheels + source distribution | Linux glibc x86-64/ARM64, macOS Intel/Apple Silicon, Windows x86-64/ARM64 |
 | `htmlarc-dom`, `htmlarc-archive`, `htmlarc` | crates.io | Source builds; CLI requires Unix |
 | `htmlarc`, `htmlarc-convert` binaries | GitHub release | Linux x86-64/ARM64, macOS Intel/Apple Silicon |
 
 Python wheels use CPython's stable ABI (3.10+); each wheel is tested on 3.10 and
-3.14. Free-threaded Python, PyPy, musl Linux and Windows ARM64 are not part of
-this initial wheel matrix. The sdist is installed and tested independently, so
+3.14, except Windows ARM64 on 3.11 and 3.14 (CPython has no Windows ARM64 3.10
+build). Free-threaded Python, PyPy and musl Linux are not part of the wheel matrix. The sdist is installed and tested independently, so
 it must include the Rust dependencies needed to build outside the checkout.
 
 On Windows, recovering an abandoned append requires releasing all readers first:
@@ -33,7 +33,7 @@ is a Git dependency, which crates.io cannot distribute. It remains available
 as a release binary or via:
 
 ```sh
-cargo install --git https://github.com/akesson/htmlarc --tag v0.1.0 --locked htmlarc-convert
+cargo install --git https://github.com/akesson/htmlarc --tag v0.1.1 --locked htmlarc-convert
 ```
 
 To publish the converter on crates.io later, first publish the patched ZIM
