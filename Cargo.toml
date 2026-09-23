@@ -5,7 +5,7 @@ members = ["crates/*", "cli/*"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.96"
-version = "0.1.0"
+version = "0.1.1"
 license = "AGPL-3.0-only"
 repository = "https://github.com/akesson/htmlarc"
 
@@ -61,8 +61,8 @@ zstd = "0.14"
 zim = { git = "https://github.com/akesson/zim", rev = "6759b44" }
 
 # internal crates
-htmlarc-dom = { version = "0.1.0", path = "crates/htmlarc-dom" }
-htmlarc-archive = { version = "0.1.0", path = "crates/htmlarc-archive" }
+htmlarc-dom = { version = "0.1.1", path = "crates/htmlarc-dom" }
+htmlarc-archive = { version = "0.1.1", path = "crates/htmlarc-archive" }
 
 # Speed up insta/similar in dev so snapshot tests run fast.
 [profile.dev.package.insta]
