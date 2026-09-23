@@ -41,9 +41,6 @@ jobs:
           PY
       - run: python scripts/package_notices.py
       - uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
-          rustflags: "-D warnings"
       - uses: taiki-e/install-action@nextest
       - uses: taiki-e/install-action@v2
         with:
@@ -86,6 +83,9 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: '2014'
           args: --release --locked --strip -m crates/htmlarc-py/Cargo.toml -o dist
+      - name: Reject Mach-O layouts that newer macOS refuses to load
+        if: runner.os == 'macOS'
+        run: python3 scripts/check_macho_alignment.py dist/*.whl
       - uses: astral-sh/setup-uv@v7
       - name: Test installed wheel on minimum and recent CPython
         run: |
@@ -112,9 +112,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
-          rustflags: "-D warnings"
       - uses: astral-sh/setup-uv@v7
       - run: uvx maturin==1.15.0 sdist -m crates/htmlarc-py/Cargo.toml -o dist
       - name: Build and test from the source distribution
@@ -146,12 +143,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
-          rustflags: "-D warnings"
       - run: cargo build --release --locked -p htmlarc -p htmlarc-convert
       - name: Reject non-system dynamic dependencies
         run: python3 scripts/check_binary_links.py target/release/htmlarc target/release/htmlarc-convert
+      - name: Reject Mach-O layouts that newer macOS refuses to load
+        if: runner.os == 'macOS'
+        run: python3 scripts/check_macho_alignment.py target/release/htmlarc target/release/htmlarc-convert
       - name: Smoke-test binaries and assemble download
         env:
           RELEASE_TARGET: ${{ matrix.target }}
@@ -228,9 +225,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # Cargo 1.96 predates the action's CARGO_BUILD_WARNINGS default.
-          rustflags: "-D warnings"
       - name: Publish crates in dependency order
         run: cargo publish --locked -p htmlarc-dom -p htmlarc-archive -p htmlarc
         env:

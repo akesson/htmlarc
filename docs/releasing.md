@@ -66,6 +66,8 @@ and commit the copies too. CI checks that they match.
    branch. Manual runs never publish, including when a tag is selected.
 3. Require every build and the `verify-artifacts` job to pass. The latter downloads
    the artifacts, checks Python package metadata, and checks binary bundle notices.
+   The macOS builds also run `scripts/check_macho_alignment.py`, because macOS 27
+   refuses misaligned binaries that the macOS 15 runners still load.
    Download and try the artifacts. This is the first
    real verification of platforms unavailable on the developer's machine.
 4. Push `v<version>` pointing at the verified commit. The workflow checks the tag,

@@ -242,20 +242,21 @@ impl OrdinalPattern {
             backward
         );
 
-        let remainder;
-        let quotient;
-
-        if backward {
+        let (remainder, quotient) = if backward {
             // -an+b = position
             // -> n = (b - position) / a
-            remainder = (offset as isize - position as isize) % step as isize;
-            quotient = (offset as isize - position as isize) / step as isize;
+            (
+                (offset as isize - position as isize) % step as isize,
+                (offset as isize - position as isize) / step as isize,
+            )
         } else {
             // an+b = position
             // -> n = (position - b) / a
-            remainder = (position as isize - offset as isize) % step as isize;
-            quotient = (position as isize - offset as isize) / step as isize;
-        }
+            (
+                (position as isize - offset as isize) % step as isize,
+                (position as isize - offset as isize) / step as isize,
+            )
+        };
         logging::debug!("r: {}", remainder);
         logging::debug!("q: {}", quotient);
 

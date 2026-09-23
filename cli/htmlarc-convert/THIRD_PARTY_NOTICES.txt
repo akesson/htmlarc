@@ -1,5 +1,5 @@
 Third-party notices — htmlarc and htmlarc-convert binary bundle
-Generated from locked release dependencies and Rust 1.96.0.
+Generated from locked release dependencies and Rust 1.98.1.
 Shared license terms below apply to each listed component.
 htmlarc's own terms are in LICENSE and COMMERCIAL.md.
 
@@ -357,7 +357,7 @@ Components: num_cpus 1.17.0
 Copyright (c) 2015-2025 Sean McArthur
 Components: lzma-sys 0.1.20; xz2 0.1.7
 Copyright (c) 2016 Alex Crichton
-Components: Rust standard library: hashbrown 0.16.1; hashbrown 0.17.1
+Components: Rust standard library: hashbrown 0.17.1; hashbrown 0.17.1
 Copyright (c) 2016 Amanieu d'Antras
 Components: utf8parse 0.2.2
 Copyright (c) 2016 Joe Wilm
@@ -386,7 +386,7 @@ Components: crypto-common 0.1.7
 Copyright (c) 2021 RustCrypto Developers
 Components: anstream 1.0.0; anstyle 1.0.14; anstyle-parse 1.0.0; anstyle-query 1.1.5; clap 4.6.1; clap_builder 4.6.0; clap_derive 4.6.1; clap_lex 1.1.0; colorchoice 1.0.5; is_terminal_polyfill 1.70.2
 Copyright (c) Individual contributors
-Components: Rust standard library: libc 0.2.183; libc 0.2.186
+Components: Rust standard library: libc 0.2.185; libc 0.2.186
 Copyright (c) The Rust Project Developers
 Components: arrayvec 0.5.2
 Copyright (c) Ulrik Sverdrup "bluss" 2015-2017
@@ -457,7 +457,7 @@ Copyright 2013-2014 RAD Game Tools and Valve Software
 Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 Copyright (c) 2017 Frommi
 Copyright (c) 2017-2024 oyvindln
-Components: Rust standard library 1.96.0
+Components: Rust standard library 1.98.1
 MIT License
 
 Copyright The Rust Project Developers (https://thanks.rust-lang.org)
