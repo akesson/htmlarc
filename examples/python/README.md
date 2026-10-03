@@ -30,8 +30,9 @@ Each script declares its dependencies inline (PEP 723), so [uv] runs them
 directly. Until htmlarc is on PyPI, build the wheel once and pass it along:
 
 ```sh
-uvx maturin build --release -m ../../crates/htmlarc-py/Cargo.toml
-uv run --with ../../target/wheels/htmlarc-*.whl warc_to_archive.py
+rm -rf ../../target/py-dev
+uvx maturin build --release -m ../../crates/htmlarc-py/Cargo.toml -o ../../target/py-dev
+uv run --with ../../target/py-dev/htmlarc-*.whl warc_to_archive.py
 ```
 
 (Once `pip install htmlarc` exists, the `--with` goes away and these are plain
