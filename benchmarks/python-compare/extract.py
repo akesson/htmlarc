@@ -5,7 +5,8 @@ list[(key, html_str)] so every library in the benchmark parses identical input.
   data/cc.pkl    — first N text/html 200-responses from cc_000.warc.gz (via warcio)
 
 The corpus location defaults to <repo root>/corpus (see the repository README,
-"Measurement corpus"); override with HTMLARC_CORPUS=/path/to/corpus.
+"Measurement corpus"); override with HTMLARC_CORPUS=/path/to/corpus. Output goes to
+data/ unless HTMLARC_BENCH_DATA names another directory (as bench.py reads it).
 """
 
 import os
@@ -15,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CORPUS = Path(os.environ.get("HTMLARC_CORPUS", HERE.parent.parent / "corpus"))
-OUT = HERE / "data"
+OUT = Path(os.environ.get("HTMLARC_BENCH_DATA", HERE / "data"))
 CC_LIMIT = 5000
 
 
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     which = sys.argv[1]
     docs = extract_wikt() if which == "wikt" else extract_cc()
     total = sum(len(h) for _, h in docs)
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     with open(OUT / f"{which}.pkl", "wb") as f:
         pickle.dump(docs, f, protocol=5)
     print(f"{which}: {len(docs)} docs, {total / 1e6:.1f} MB html")
