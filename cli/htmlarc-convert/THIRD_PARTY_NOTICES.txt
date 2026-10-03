@@ -321,7 +321,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 MIT
 ========================================================================
-Components: Rust standard library: adler2 2.0.1; adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.20; thiserror-impl 1.0.69; thiserror-impl 2.0.20; tinyvec 1.13.3; unicode-ident 1.0.24
+Components: Rust standard library: adler2 2.0.1; adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.21; thiserror-impl 1.0.69; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
 Components: pbr 1.1.1
 # MIT License
 
@@ -371,7 +371,7 @@ Components: digest 0.10.7
 Copyright (c) 2017 Artyom Pavlov
 Components: Rust stdarch
 Copyright (c) 2017 The Rust Project Developers
-Components: smallvec 1.16.1
+Components: smallvec 1.16.2
 Copyright (c) 2018 The Servo Project Developers
 Components: block-buffer 0.10.4
 Copyright (c) 2018-2019 The RustCrypto Project Developers
@@ -438,7 +438,7 @@ Components: unit-prefix 0.5.2
 MIT License
 
 Copyright (c) 2024 Benjamin Sago, Fabio Valentini
-Components: function_name-proc-macro 0.3.0; hotpath 0.26.0; hotpath-macros 0.26.0; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
+Components: function_name-proc-macro 0.3.0; hotpath 0.26.1; hotpath-macros 0.26.1; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
 MIT License
 
 Copyright (c) <year> <copyright holders>
