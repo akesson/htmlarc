@@ -29,8 +29,9 @@ bench: ## Build the benchmarks without running them (CI bench step)
 
 py-dev: ## Build the Python wheel and install it + recipe deps into .venv (editor completions)
 	uv venv --allow-existing
-	uvx maturin build --release -m crates/htmlarc-py/Cargo.toml
-	uv pip install --reinstall-package htmlarc target/wheels/htmlarc-*-abi3-*.whl
+	rm -rf target/py-dev
+	uvx maturin build --release -m crates/htmlarc-py/Cargo.toml -o target/py-dev
+	uv pip install --reinstall-package htmlarc target/py-dev/htmlarc-*-abi3-*.whl
 	uv pip install requests polars warcio trafilatura libzim
 
 ci: fmt-check lint test bench ## Run every CI check locally

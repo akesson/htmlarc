@@ -7,8 +7,9 @@
 No downloads, no corpus — the "crawl" is 30 small pages generated below.
 Each numbered section works as a standalone notebook cell.
 
-Run:  uv run --with ../../target/wheels/htmlarc-*.whl quickstart.py
-(plain `uv run quickstart.py` once htmlarc is on PyPI)
+Run:  uv run --with ../../target/py-dev/htmlarc-*.whl quickstart.py
+(wheel built by `make py-dev` at the repository root;
+plain `uv run quickstart.py` once htmlarc is on PyPI)
 """
 from pathlib import Path
 
