@@ -17,7 +17,7 @@ use arrow_array::{
 use arrow_buffer::{BooleanBuffer, Buffer, NullBufferBuilder, OffsetBuffer, ScalarBuffer};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use htmlarc_archive::{
-    ArchiveAppender, ArchiveErr, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue,
+    ArchiveAppender, ArchiveErr, Doc, HtmlArchiveBuilder, MetaRef, MetaSchema, MetaType, MetaValue,
     MmapArchive, OwnedDoc, archived_value,
 };
 use htmlarc_dom::prelude::{
@@ -106,9 +106,12 @@ fn count_matches<Dom: DomRead + DomRef>(
 /// Run `f` over every document in the archive, fanned out across all cores. Returns
 /// `(key, value)` for the documents where `f` answered, in archive order. Callers hold no
 /// GIL here (`Python::detach`); everything captured must be `Sync`.
+///
+/// `f` gets the document's position and a borrowed [`Doc`]: the sweep never outlives the
+/// archive, so it skips [`OwnedDoc`]'s per-document `Arc` clone and drop.
 fn par_sweep<T: Send>(
-    archive: &Arc<MmapArchive>,
-    f: impl Fn(&OwnedDoc) -> Option<T> + Sync,
+    archive: &MmapArchive,
+    f: impl Fn(usize, &Doc<'_>) -> Option<T> + Sync,
 ) -> Result<Vec<(String, T)>, ArchiveErr> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -129,9 +132,9 @@ fn par_sweep<T: Send>(
                         if pos >= n {
                             break;
                         }
-                        let doc = OwnedDoc::new(archive.clone(), pos)?;
-                        if let Some(v) = f(&doc) {
-                            local.push((pos, doc.key().to_string(), v));
+                        let doc = archive.try_doc(pos)?;
+                        if let Some(v) = f(pos, &doc) {
+                            local.push((pos, archive.key_at(pos).to_string(), v));
                         }
                     }
                     Ok(local)
@@ -1036,7 +1039,7 @@ impl Archive {
         let mut storage = None;
         let sel = css.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |doc| {
+            par_sweep(&self.inner, |_pos, doc| {
                 let root = HtmlElement::new(doc, NodeIndex::ROOT);
                 root.select(sel.list().clone())
                     .next()
@@ -1059,7 +1062,7 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |doc| {
+            par_sweep(&self.inner, |_pos, doc| {
                 let root = HtmlElement::new(doc, NodeIndex::ROOT);
                 let texts: Vec<String> = root
                     .select(sel.list().clone())
@@ -1087,7 +1090,7 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |doc| {
+            par_sweep(&self.inner, |_pos, doc| {
                 let root = HtmlElement::new(doc, NodeIndex::ROOT);
                 let vals: Vec<Option<String>> = root
                     .select(sel.list().clone())
@@ -1115,7 +1118,7 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |doc| {
+            par_sweep(&self.inner, |_pos, doc| {
                 let root = HtmlElement::new(doc, NodeIndex::ROOT);
                 let n = count_matches(&root, sel, attr);
                 (n > 0).then_some(n)
@@ -1232,10 +1235,10 @@ impl Archive {
 
         let hits = py
             .detach(|| {
-                par_sweep(&self.inner, |doc| {
+                par_sweep(&self.inner, |pos, doc| {
                     let root = HtmlElement::new(doc, NodeIndex::ROOT);
                     scan_table_doc(&root, sel, text, &cols).map(|mut c| {
-                        c.pos = doc.position();
+                        c.pos = pos;
                         c
                     })
                 })
@@ -1322,8 +1325,8 @@ struct DocChunk {
 
 /// Build one document's row contributions off-GIL (runs inside `par_sweep`). Returns `None` when
 /// nothing matched, so documents without matches are omitted — exactly like the other sweeps.
-fn scan_table_doc(
-    root: &HtmlElement<'_, OwnedDoc>,
+fn scan_table_doc<Dom: DomRead + DomRef>(
+    root: &HtmlElement<'_, Dom>,
     sel: &OwnedSelectorList,
     want_text: bool,
     cols: &[AttrCol],
