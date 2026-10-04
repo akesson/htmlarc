@@ -8,7 +8,7 @@
 //! ever crosses the FFI boundary (iterators are collected to index vectors per call).
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{
@@ -112,6 +112,11 @@ fn count_matches<Dom: DomRead + DomRef>(
 /// archive, so it needs no `Arc`-owning [`OwnedDoc`] per document. It also gets the worker's
 /// own state, made once per worker by `init` — the selector list, re-resolved against each
 /// document in place, so the sweep does not clone it per document.
+///
+/// The workers are the threads of [`sweep_pool`], kept alive between calls. Spawning fresh
+/// threads per call cost far more than the spawn itself: on macOS, the system allocator is
+/// several times slower for threads that have not allocated yet, which every fresh thread
+/// paid on every sweep.
 fn par_sweep<S, T: Send>(
     archive: &MmapArchive,
     init: impl Fn() -> S + Sync,
@@ -120,40 +125,66 @@ fn par_sweep<S, T: Send>(
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let n = archive.len();
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |p| p.get())
-        .min(n.max(1));
+    let pool = sweep_pool();
     // Work-stealing by atomic counter: document sizes vary wildly, so fixed ranges would
-    // leave threads idle behind whoever drew the big documents.
+    // leave threads idle behind whoever drew the big documents. Claim a few documents per
+    // counter bump: with small documents the contended counter otherwise costs about as
+    // much as the work, while ~32 claims per worker still balance the tail.
+    let chunk = (n / (pool.current_num_threads() * 32)).clamp(1, 64);
     let next = AtomicUsize::new(0);
-    let mut hits: Vec<(usize, String, T)> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..threads)
-            .map(|_| {
-                s.spawn(|| {
-                    let mut state = init();
-                    let mut local = Vec::new();
-                    loop {
-                        let pos = next.fetch_add(1, Ordering::Relaxed);
-                        if pos >= n {
-                            break;
-                        }
-                        let doc = archive.try_doc(pos)?;
-                        if let Some(v) = f(&mut state, pos, &doc) {
-                            local.push((pos, doc.key().to_string(), v));
-                        }
-                    }
-                    Ok(local)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().expect("archive sweep worker panicked"))
-            .collect::<Result<Vec<_>, ArchiveErr>>()
-            .map(|per_thread| per_thread.into_iter().flatten().collect())
-    })?;
+    let per_worker = pool.broadcast(|_| -> Result<Vec<(usize, String, T)>, ArchiveErr> {
+        let mut state = init();
+        let mut local = Vec::new();
+        loop {
+            let start = next.fetch_add(chunk, Ordering::Relaxed);
+            if start >= n {
+                break;
+            }
+            for pos in start..(start + chunk).min(n) {
+                let doc = archive.try_doc(pos)?;
+                if let Some(v) = f(&mut state, pos, &doc) {
+                    local.push((pos, doc.key().to_string(), v));
+                }
+            }
+        }
+        Ok(local)
+    });
+    let mut hits: Vec<(usize, String, T)> = per_worker
+        .into_iter()
+        .collect::<Result<Vec<_>, ArchiveErr>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     hits.sort_unstable_by_key(|(pos, ..)| *pos);
     Ok(hits.into_iter().map(|(_, key, v)| (key, v)).collect())
+}
+
+/// The process's sweep thread pool, one thread per core, created on first use. A `fork()`ed
+/// child (Python `multiprocessing` on Linux before 3.14) inherits the pool's bookkeeping but
+/// none of its threads, so a pool reused there would wait forever. The pool is therefore
+/// keyed by process id and rebuilt in a new process; the parent's copy is leaked there, as
+/// its threads do not exist to be joined.
+fn sweep_pool() -> Arc<rayon::ThreadPool> {
+    static POOL: Mutex<Option<(u32, Arc<rayon::ThreadPool>)>> = Mutex::new(None);
+    let pid = std::process::id();
+    let mut slot = POOL.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((owner, pool)) = &*slot
+        && *owner == pid
+    {
+        return pool.clone();
+    }
+    let threads = std::thread::available_parallelism().map_or(1, |p| p.get());
+    let pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|i| format!("htmlarc-sweep-{i}"))
+            .build()
+            .expect("failed to start the sweep thread pool"),
+    );
+    if let Some(inherited) = slot.replace((pid, pool.clone())) {
+        std::mem::forget(inherited);
+    }
+    pool
 }
 
 fn selector_err(e: impl std::fmt::Display) -> PyErr {

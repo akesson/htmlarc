@@ -38,6 +38,9 @@ log = "0.4"
 pretty = "0.12"
 # Python bindings (crates/htmlarc-py). abi3 so one wheel covers every CPython >= 3.10.
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
+# Persistent worker pool for the Python bindings' archive sweeps (`par_sweep` in htmlarc-py).
+# Already in the tree through zim, so convert gains nothing new.
+rayon = "1.12"
 rkyv = { version = "0.8", features = ["pointer_width_64"] }
 sanitize-filename = "0.6"
 # Best-in-class Rust CSS-selection baseline (html5ever parse + Servo's `selectors`
