@@ -116,6 +116,52 @@ fn mmap_css_select_matches_owned() {
 }
 
 #[test]
+fn mmap_tag_selectors_match_owned() {
+    // Tag-subject selectors take the select walk's tag-byte prefilter; run them off the mmap
+    // (`ArchivedDom`) and the owned archive across every doc, including combinator subjects and
+    // a mixed list that disables the prefilter.
+    let path = temp_path("css_tags");
+    sample_archive().write_to(&path).unwrap();
+
+    let owned = HtmlArchive::read_from(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+
+    for (css, expected) in [
+        ("h1, a", vec![("alpha", HtmlTag::h1), ("beta", HtmlTag::a)]),
+        ("div > span", vec![("alpha", HtmlTag::span)]),
+        ("body p", vec![("gamma", HtmlTag::p)]),
+        (
+            "span, .c",
+            vec![("alpha", HtmlTag::span), ("gamma", HtmlTag::p)],
+        ),
+    ] {
+        let mut owned_hits = Vec::new();
+        let mut mmap_hits = Vec::new();
+        for key in ["alpha", "beta", "gamma"] {
+            let doc = owned.get(key).unwrap();
+            owned_hits.extend(
+                doc.root()
+                    .select_css(css)
+                    .unwrap()
+                    .map(|el| (key, el.tag(), el.index())),
+            );
+            let doc = mmap.doc_by_key(key).unwrap().unwrap();
+            mmap_hits.extend(
+                doc.root()
+                    .select_css(css)
+                    .unwrap()
+                    .map(|el| (key, el.tag(), el.index())),
+            );
+        }
+        assert_eq!(owned_hits, mmap_hits, "{css}");
+        let tags: Vec<_> = mmap_hits.iter().map(|&(key, tag, _)| (key, tag)).collect();
+        assert_eq!(tags, expected, "{css}");
+    }
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn empty_archive_round_trips() {
     let path = temp_path("empty");
     HtmlArchiveBuilder::default().write_to(&path).unwrap();

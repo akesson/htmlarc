@@ -18,6 +18,53 @@ where
     /// matching reads it directly instead of rebuilding the (rkyv) sub-views per accessor. `None`
     /// for `DomRefCell`, which keeps the per-call element path.
     bound: Option<DomView<'dom>>,
+    /// Tag bytes a node must carry to reach the matcher on the bound walk (see [`TagSet`]).
+    tags: TagSet,
+}
+
+/// A set of node tag bytes, as a 256-bit mask.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TagSet([u64; 4]);
+
+impl TagSet {
+    /// The tag bytes a node must carry to possibly match `list`. When every selector's subject
+    /// (rightmost) compound names a standard tag (`a[href]`, `h1, h2`, `table td`), that is just
+    /// those tags, so the walk rejects every other node on one byte read; when any subject leaves
+    /// the tag open (`.cls`, `[attr]`, `my-widget`), it is every byte. Either way minus
+    /// `sys_text`, which the walk never yields.
+    fn subjects(list: &SelectorList<'_>) -> Self {
+        let mut set = TagSet([0; 4]);
+        for complex in &list.selectors {
+            let subject = complex
+                .selectors
+                .last()
+                .map_or(&complex.first, |relative| &relative.selector);
+            match subject.element {
+                // `CompoundSelector::matches_in_view` rejects unless `nodes.tag(index) == tag`,
+                // and a standard tag's byte is its discriminant, so this is exact.
+                Some(tag) if tag != HtmlTag::extended => set.insert(tag as u8),
+                _ => {
+                    set = TagSet([u64::MAX; 4]);
+                    break;
+                }
+            }
+        }
+        set.remove(HtmlTag::sys_text as u8);
+        set
+    }
+
+    fn insert(&mut self, byte: u8) {
+        self.0[usize::from(byte >> 6)] |= 1 << (byte & 63);
+    }
+
+    fn remove(&mut self, byte: u8) {
+        self.0[usize::from(byte >> 6)] &= !(1 << (byte & 63));
+    }
+
+    #[inline]
+    fn contains(&self, byte: u8) -> bool {
+        (self.0[usize::from(byte >> 6)] >> (byte & 63)) & 1 != 0
+    }
 }
 
 impl<'dom, Dom, I> MatchIter<'dom, Dom, I>
@@ -35,10 +82,12 @@ where
         // Bind one view for the whole walk on immutable backings (ADR 0007); `None` on
         // `DomRefCell`, whose view is a scoped `RefCell` borrow — it stays on the element path.
         let bound = iter.dom().walk_view();
+        let tags = TagSet::subjects(&selectors);
         Self {
             iter,
             selectors,
             bound,
+            tags,
         }
     }
 
@@ -60,10 +109,11 @@ where
         let dom = self.iter.dom();
         if let Some(view) = &self.bound {
             // Immutable backing (`DomInner`, `Doc`, `ArchivedDom`): match every node against the
-            // one bound view — no per-accessor rebuild. The skip-text check reads the view's
-            // topology directly, so a text node never even builds an element.
+            // one bound view — no per-accessor rebuild. The skip check reads the view's
+            // tag byte directly, so a node outside `tags` (always text, and every other tag when
+            // the subjects all name one) never even builds an element.
             while let Some(el_index) = self.iter.next_index() {
-                if view.nodes.tag(el_index) == HtmlTag::sys_text {
+                if !self.tags.contains(view.nodes.tag_byte(el_index)) {
                     continue;
                 }
                 let element = HtmlElement::new(dom, el_index);
@@ -262,4 +312,52 @@ fn resolve_attribute_name_and_value() {
     assert_eq!(find(html, "[data-absent]"), "");
     // :not over an absent extended name matches every anchor.
     assert_eq!(find(html, "a:not([data-absent])"), "a 2, a 3");
+}
+
+// --- subject-tag prefilter ---
+
+#[cfg(test)]
+fn subject_tags(css: &str) -> TagSet {
+    TagSet::subjects(&crate::css::parse_css(css).unwrap())
+}
+
+#[cfg(test)]
+fn tag_set(tags: &[HtmlTag]) -> TagSet {
+    let mut set = TagSet([0; 4]);
+    tags.iter().for_each(|&tag| set.insert(tag as u8));
+    set
+}
+
+#[test]
+fn prefilter_set_is_the_subject_tags() {
+    use HtmlTag::{a, h1, h2, span, sys_text, td};
+    assert_eq!(subject_tags("h1, h2"), tag_set(&[h1, h2]));
+    assert_eq!(subject_tags("a[href]"), tag_set(&[a]));
+    // The subject is the rightmost compound; ancestors' tags are not in the set.
+    assert_eq!(subject_tags("table tr td:first-child"), tag_set(&[td]));
+    assert_eq!(subject_tags("div > span"), tag_set(&[span]));
+
+    // A tag-less or extended subject anywhere in the list opens the set to every tag but text.
+    let open = subject_tags(".x");
+    assert!(!open.contains(sys_text as u8));
+    assert!(
+        (0..=u8::MAX)
+            .filter(|&b| b != sys_text as u8)
+            .all(|b| open.contains(b))
+    );
+    assert_eq!(subject_tags("h1, .x"), open);
+    assert_eq!(subject_tags("div .x"), open);
+    assert_eq!(subject_tags("p, my-widget"), open);
+}
+
+#[test]
+fn prefilter_walk_matches() {
+    let html = r#"<body><h1>a</h1><div class="x"><h2>b</h2><span class="x">c</span></div><a href="/">d</a></body>"#;
+    assert_eq!(find(html, "h1, h2"), "h1 2, h2 5");
+    assert_eq!(find(html, "a[href]"), "a 9");
+    assert_eq!(find(html, "div > span"), "span 7");
+    assert_eq!(find(html, "div .x"), "span 7");
+    assert_eq!(find(html, "h1, .x"), "h1 2, div 4, span 7");
+    let html = "<body><my-widget>a</my-widget><p>b</p></body>";
+    assert_eq!(find(html, "p, my-widget"), "extended 2, p 4");
 }
