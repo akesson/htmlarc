@@ -18,7 +18,7 @@ use super::relative::RelativeSelector;
 use crate::dom::DomView;
 
 impl ComplexRelativeSelector<'_> {
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
         for selector in &mut self.selectors {
             selector.resolve(view);
         }

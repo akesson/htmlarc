@@ -26,7 +26,7 @@ impl CompoundSelector<'_> {
     /// Bind every resolvable part of this compound to the document once (ADR 0002 §3): the
     /// id and attribute names/values to entry/name refs, the classes to `Sym`s, and the
     /// nested selectors of `:not`/`:is`/`:has`.
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
         if let Some(ext) = &mut self.ext_element {
             ext.resolve(view);
         }

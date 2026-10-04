@@ -75,7 +75,11 @@ impl<'s> ClassSelector<'s> {
 
     /// Bind this selector to a document by resolving its class name against the symbol
     /// table (called by the [`MatchIter`](crate::iters::MatchIter) resolve pass).
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
+        let Some(view) = view else {
+            self.resolved = ResolvedSym::Unresolved;
+            return;
+        };
         self.resolved = match view.symbols.find(self.name) {
             Some(sym) => ResolvedSym::Found(sym),
             None => ResolvedSym::Absent,

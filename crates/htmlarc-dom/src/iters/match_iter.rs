@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::ops::RangeBounds;
 
 use crate::{
@@ -7,13 +8,19 @@ use crate::{
 
 use super::{DomIterator, exactly_iter::Exactly};
 
-pub struct MatchIter<'dom, Dom, I>
+pub struct MatchIter<'dom, Dom, I, S = SelectorList<'dom>>
 where
     I: Iterator<Item = HtmlElement<'dom, Dom>>,
     Self: 'dom,
 {
     iter: I,
-    selectors: SelectorList<'dom>,
+    /// The selector list, owned or borrowed as `&mut SelectorList` (see
+    /// [`HtmlElement::select`]); resolved against this document either way.
+    selectors: S,
+    /// Resets `selectors` to unresolved on drop, so a lent list never carries this document's
+    /// resolution into direct matching (`Element::matches`) on another. A fn pointer because
+    /// only `new` knows `S: BorrowMut<SelectorList<'css>>`; a `Drop` impl cannot name `'css`.
+    unresolve: fn(&mut S),
     /// A [`DomView`] bound once for the whole walk on immutable backings (ADR 0007), so per-node
     /// matching reads it directly instead of rebuilding the (rkyv) sub-views per accessor. `None`
     /// for `DomRefCell`, which keeps the per-call element path.
@@ -67,25 +74,28 @@ impl TagSet {
     }
 }
 
-impl<'dom, Dom, I> MatchIter<'dom, Dom, I>
+impl<'dom, 'css, Dom, I, S> MatchIter<'dom, Dom, I, S>
 where
     Dom: DomRead,
     I: Iterator<Item = HtmlElement<'dom, Dom>> + DomIterator<'dom, Dom>,
+    S: BorrowMut<SelectorList<'css>>,
     Self: 'dom,
 {
-    pub fn new(iter: I, mut selectors: SelectorList<'dom>) -> Self {
-        // Bind the owned selector list to this document once: every class selector (incl.
-        // those nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching
-        // is integer compares (ADR 0002 §3). filter.rs clones the list per document, so this
-        // only ever mutates a per-document copy.
-        iter.dom().with_view(|view| selectors.resolve(view));
+    pub fn new(iter: I, mut selectors: S) -> Self {
+        // Bind the selector list to this document once: every class selector (incl. those
+        // nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching is integer
+        // compares (ADR 0002 §3). Resolving overwrites every resolved field from the selector's
+        // names, so a borrowed list can be re-resolved against document after document.
+        iter.dom()
+            .with_view(|view| selectors.borrow_mut().resolve(Some(view)));
         // Bind one view for the whole walk on immutable backings (ADR 0007); `None` on
         // `DomRefCell`, whose view is a scoped `RefCell` borrow — it stays on the element path.
         let bound = iter.dom().walk_view();
-        let tags = TagSet::subjects(&selectors);
+        let tags = TagSet::subjects(selectors.borrow());
         Self {
             iter,
             selectors,
+            unresolve: |selectors| selectors.borrow_mut().resolve(None),
             bound,
             tags,
         }
@@ -96,10 +106,21 @@ where
     }
 }
 
-impl<'dom, Dom, I> Iterator for MatchIter<'dom, Dom, I>
+impl<'dom, Dom, I, S> Drop for MatchIter<'dom, Dom, I, S>
+where
+    I: Iterator<Item = HtmlElement<'dom, Dom>>,
+    Self: 'dom,
+{
+    fn drop(&mut self) {
+        (self.unresolve)(&mut self.selectors);
+    }
+}
+
+impl<'dom, 'css, Dom, I, S> Iterator for MatchIter<'dom, Dom, I, S>
 where
     Dom: DomRead,
     I: Iterator<Item = HtmlElement<'dom, Dom>> + DomIterator<'dom, Dom>,
+    S: BorrowMut<SelectorList<'css>>,
     Self: 'dom,
 {
     type Item = HtmlElement<'dom, Dom>;
@@ -117,7 +138,7 @@ where
                     continue;
                 }
                 let element = HtmlElement::new(dom, el_index);
-                if self.selectors.matches_in_view(view, &element) {
+                if self.selectors.borrow().matches_in_view(view, &element) {
                     return Some(element);
                 }
             }
@@ -130,7 +151,7 @@ where
                 if element.tag() == HtmlTag::sys_text {
                     continue;
                 }
-                if self.selectors.matches(&element) {
+                if self.selectors.borrow().matches(&element) {
                     return Some(element);
                 }
             }
@@ -312,6 +333,99 @@ fn resolve_attribute_name_and_value() {
     assert_eq!(find(html, "[data-absent]"), "");
     // :not over an absent extended name matches every anchor.
     assert_eq!(find(html, "a:not([data-absent])"), "a 2, a 3");
+}
+
+/// A sweep lends one list to `select` per document (`select(&mut list)`), so whatever the previous
+/// document resolved must never leak into the next. Alternate a document holding each name with
+/// one whose tables lack it entirely (but hold other names, which may get the same symbol
+/// numbers), and compare against a freshly parsed list every time — on both the bound-view path
+/// (`DomInner`) and the per-call element path (`DomRefCell`).
+#[test]
+fn reused_list_reresolves_per_document() {
+    let a = r#"<body><div id="m" class="k" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></div><p></p></body>"#;
+    let b = r#"<body><div id="n" class="other" data-q="2"><x-other></x-other></div><p></p></body>"#;
+    let (a_inner, b_inner) = (
+        HtmlDoc::parse(a).unwrap().dom(),
+        HtmlDoc::parse(b).unwrap().dom(),
+    );
+    let a_cell = HtmlDoc::parse(a).unwrap().dom_ref_cell();
+    let b_cell = HtmlDoc::parse(b).unwrap().dom_ref_cell();
+    for css in [
+        ".k",
+        "#m",
+        "[data-z]",
+        "my-tag",
+        "clipPath",
+        "div:not(.other)",
+        "div:not([data-q])",
+        "div:has(my-tag)",
+        "div:is(.k, .absent)",
+        "body .k",
+    ] {
+        let fresh_a = a_inner.root().select(parse_css(css).unwrap()).count();
+        let fresh_b = b_inner.root().select(parse_css(css).unwrap()).count();
+        assert_ne!(fresh_a, fresh_b, "{css}: a must hit where b misses");
+
+        let mut list = parse_css(css).unwrap();
+        for (dom, fresh) in [
+            (&a_inner, fresh_a),
+            (&b_inner, fresh_b),
+            (&a_inner, fresh_a),
+            (&b_inner, fresh_b),
+        ] {
+            assert_eq!(
+                dom.root().select(&mut list).count(),
+                fresh,
+                "{css} (bound view)"
+            );
+        }
+        for (dom, fresh) in [
+            (&a_cell, fresh_a),
+            (&b_cell, fresh_b),
+            (&a_cell, fresh_a),
+            (&b_cell, fresh_b),
+        ] {
+            assert_eq!(
+                dom.root().select(&mut list).count(),
+                fresh,
+                "{css} (element path)"
+            );
+        }
+    }
+}
+
+/// A list lent to `select(&mut list)` is resolved against that document only while the walk
+/// runs: afterwards (and in a clone taken afterwards) direct matching on another document
+/// must agree with a fresh list.
+#[test]
+fn lent_list_is_unresolved_after_the_walk() {
+    // The filler class gives `k` a different symbol in `a` than in `b`.
+    let a = r#"<body><i class="filler"></i><p class="k" id="m" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></p></body>"#;
+    let b = r#"<body><p class="k" id="m" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></p></body>"#;
+    let a = HtmlDoc::parse(a).unwrap().dom();
+    let b = HtmlDoc::parse(b).unwrap().dom();
+    for css in [
+        ".k",
+        "#m",
+        "[data-z]",
+        "my-tag",
+        "clipPath",
+        "p:has(my-tag)",
+    ] {
+        let mut list = parse_css(css).unwrap();
+        assert!(a.root().select(&mut list).count() > 0, "{css}");
+        let copy = list.clone();
+        for el in b.root().forwards() {
+            let fresh = parse_css(css).unwrap().matches(&el);
+            assert_eq!(el.matches(&list), fresh, "{css} on <{}>", el.tag_name());
+            assert_eq!(
+                el.matches(&copy),
+                fresh,
+                "{css} clone on <{}>",
+                el.tag_name()
+            );
+        }
+    }
 }
 
 // --- subject-tag prefilter ---

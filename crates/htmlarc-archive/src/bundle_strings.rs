@@ -14,7 +14,8 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use htmlarc_dom::prelude::{FrameDecoder, LazyState};
-use rkyv::{Archive, Deserialize, Serialize};
+use rkyv::{Archive, Archived, Deserialize, Serialize};
+use tinyvec::TinyVec;
 
 /// Target (not maximum) inflated size of one compressed text block. Blocks are cut only at
 /// text-node boundaries — a single node larger than this yields one oversized block — so a
@@ -137,43 +138,47 @@ impl BundleStrings {
     }
 }
 
-/// One document's block tables copied out to native `u32` (fencepost form, `block_count + 1`
-/// entries each — typically 2, since most pools fit one block). A read handle owns one of these
-/// plus a matching `Box<[OnceLock<Vec<u8>>]>` of inflate caches; together they feed
-/// [`LazyState`]. Offsets stay bundle-absolute, exactly as archived.
-pub struct DocBlocks {
-    pub frame_starts: Box<[u32]>,
-    pub raw_starts: Box<[u32]>,
+/// One document's block tables, borrowed from the archive (fencepost form, `block_count + 1`
+/// entries each — typically 2, since most pools fit one block). Offsets stay bundle-absolute,
+/// exactly as archived. Together with a [`BlockCaches`] they feed [`LazyState`].
+#[derive(Clone, Copy)]
+pub struct DocBlocks<'a> {
+    pub frame_starts: &'a [Archived<u32>],
+    pub raw_starts: &'a [Archived<u32>],
 }
 
-impl DocBlocks {
+/// One inflate cache per block of a document. Inline up to four blocks (≤ ~64 KiB of text: every
+/// document of a Wiktionary dump, ~92% of a Common Crawl sample), so binding a document does not
+/// allocate; larger documents spill to the heap.
+pub type BlockCaches = TinyVec<[OnceLock<Vec<u8>>; 4]>;
+
+impl DocBlocks<'_> {
     pub fn block_count(&self) -> usize {
         self.raw_starts.len() - 1
     }
 
     /// The document's raw segment start within the bundle (== `raw_starts[0]`).
     pub fn base(&self) -> u32 {
-        self.raw_starts[0]
+        self.raw_starts[0].to_native()
     }
 
     pub fn raw_len(&self) -> u32 {
-        self.raw_starts[self.raw_starts.len() - 1] - self.raw_starts[0]
+        self.raw_starts[self.raw_starts.len() - 1].to_native() - self.base()
     }
 
     /// Freshly initialized inflate caches, one per block.
-    pub fn bufs(&self) -> Box<[OnceLock<Vec<u8>>]> {
-        (0..self.block_count()).map(|_| OnceLock::new()).collect()
+    pub fn bufs(&self) -> BlockCaches {
+        let mut bufs = BlockCaches::new();
+        bufs.resize_with(self.block_count(), OnceLock::new);
+        bufs
     }
 }
 
-/// A whole bundle's native-`u32` block tables plus one inflate cache per block, built once per
-/// bundle by [`ArchivedBundleStrings::arena`] so a sweep converts the archived (little-endian)
-/// tables a single time — not per document — and `ArchivedBundleStrings::lazy_states`
-/// can hand every document a subslice.
+/// One inflate cache per block of a whole bundle, built once per bundle by
+/// [`ArchivedBundleStrings::arena`] so `ArchivedBundleStrings::lazy_states` can hand every
+/// document a subslice.
 pub struct StringsArena {
     bufs: Box<[OnceLock<Vec<u8>>]>,
-    frame_starts: Box<[u32]>,
-    raw_starts: Box<[u32]>,
 }
 
 impl ArchivedBundleStrings {
@@ -203,18 +208,15 @@ impl ArchivedBundleStrings {
         self.block_raw_offsets[r.end].to_native() - self.block_raw_offsets[r.start].to_native()
     }
 
-    /// Document `slot`'s block tables, copied to native `u32` for a read handle's lifetime.
-    pub fn doc_blocks(&self, slot: usize) -> DocBlocks {
-        let r = self.doc_block_range(slot);
+    /// Document `slot`'s block tables, borrowed in place.
+    pub fn doc_blocks(&self, slot: usize) -> DocBlocks<'_> {
+        self.blocks_in(self.doc_block_range(slot))
+    }
+
+    fn blocks_in(&self, r: Range<usize>) -> DocBlocks<'_> {
         DocBlocks {
-            frame_starts: self.block_offsets[r.start..=r.end]
-                .iter()
-                .map(|o| o.to_native())
-                .collect(),
-            raw_starts: self.block_raw_offsets[r.start..=r.end]
-                .iter()
-                .map(|o| o.to_native())
-                .collect(),
+            frame_starts: &self.block_offsets[r.start..=r.end],
+            raw_starts: &self.block_raw_offsets[r.start..=r.end],
         }
     }
 
@@ -233,22 +235,16 @@ impl ArchivedBundleStrings {
         pool
     }
 
-    /// The bundle's shared read state: native offset tables + one inflate cache per block. Build
-    /// once per bundle, then borrow it to [`lazy_states`](Self::lazy_states).
+    /// The bundle's shared inflate caches, one per block. Build once per bundle, then borrow it to
+    /// [`lazy_states`](Self::lazy_states).
     pub fn arena(&self) -> StringsArena {
         StringsArena {
             bufs: (0..self.block_count()).map(|_| OnceLock::new()).collect(),
-            frame_starts: self.block_offsets.iter().map(|o| o.to_native()).collect(),
-            raw_starts: self
-                .block_raw_offsets
-                .iter()
-                .map(|o| o.to_native())
-                .collect(),
         }
     }
 
-    /// Build a per-document [`LazyState`] for every slot — each a subslice of the shared
-    /// `arena` (tables and caches) paired with this block's frame blob and the archive's
+    /// Build a per-document [`LazyState`] for every slot — each a subslice of this block's
+    /// tables and of the shared `arena`'s caches, paired with the frame blob and the archive's
     /// `decoder`. The caller owns `arena` and the returned `Vec` as two separate values in its
     /// read scope, so nothing here is self-referential; a bound document inflates a block at
     /// most once, only when text inside it is actually read.
@@ -265,13 +261,14 @@ impl ArchivedBundleStrings {
         (0..self.doc_count())
             .map(|slot| {
                 let r = self.doc_block_range(slot);
+                let blocks = self.blocks_in(r.clone());
                 LazyState {
                     bufs: &arena.bufs[r.start..r.end],
                     frames: &self.frames,
-                    frame_starts: &arena.frame_starts[r.start..=r.end],
-                    raw_starts: &arena.raw_starts[r.start..=r.end],
-                    base: arena.raw_starts[r.start],
-                    len: arena.raw_starts[r.end] - arena.raw_starts[r.start],
+                    frame_starts: blocks.frame_starts,
+                    raw_starts: blocks.raw_starts,
+                    base: blocks.base(),
+                    len: blocks.raw_len(),
                     decoder,
                 }
             })

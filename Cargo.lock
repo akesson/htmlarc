@@ -921,6 +921,7 @@ dependencies = [
  "seahash",
  "self_cell",
  "thiserror 2.0.21",
+ "tinyvec",
  "unicode-segmentation",
  "zstd 0.14.0",
 ]

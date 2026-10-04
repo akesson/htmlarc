@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use crate::{
     accessors::{Attributes, AttributesMut, Classes, ClassesMut},
     css::{self, AttributeSelector, ParseError, Selector, SelectorList},
@@ -428,7 +430,23 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     /// Selects matching descendants in document order, driven by the backing's forward iterator
     /// (so `select` over an immutable backing automatically uses the fast linear walk).
-    pub fn select(&self, selector: SelectorList<'dom>) -> MatchIter<'dom, Dom, Dom::Forward<'dom>> {
+    ///
+    /// `selector` is a [`SelectorList`] or a `&mut SelectorList`. The list is resolved against
+    /// this document before the walk, so a sweep running one selector over many documents can
+    /// lend the same list to each instead of cloning it per document:
+    ///
+    /// ```ignore
+    /// let mut list = selector.clone();
+    /// let total: usize = docs.iter().map(|d| d.root().select(&mut list).count()).sum();
+    /// ```
+    ///
+    /// The returned iterator resets a lent list to unresolved when it drops, so matching it
+    /// directly afterwards (`Element::matches`) is correct on any document. Leaking the iterator
+    /// (`mem::forget`) skips that reset and leaves the list bound to this document.
+    pub fn select<'css, S: BorrowMut<SelectorList<'css>>>(
+        &self,
+        selector: S,
+    ) -> MatchIter<'dom, Dom, Dom::Forward<'dom>, S> {
         MatchIter::new(self.forwards(), selector)
     }
 
@@ -436,17 +454,18 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// for benchmarking the linear `select`. Not advertised API; see
     /// [`forwards_walk`](Self::forwards_walk).
     #[doc(hidden)]
-    pub fn select_walk(
+    pub fn select_walk<'css, S: BorrowMut<SelectorList<'css>>>(
         &self,
-        selector: SelectorList<'dom>,
-    ) -> MatchIter<'dom, Dom, ElementIter<'dom, Dom>> {
+        selector: S,
+    ) -> MatchIter<'dom, Dom, ElementIter<'dom, Dom>, S> {
         MatchIter::new(self.forwards_walk(), selector)
     }
 
-    pub fn select_child(
+    /// [`select`](Self::select) over this element's children only.
+    pub fn select_child<'css, S: BorrowMut<SelectorList<'css>>>(
         &self,
-        selector: SelectorList<'dom>,
-    ) -> MatchIter<'dom, Dom, RelativeIter<'dom, Dom>> {
+        selector: S,
+    ) -> MatchIter<'dom, Dom, RelativeIter<'dom, Dom>, S> {
         MatchIter::new(RelativeIter::children(self), selector)
     }
 
