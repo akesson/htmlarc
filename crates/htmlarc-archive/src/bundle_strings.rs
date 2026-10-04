@@ -210,7 +210,10 @@ impl ArchivedBundleStrings {
 
     /// Document `slot`'s block tables, borrowed in place.
     pub fn doc_blocks(&self, slot: usize) -> DocBlocks<'_> {
-        let r = self.doc_block_range(slot);
+        self.blocks_in(self.doc_block_range(slot))
+    }
+
+    fn blocks_in(&self, r: Range<usize>) -> DocBlocks<'_> {
         DocBlocks {
             frame_starts: &self.block_offsets[r.start..=r.end],
             raw_starts: &self.block_raw_offsets[r.start..=r.end],
@@ -258,7 +261,7 @@ impl ArchivedBundleStrings {
         (0..self.doc_count())
             .map(|slot| {
                 let r = self.doc_block_range(slot);
-                let blocks = self.doc_blocks(slot);
+                let blocks = self.blocks_in(r.clone());
                 LazyState {
                     bufs: &arena.bufs[r.start..r.end],
                     frames: &self.frames,

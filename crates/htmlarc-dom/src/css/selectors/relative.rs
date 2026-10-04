@@ -17,7 +17,7 @@ use super::{Selector, compound::CompoundSelector};
 use crate::dom::DomView;
 
 impl RelativeSelector<'_> {
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
         self.selector.resolve(view);
     }
 }

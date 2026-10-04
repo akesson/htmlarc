@@ -90,12 +90,26 @@ impl<'s> ExtTagSelector<'s> {
     /// A name present in the symbol table only as a class token / attribute name (not a tag)
     /// resolves to `Absent` when nothing overflowed, else to `OverflowSym` — still correct, as
     /// its symbol is never in the overflow map, so no node matches.
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
+        let Some(view) = view else {
+            self.resolved = ResolvedTag::Unresolved;
+            return;
+        };
         // Stored tag names are lowercase (html5gum lowercases everything); a CSS type
         // selector is ASCII-case-insensitive, so a camelCase SVG spelling like `clipPath`
-        // must resolve to the lowercased symbol (ADR 0002 §5).
+        // must resolve to the lowercased symbol (ADR 0002 §5). Lowercased on the stack:
+        // a reused list re-resolves per document, so this must not allocate.
         let found = if self.name.bytes().any(|b| b.is_ascii_uppercase()) {
-            view.symbols.find(&self.name.to_ascii_lowercase())
+            let mut buf = [0u8; 64];
+            match buf.get_mut(..self.name.len()) {
+                Some(lower) => {
+                    lower.copy_from_slice(self.name.as_bytes());
+                    lower.make_ascii_lowercase();
+                    // ASCII case mapping keeps UTF-8 valid.
+                    view.symbols.find(std::str::from_utf8(lower).unwrap())
+                }
+                None => view.symbols.find(&self.name.to_ascii_lowercase()),
+            }
         } else {
             view.symbols.find(self.name)
         };

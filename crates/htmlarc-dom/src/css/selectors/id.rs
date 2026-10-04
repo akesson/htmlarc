@@ -77,7 +77,11 @@ impl<'s> IdSelector<'s> {
     /// `#id` matches the `id` attribute by exact, case-sensitive value, so resolve the value
     /// string to a `ValueRef` and then to the `(id, value)` entry; a value that the document
     /// never stored (or never paired with `id`) makes the selector `Absent` (ADR 0002 §3).
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
+        let Some(view) = view else {
+            self.resolved = ResolvedRef::Unresolved;
+            return;
+        };
         self.resolved = match view.attrs.value_ref(self.name) {
             Some(vref) => match view.attrs.find_entry((HtmlAttr::id as u16, vref)) {
                 Some(entry) => ResolvedRef::Found(entry),

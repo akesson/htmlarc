@@ -450,17 +450,18 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// for benchmarking the linear `select`. Not advertised API; see
     /// [`forwards_walk`](Self::forwards_walk).
     #[doc(hidden)]
-    pub fn select_walk(
+    pub fn select_walk<'css, S: BorrowMut<SelectorList<'css>>>(
         &self,
-        selector: SelectorList<'dom>,
-    ) -> MatchIter<'dom, Dom, ElementIter<'dom, Dom>> {
+        selector: S,
+    ) -> MatchIter<'dom, Dom, ElementIter<'dom, Dom>, S> {
         MatchIter::new(self.forwards_walk(), selector)
     }
 
-    pub fn select_child(
+    /// [`select`](Self::select) over this element's children only.
+    pub fn select_child<'css, S: BorrowMut<SelectorList<'css>>>(
         &self,
-        selector: SelectorList<'dom>,
-    ) -> MatchIter<'dom, Dom, RelativeIter<'dom, Dom>> {
+        selector: S,
+    ) -> MatchIter<'dom, Dom, RelativeIter<'dom, Dom>, S> {
         MatchIter::new(RelativeIter::children(self), selector)
     }
 

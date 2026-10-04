@@ -17,6 +17,10 @@ where
     /// The selector list, owned or borrowed as `&mut SelectorList` (see
     /// [`HtmlElement::select`]); resolved against this document either way.
     selectors: S,
+    /// Resets `selectors` to unresolved on drop, so a lent list never carries this document's
+    /// resolution into direct matching (`Element::matches`) on another. A fn pointer because
+    /// only `new` knows `S: BorrowMut<SelectorList<'css>>`; a `Drop` impl cannot name `'css`.
+    unresolve: fn(&mut S),
     /// A [`DomView`] bound once for the whole walk on immutable backings (ADR 0007), so per-node
     /// matching reads it directly instead of rebuilding the (rkyv) sub-views per accessor. `None`
     /// for `DomRefCell`, which keeps the per-call element path.
@@ -83,7 +87,7 @@ where
         // compares (ADR 0002 §3). Resolving overwrites every resolved field from the selector's
         // names, so a borrowed list can be re-resolved against document after document.
         iter.dom()
-            .with_view(|view| selectors.borrow_mut().resolve(view));
+            .with_view(|view| selectors.borrow_mut().resolve(Some(view)));
         // Bind one view for the whole walk on immutable backings (ADR 0007); `None` on
         // `DomRefCell`, whose view is a scoped `RefCell` borrow — it stays on the element path.
         let bound = iter.dom().walk_view();
@@ -91,6 +95,7 @@ where
         Self {
             iter,
             selectors,
+            unresolve: |selectors| selectors.borrow_mut().resolve(None),
             bound,
             tags,
         }
@@ -98,6 +103,16 @@ where
 
     pub fn exactly<R: RangeBounds<usize>>(self, range: R) -> Exactly<'dom, Dom, Self> {
         Exactly::new(self, range)
+    }
+}
+
+impl<'dom, Dom, I, S> Drop for MatchIter<'dom, Dom, I, S>
+where
+    I: Iterator<Item = HtmlElement<'dom, Dom>>,
+    Self: 'dom,
+{
+    fn drop(&mut self) {
+        (self.unresolve)(&mut self.selectors);
     }
 }
 
@@ -374,6 +389,40 @@ fn reused_list_reresolves_per_document() {
                 dom.root().select(&mut list).count(),
                 fresh,
                 "{css} (element path)"
+            );
+        }
+    }
+}
+
+/// A list lent to `select(&mut list)` is resolved against that document only while the walk
+/// runs: afterwards (and in a clone taken afterwards) direct matching on another document
+/// must agree with a fresh list.
+#[test]
+fn lent_list_is_unresolved_after_the_walk() {
+    // The filler class gives `k` a different symbol in `a` than in `b`.
+    let a = r#"<body><i class="filler"></i><p class="k" id="m" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></p></body>"#;
+    let b = r#"<body><p class="k" id="m" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></p></body>"#;
+    let a = HtmlDoc::parse(a).unwrap().dom();
+    let b = HtmlDoc::parse(b).unwrap().dom();
+    for css in [
+        ".k",
+        "#m",
+        "[data-z]",
+        "my-tag",
+        "clipPath",
+        "p:has(my-tag)",
+    ] {
+        let mut list = parse_css(css).unwrap();
+        assert!(a.root().select(&mut list).count() > 0, "{css}");
+        let copy = list.clone();
+        for el in b.root().forwards() {
+            let fresh = parse_css(css).unwrap().matches(&el);
+            assert_eq!(el.matches(&list), fresh, "{css} on <{}>", el.tag_name());
+            assert_eq!(
+                el.matches(&copy),
+                fresh,
+                "{css} clone on <{}>",
+                el.tag_name()
             );
         }
     }

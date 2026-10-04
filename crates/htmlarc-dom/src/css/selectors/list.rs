@@ -17,8 +17,9 @@ use crate::dom::DomView;
 
 impl SelectorList<'_> {
     /// Bind every class selector in the tree to a document's symbols (the resolve pass run
-    /// once by [`MatchIter`](crate::iters::MatchIter)). See [`super::ClassSelector::resolve`].
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    /// once by [`MatchIter`](crate::iters::MatchIter)), or with `None` reset every selector to
+    /// unresolved (string compare). See [`super::ClassSelector::resolve`].
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
         for selector in &mut self.selectors {
             selector.resolve(view);
         }

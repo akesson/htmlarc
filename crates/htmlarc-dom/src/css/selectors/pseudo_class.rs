@@ -18,7 +18,7 @@ use super::{Selector, list::SelectorList, list_relative::RelativeSelectorList};
 use crate::dom::DomView;
 
 impl PseudoClassSelector<'_> {
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
         match self {
             PseudoClassSelector::Not(list) | PseudoClassSelector::Is(list) => list.resolve(view),
             PseudoClassSelector::Has(relative) => relative.resolve(view),

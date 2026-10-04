@@ -1357,13 +1357,14 @@ fn scan_table_doc<Dom: DomRead + DomRef>(
     cols: &[AttrCol],
 ) -> Option<DocChunk> {
     let mut text = want_text.then(ColChunk::default);
-    let mut attrs: Vec<(ColChunk, Vec<bool>)> = cols
-        .iter()
-        .map(|_| (ColChunk::default(), Vec::new()))
-        .collect();
+    // Allocated on the first match, so documents without one cost no allocation.
+    let mut attrs: Vec<(ColChunk, Vec<bool>)> = Vec::new();
     let mut rows = 0usize;
 
     for el in root.select(sel) {
+        if rows == 0 {
+            attrs.resize_with(cols.len(), Default::default);
+        }
         rows += 1;
         if let Some(t) = text.as_mut() {
             el.for_each_text_chunk(|s| t.data.extend_from_slice(s.as_bytes()));

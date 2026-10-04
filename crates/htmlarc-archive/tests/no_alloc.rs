@@ -51,7 +51,7 @@ fn selector_sweep_allocates_nothing_per_document() {
     b.build().write_to(&path).unwrap();
     let archive = MmapArchive::open(&path).unwrap();
 
-    for css in ["a[href]", "p.c a", "h1, h2, h3", ".missing"] {
+    for css in ["a[href]", "p.c a", "h1, h2, h3", ".missing", "clipPath"] {
         let selector = OwnedSelectorList::parse(css).unwrap();
         let mut list = selector.list().clone();
         let sweep = |list: &mut _| -> usize {

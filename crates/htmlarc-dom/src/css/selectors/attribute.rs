@@ -66,7 +66,11 @@ impl<'s> AttributeSelector<'s> {
     /// document symbol table (`Absent` when missing). The value comparison stays in
     /// [`AttributePattern`]'s `PartialEq` — the name resolution is the per-node integer
     /// prefilter and the absent-name prune.
-    pub(crate) fn resolve(&mut self, view: DomView<'_>) {
+    pub(crate) fn resolve(&mut self, view: Option<DomView<'_>>) {
+        let Some(view) = view else {
+            self.resolved = ResolvedRef::Unresolved;
+            return;
+        };
         self.resolved = match &self.pattern.name {
             AttributeName::Std(attr) => ResolvedRef::Found(*attr as u16),
             AttributeName::Ext(name) => match view.symbols.find(name) {
