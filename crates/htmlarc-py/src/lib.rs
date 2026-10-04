@@ -34,8 +34,9 @@ use pyo3::types::{PyCapsule, PyDict};
 /// implement `DomRead` with the same `LinearSweep` forward iterator, so every query answers
 /// identically regardless of where the document came from.
 enum Backing {
-    /// Parsed in-process from an HTML string ([`parse`]). Boxed: `DomInner` is ~4× the size
-    /// of the other variant, and the extra indirection is invisible next to the FFI call.
+    /// Parsed in-process from an HTML string ([`parse`]). Boxed: `DomInner` is many times the
+    /// size of the other variant (a pointer and a position), and the extra indirection is
+    /// invisible next to the FFI call.
     Parsed(Box<DomInner>),
     /// Resolved out of a memory-mapped `.htmlarc` file ([`Archive`]). Holds its `Arc` to the
     /// archive, so it stays valid even after the Python `Archive` object is garbage-collected.
@@ -108,7 +109,7 @@ fn count_matches<Dom: DomRead + DomRef>(
 /// GIL here (`Python::detach`); everything captured must be `Sync`.
 ///
 /// `f` gets the document's position and a borrowed [`Doc`]: the sweep never outlives the
-/// archive, so it skips [`OwnedDoc`]'s per-document `Arc` clone and drop.
+/// archive, so it needs no `Arc`-owning [`OwnedDoc`] per document.
 fn par_sweep<T: Send>(
     archive: &MmapArchive,
     f: impl Fn(usize, &Doc<'_>) -> Option<T> + Sync,
