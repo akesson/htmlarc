@@ -439,6 +439,10 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
     /// let mut list = selector.clone();
     /// let total: usize = docs.iter().map(|d| d.root().select(&mut list).count()).sum();
     /// ```
+    ///
+    /// The returned iterator resets a lent list to unresolved when it drops, so matching it
+    /// directly afterwards (`Element::matches`) is correct on any document. Leaking the iterator
+    /// (`mem::forget`) skips that reset and leaves the list bound to this document.
     pub fn select<'css, S: BorrowMut<SelectorList<'css>>>(
         &self,
         selector: S,
