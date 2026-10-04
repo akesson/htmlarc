@@ -321,7 +321,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 MIT
 ========================================================================
-Components: Rust standard library: adler2 2.0.1; adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.21; thiserror-impl 1.0.69; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
+Components: Rust standard library: adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.1; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.21; thiserror-impl 1.0.69; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
 Components: pbr 1.1.1
 # MIT License
 
@@ -414,10 +414,6 @@ Components: num-format 0.4.4
 MIT License
 
 Copyright (c) 2018 Brian Myers
-Components: crc32fast 1.5.0
-MIT License
-
-Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
 Components: typed-arena 2.0.2
 MIT License
 
@@ -442,15 +438,11 @@ Components: function_name-proc-macro 0.3.0; hotpath 0.26.1; hotpath-macros 0.26.
 MIT License
 
 Copyright (c) <year> <copyright holders>
-Components: simd-adler32 0.3.9
-MIT License
-
-Copyright (c) [2021] [Marvin Countryman]
 Components: colorful 0.3.2
 MIT License
 
 Copyright (c) da2018 <da2018t@gmail.com>
-Components: Rust standard library: miniz_oxide 0.8.9; miniz_oxide 0.9.1
+Components: Rust standard library: miniz_oxide 0.8.9
 MIT License
 
 Copyright 2013-2014 RAD Game Tools and Valve Software
@@ -1165,6 +1157,31 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+========================================================================
+Zlib
+========================================================================
+Components: zlib-rs 0.6.8
+
+(C) 2024 Trifecta Tech Foundation 
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
 
 ========================================================================
 Zlib
