@@ -134,7 +134,7 @@ fn par_sweep<T: Send>(
                         }
                         let doc = archive.try_doc(pos)?;
                         if let Some(v) = f(pos, &doc) {
-                            local.push((pos, archive.key_at(pos).to_string(), v));
+                            local.push((pos, doc.key().to_string(), v));
                         }
                     }
                     Ok(local)
@@ -1317,7 +1317,7 @@ impl ColChunk {
 struct DocChunk {
     rows: usize,
     /// The document's flat archive position — resolves its metadata row for `meta=[...]`
-    /// columns (stamped by the sweep closure, which owns the `OwnedDoc`).
+    /// columns (stamped by the sweep closure, which `par_sweep` hands the position).
     pos: usize,
     text: Option<ColChunk>,
     attrs: Vec<(ColChunk, Vec<bool>)>,

@@ -1,10 +1,10 @@
 {
-  "Cargo.lock": "2a78e3ecaeafe574a5c4caf75689e53c80e27a60cd42d07983b85de9f7c0f3a0",
+  "Cargo.lock": "a4a0bacd8c0ff06fe501cd996ccf5e1ce8baf9688d4e44e9aed445ac88dc4b39",
   "Cargo.toml": "95aa084ac0a51bcd7bbab59a12ffdd073c8c73e75452a3b6a1d8d893b9014017",
   "about.toml": "83c3ab64daa3e801e6b534b47474749d6038a67e3ddda1de7409d0cdf3546fc4",
   "cli/htmlarc-convert/Cargo.toml": "b39bfb8fa5f9ddf16e6065d3f195c533da03468d6259a5e96ed46d642920be15",
   "cli/htmlarc/Cargo.toml": "a0b516bbfc1f7c1b77c20d2fabe8816b1310a9684580432260149b990e6bb25f",
-  "crates/htmlarc-archive/Cargo.toml": "6b7c1a18781bdb391312750c8b734c47c077c29cac5d0b46d5ee3d99d791116b",
+  "crates/htmlarc-archive/Cargo.toml": "90d9530f0ae65249306f5fcf5415991dd9ff7ff7616e5b405b4b36a92f14f3b5",
   "crates/htmlarc-dom/Cargo.toml": "590a8e7b86dd349a7f75c7f9ac2b674c8546623e4f64b9004366e0e57f67a78a",
   "crates/htmlarc-py/Cargo.toml": "1d86463df32f205f86e5f9eb54b767520aa7c8865ce8cafb799f473f809cd1a1",
   "rust-toolchain.toml": "a7a23801522d469e93021507fc88e9f5651056fce0e6aa22b3d3157c5f3dc6fe",

@@ -16,6 +16,7 @@ hotpath = { workspace = true, optional = true }
 memmap2 = "0.9"
 rkyv = { workspace = true }
 seahash = { workspace = true }
+self_cell = { workspace = true }
 thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
 zstd = { workspace = true }

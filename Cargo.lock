@@ -919,6 +919,7 @@ dependencies = [
  "rkyv",
  "scraper",
  "seahash",
+ "self_cell",
  "thiserror 2.0.21",
  "unicode-segmentation",
  "zstd 0.14.0",

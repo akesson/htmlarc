@@ -512,6 +512,11 @@ pub struct Doc<'a> {
 }
 
 impl<'a> Doc<'a> {
+    /// The entry key (e.g. the source file name), as stored in the document blob.
+    pub fn key(&self) -> &'a str {
+        self.entry.key()
+    }
+
     /// The per-call [`LazyState`] over this document's blocks — all borrows, so it is built on
     /// the stack per call, keeping [`Doc`] free of a self-referential field. Repeated reads
     /// still inflate each block only once (the caches live on the handle).
@@ -619,26 +624,28 @@ impl ContiguousDfs for Doc<'_> {}
 /// resolved references instead of re-resolving them through the `Arc`. The inflate caches live on
 /// the handle, so each of its string blocks decompresses at most once per handle.
 pub struct OwnedDoc {
-    /// Borrows `archive`'s mapping and decoder. Declared first so it drops before the archive.
-    /// Never handed out at `'static` — see [`doc`](Self::doc).
-    doc: Doc<'static>,
-    archive: Arc<MmapArchive>,
+    cell: DocCell,
     /// Flat (bundle→doc) position in the doc table.
     pos: usize,
 }
+
+self_cell::self_cell!(
+    /// The archive and a [`Doc`] borrowing it (its mapping and decoder).
+    struct DocCell {
+        owner: Arc<MmapArchive>,
+
+        #[covariant]
+        dependent: Doc,
+    }
+);
 
 impl OwnedDoc {
     /// The document at flat (bundle→doc) position `pos`, validated and ready to query. `Err` if
     /// the document blob or its bundle's string block fails validation. Panics if `pos` is out of
     /// range, like every positional accessor ([`MmapArchive::doc`], [`MmapArchive::key_at`]).
     pub fn new(archive: Arc<MmapArchive>, pos: usize) -> Result<Self, ArchiveErr> {
-        let doc = archive.try_doc(pos)?;
-        // SAFETY: `doc` borrows only the archive's mapping (immutable, and fixed in memory for the
-        // `Mmap`'s life) and its decoder (inside the `Arc`'s heap allocation, which never moves).
-        // Both live as long as the `Arc` stored alongside it, which the struct drops after `doc`.
-        // The `'static` never escapes: `doc()` reborrows it at `&self`'s lifetime.
-        let doc = unsafe { std::mem::transmute::<Doc<'_>, Doc<'static>>(doc) };
-        Ok(Self { doc, archive, pos })
+        let cell = DocCell::try_new(archive, |archive| archive.try_doc(pos))?;
+        Ok(Self { cell, pos })
     }
 
     /// Look the document up by key. `Ok(None)` = absent; `Err` = the matching blob (document or
@@ -652,7 +659,7 @@ impl OwnedDoc {
 
     /// The entry key (e.g. the source file name).
     pub fn key(&self) -> &str {
-        self.doc().entry.key()
+        self.doc().key()
     }
 
     /// Checksum of the stored DOM, for fast archive diffing.
@@ -667,12 +674,11 @@ impl OwnedDoc {
 
     /// The archive this handle keeps alive.
     pub fn archive(&self) -> &Arc<MmapArchive> {
-        &self.archive
+        self.cell.borrow_owner()
     }
 
-    /// The inner [`Doc`], shortened to `&self`'s lifetime (sound by `Doc`'s covariance).
     fn doc(&self) -> &Doc<'_> {
-        &self.doc
+        self.cell.borrow_dependent()
     }
 }
 
