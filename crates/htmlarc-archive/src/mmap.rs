@@ -317,7 +317,7 @@ impl MmapArchive {
     /// validation. The returned [`Doc`] holds the document's compressed block frames and inflates
     /// them lazily, per block, so a query that never reads text never decompresses — and one that
     /// reads a sliver inflates only the blocks it touches.
-    fn try_doc(&self, i: usize) -> Result<Doc<'_>, ArchiveErr> {
+    pub fn try_doc(&self, i: usize) -> Result<Doc<'_>, ArchiveErr> {
         let b = self.bundle_of(i);
         let slot = i - self.bundle_table()[b].doc_start.to_native() as usize;
         let d = &self.doc_table()[i];
@@ -512,6 +512,11 @@ pub struct Doc<'a> {
 }
 
 impl<'a> Doc<'a> {
+    /// The entry key (e.g. the source file name), as stored in the document blob.
+    pub fn key(&self) -> &'a str {
+        self.entry.key()
+    }
+
     /// The per-call [`LazyState`] over this document's blocks — all borrows, so it is built on
     /// the stack per call, keeping [`Doc`] free of a self-referential field. Repeated reads
     /// still inflate each block only once (the caches live on the handle).
@@ -613,52 +618,34 @@ impl ContiguousDfs for Doc<'_> {}
 /// holding its archive by [`Arc`] instead of by borrow — so it can be stored in structs, moved
 /// across threads, and handed to bindings that cannot carry lifetimes (Python, async servers).
 ///
-/// Construction resolves the document's bundle and validates its blob and the bundle's string
-/// block once (safe rkyv `access`); every later read casts in place unchecked — sound because the
-/// mapping is immutable (see the [`MmapArchive`] caveat). The inflate caches live on the handle,
-/// so however many text reads the handle serves, each of its string blocks decompresses at most
-/// once — the two costs a per-call `archive.doc(i)` loop would otherwise re-pay per call.
+/// It is a [`Doc`] plus the [`Arc`] that keeps the doc's borrows alive, so construction resolves
+/// and validates exactly what [`MmapArchive::doc`] does, once, and every read — including the
+/// per-node `with_nodes`/`with_view` calls of a select walk — goes straight through the `Doc`'s
+/// resolved references instead of re-resolving them through the `Arc`. The inflate caches live on
+/// the handle, so each of its string blocks decompresses at most once per handle.
 pub struct OwnedDoc {
-    archive: Arc<MmapArchive>,
+    cell: DocCell,
     /// Flat (bundle→doc) position in the doc table.
     pos: usize,
-    /// `pos`'s owning bundle, resolved once (the block tables below already narrow the bundle's
-    /// string block to this document, so the slot itself is not kept).
-    bundle: usize,
-    /// The document blob's byte range, bytecheck-validated at construction.
-    offset: usize,
-    len: usize,
-    /// This document's block tables, copied to native `u32` at construction.
-    blocks: DocBlocks,
-    /// Handle-lifetime inflate caches, one per block (see [`LazyState`]).
-    bufs: Box<[OnceLock<Vec<u8>>]>,
-    /// [`DomRef::dom_view`]'s contiguous whole-pool cache — see [`Doc::full`].
-    full: OnceLock<Vec<u8>>,
 }
+
+self_cell::self_cell!(
+    /// The archive and a [`Doc`] borrowing it (its mapping and decoder).
+    struct DocCell {
+        owner: Arc<MmapArchive>,
+
+        #[covariant]
+        dependent: Doc,
+    }
+);
 
 impl OwnedDoc {
     /// The document at flat (bundle→doc) position `pos`, validated and ready to query. `Err` if
     /// the document blob or its bundle's string block fails validation. Panics if `pos` is out of
     /// range, like every positional accessor ([`MmapArchive::doc`], [`MmapArchive::key_at`]).
     pub fn new(archive: Arc<MmapArchive>, pos: usize) -> Result<Self, ArchiveErr> {
-        let bundle = archive.bundle_of(pos);
-        let slot = pos - archive.bundle_table()[bundle].doc_start.to_native() as usize;
-        let d = &archive.doc_table()[pos];
-        let (offset, len) = (d.offset.to_native(), d.len.to_native());
-        // Validate the blob and the bundle's string block up front; the per-read accessors
-        // ([`entry`](Self::entry), [`frame`](Self::frame)) rely on it to go unchecked.
-        archive.blob(offset, len)?;
-        let blocks = archive.bundle_strings(bundle)?.doc_blocks(slot);
-        Ok(Self {
-            pos,
-            bundle,
-            offset: offset as usize,
-            len: len as usize,
-            bufs: blocks.bufs(),
-            blocks,
-            full: OnceLock::new(),
-            archive,
-        })
+        let cell = DocCell::try_new(archive, |archive| archive.try_doc(pos))?;
+        Ok(Self { cell, pos })
     }
 
     /// Look the document up by key. `Ok(None)` = absent; `Err` = the matching blob (document or
@@ -672,12 +659,12 @@ impl OwnedDoc {
 
     /// The entry key (e.g. the source file name).
     pub fn key(&self) -> &str {
-        self.entry().key()
+        self.doc().key()
     }
 
     /// Checksum of the stored DOM, for fast archive diffing.
     pub fn checksum(&self) -> u64 {
-        self.entry().checksum()
+        self.doc().entry.checksum()
     }
 
     /// This document's flat (bundle→doc) position in the archive.
@@ -687,44 +674,11 @@ impl OwnedDoc {
 
     /// The archive this handle keeps alive.
     pub fn archive(&self) -> &Arc<MmapArchive> {
-        &self.archive
+        self.cell.borrow_owner()
     }
 
-    fn entry(&self) -> &ArchivedHtmlEntry {
-        let s = &self.archive.mmap[self.offset..self.offset + self.len];
-        // SAFETY: `new` bytecheck-validated this exact slice, and the mapping is immutable.
-        unsafe { rkyv::access_unchecked::<ArchivedHtmlEntry>(s) }
-    }
-
-    fn frames(&self) -> &[u8] {
-        self.archive
-            .bundle_strings(self.bundle)
-            .expect("validated at construction; the mapping is immutable")
-            .frames()
-    }
-
-    /// The per-call [`LazyState`] over this document's blocks — [`Doc::lazy_state`], but the
-    /// bundle's frame blob is re-resolved through the `Arc` (the handle cannot hold a
-    /// self-referential borrow of its own archive).
-    fn lazy_state(&self) -> LazyState<'_> {
-        LazyState {
-            bufs: &self.bufs,
-            frames: self.frames(),
-            frame_starts: &self.blocks.frame_starts,
-            raw_starts: &self.blocks.raw_starts,
-            base: self.blocks.base(),
-            len: self.blocks.raw_len(),
-            decoder: &self.archive.decoder,
-        }
-    }
-
-    /// Run `f` with a query view over this document — [`Doc::with_dom`], but the [`LazyState`]
-    /// borrows the handle's own inflate caches, so each block decompresses at most once per
-    /// handle.
-    fn with_dom<R>(&self, f: impl FnOnce(&ArchivedDom<'_>) -> R) -> R {
-        let state = self.lazy_state();
-        let dom = self.entry().bind(StringSource::lazy(&state));
-        f(&dom)
+    fn doc(&self) -> &Doc<'_> {
+        self.cell.borrow_dependent()
     }
 }
 
@@ -752,16 +706,15 @@ impl DomRead for OwnedDoc {
     }
 
     fn with_view<F: FnOnce(DomView<'_>) -> R, R>(&self, f: F) -> R {
-        self.with_dom(|dom| dom.with_view(f))
+        self.doc().with_view(f)
     }
 
     fn with_nodes<F: FnOnce(NodesView<'_>) -> R, R>(&self, f: F) -> R {
-        self.with_dom(|dom| dom.with_nodes(f))
+        self.doc().with_nodes(f)
     }
 
     fn walk_view(&self) -> Option<DomView<'_>> {
-        // Text-less bound view for resolved selector matching — see `Doc::walk_view`.
-        Some(self.entry().bind(StringSource::plain(&[])).view())
+        self.doc().walk_view()
     }
 
     fn root(&self) -> HtmlElement<'_, Self> {
@@ -769,18 +722,13 @@ impl DomRead for OwnedDoc {
     }
 
     fn repackage(&self) -> DomInner {
-        self.with_dom(|dom| dom.repackage())
+        self.doc().repackage()
     }
 }
 
 impl DomRef for OwnedDoc {
-    /// See [`Doc`]'s `dom_view`: materialise the whole pool once into the handle's `full` cache,
-    /// then read it zero-copy via `Plain`.
     fn dom_view(&self) -> DomView<'_> {
-        let text = self
-            .full
-            .get_or_init(|| StringSource::lazy(&self.lazy_state()).materialize());
-        self.entry().bind(StringSource::plain(text)).view()
+        self.doc().dom_view()
     }
 }
 
