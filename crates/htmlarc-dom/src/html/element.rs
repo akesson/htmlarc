@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use crate::{
     accessors::{Attributes, AttributesMut, Classes, ClassesMut},
     css::{self, AttributeSelector, ParseError, Selector, SelectorList},
@@ -428,7 +430,19 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     /// Selects matching descendants in document order, driven by the backing's forward iterator
     /// (so `select` over an immutable backing automatically uses the fast linear walk).
-    pub fn select(&self, selector: SelectorList<'dom>) -> MatchIter<'dom, Dom, Dom::Forward<'dom>> {
+    ///
+    /// `selector` is a [`SelectorList`] or a `&mut SelectorList`. The list is resolved against
+    /// this document before the walk, so a sweep running one selector over many documents can
+    /// lend the same list to each instead of cloning it per document:
+    ///
+    /// ```ignore
+    /// let mut list = selector.clone();
+    /// let total: usize = docs.iter().map(|d| d.root().select(&mut list).count()).sum();
+    /// ```
+    pub fn select<'css, S: BorrowMut<SelectorList<'css>>>(
+        &self,
+        selector: S,
+    ) -> MatchIter<'dom, Dom, Dom::Forward<'dom>, S> {
         MatchIter::new(self.forwards(), selector)
     }
 

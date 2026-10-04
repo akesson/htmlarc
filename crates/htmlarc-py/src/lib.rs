@@ -22,7 +22,7 @@ use htmlarc_archive::{
 };
 use htmlarc_dom::prelude::{
     DomInner, DomIterator, DomRead, DomRef, HtmlDoc, HtmlElement, HtmlFormat, NodeIndex,
-    OwnedSelectorList,
+    OwnedSelectorList, SelectorList,
 };
 use pyo3::exceptions::{
     PyIOError, PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError,
@@ -91,13 +91,13 @@ fn attr_present<Dom: DomRead + DomRef>(el: &HtmlElement<'_, Dom>, name: &str) ->
 /// PyObjects, nothing marshalled across the FFI boundary.
 fn count_matches<Dom: DomRead + DomRef>(
     el: &HtmlElement<'_, Dom>,
-    sel: &OwnedSelectorList,
+    sel: &mut SelectorList<'_>,
     attr: Option<&str>,
 ) -> usize {
     match attr {
-        None => el.select(sel.list().clone()).count(),
+        None => el.select(&mut *sel).count(),
         Some(name) => el
-            .select(sel.list().clone())
+            .select(&mut *sel)
             .filter(|e| attr_present(e, name))
             .count(),
     }
@@ -108,10 +108,13 @@ fn count_matches<Dom: DomRead + DomRef>(
 /// GIL here (`Python::detach`); everything captured must be `Sync`.
 ///
 /// `f` gets the document's position and a borrowed [`Doc`]: the sweep never outlives the
-/// archive, so it skips [`OwnedDoc`]'s per-document `Arc` clone and drop.
-fn par_sweep<T: Send>(
+/// archive, so it skips [`OwnedDoc`]'s per-document `Arc` clone and drop. It also gets the
+/// worker's own state, made once per worker by `init` — the selector list, re-resolved against
+/// each document in place, so the sweep does not clone it per document.
+fn par_sweep<S, T: Send>(
     archive: &MmapArchive,
-    f: impl Fn(usize, &Doc<'_>) -> Option<T> + Sync,
+    init: impl Fn() -> S + Sync,
+    f: impl Fn(&mut S, usize, &Doc<'_>) -> Option<T> + Sync,
 ) -> Result<Vec<(String, T)>, ArchiveErr> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -126,6 +129,7 @@ fn par_sweep<T: Send>(
         let handles: Vec<_> = (0..threads)
             .map(|_| {
                 s.spawn(|| {
+                    let mut state = init();
                     let mut local = Vec::new();
                     loop {
                         let pos = next.fetch_add(1, Ordering::Relaxed);
@@ -133,7 +137,7 @@ fn par_sweep<T: Send>(
                             break;
                         }
                         let doc = archive.try_doc(pos)?;
-                        if let Some(v) = f(pos, &doc) {
+                        if let Some(v) = f(&mut state, pos, &doc) {
                             local.push((pos, doc.key().to_string(), v));
                         }
                     }
@@ -569,7 +573,11 @@ impl Document {
     fn select_count(&self, selector: CssArg<'_>, attr: Option<&str>) -> PyResult<usize> {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
-        Ok(with_el!(self, 0, |el| count_matches(&el, sel, attr)))
+        Ok(with_el!(self, 0, |el| count_matches(
+            &el,
+            &mut sel.list().clone(),
+            attr
+        )))
     }
 
     /// The rendered subtree of every element matching the selector, in document order.
@@ -817,7 +825,9 @@ impl Element {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         Ok(with_el!(self.doc.get(), self.index, |el| count_matches(
-            &el, sel, attr
+            &el,
+            &mut sel.list().clone(),
+            attr
         )))
     }
 
@@ -1039,13 +1049,14 @@ impl Archive {
         let mut storage = None;
         let sel = css.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |_pos, doc| {
-                let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                root.select(sel.list().clone())
-                    .next()
-                    .is_some()
-                    .then_some(())
-            })
+            par_sweep(
+                &self.inner,
+                || sel.list().clone(),
+                |list, _pos, doc| {
+                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                    root.select(list).next().is_some().then_some(())
+                },
+            )
         })
         .map(|hits| hits.into_iter().map(|(key, ())| key).collect())
         .map_err(archive_err)
@@ -1062,14 +1073,15 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |_pos, doc| {
-                let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                let texts: Vec<String> = root
-                    .select(sel.list().clone())
-                    .map(|e| e.text_content())
-                    .collect();
-                (!texts.is_empty()).then_some(texts)
-            })
+            par_sweep(
+                &self.inner,
+                || sel.list().clone(),
+                |list, _pos, doc| {
+                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                    let texts: Vec<String> = root.select(list).map(|e| e.text_content()).collect();
+                    (!texts.is_empty()).then_some(texts)
+                },
+            )
         })
         .map_err(archive_err)
     }
@@ -1090,15 +1102,19 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |_pos, doc| {
-                let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                let vals: Vec<Option<String>> = root
-                    .select(sel.list().clone())
-                    .map(|e| attr_value(&e, name))
-                    .filter(|v| !skip_missing || v.is_some())
-                    .collect();
-                (!vals.is_empty()).then_some(vals)
-            })
+            par_sweep(
+                &self.inner,
+                || sel.list().clone(),
+                |list, _pos, doc| {
+                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                    let vals: Vec<Option<String>> = root
+                        .select(list)
+                        .map(|e| attr_value(&e, name))
+                        .filter(|v| !skip_missing || v.is_some())
+                        .collect();
+                    (!vals.is_empty()).then_some(vals)
+                },
+            )
         })
         .map_err(archive_err)
     }
@@ -1118,11 +1134,15 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(&self.inner, |_pos, doc| {
-                let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                let n = count_matches(&root, sel, attr);
-                (n > 0).then_some(n)
-            })
+            par_sweep(
+                &self.inner,
+                || sel.list().clone(),
+                |list, _pos, doc| {
+                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                    let n = count_matches(&root, list, attr);
+                    (n > 0).then_some(n)
+                },
+            )
         })
         .map(|hits| hits.iter().map(|(_, n)| n).sum())
         .map_err(archive_err)
@@ -1235,13 +1255,17 @@ impl Archive {
 
         let hits = py
             .detach(|| {
-                par_sweep(&self.inner, |pos, doc| {
-                    let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                    scan_table_doc(&root, sel, text, &cols).map(|mut c| {
-                        c.pos = pos;
-                        c
-                    })
-                })
+                par_sweep(
+                    &self.inner,
+                    || sel.list().clone(),
+                    |list, pos, doc| {
+                        let root = HtmlElement::new(doc, NodeIndex::ROOT);
+                        scan_table_doc(&root, list, text, &cols).map(|mut c| {
+                            c.pos = pos;
+                            c
+                        })
+                    },
+                )
             })
             .map_err(archive_err)?;
 
@@ -1327,7 +1351,7 @@ struct DocChunk {
 /// nothing matched, so documents without matches are omitted — exactly like the other sweeps.
 fn scan_table_doc<Dom: DomRead + DomRef>(
     root: &HtmlElement<'_, Dom>,
-    sel: &OwnedSelectorList,
+    sel: &mut SelectorList<'_>,
     want_text: bool,
     cols: &[AttrCol],
 ) -> Option<DocChunk> {
@@ -1338,7 +1362,7 @@ fn scan_table_doc<Dom: DomRead + DomRef>(
         .collect();
     let mut rows = 0usize;
 
-    for el in root.select(sel.list().clone()) {
+    for el in root.select(sel) {
         rows += 1;
         if let Some(t) = text.as_mut() {
             el.for_each_text_chunk(|s| t.data.extend_from_slice(s.as_bytes()));

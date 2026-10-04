@@ -21,12 +21,13 @@ pub trait FrameDecoder: Sync {
 /// so a whole bundle's tables can be sliced per document without rebasing copies:
 /// `frame_starts[i]..frame_starts[i+1]` locates block `i`'s frame inside `frames` (the bundle's
 /// concatenated frame blob), and `raw_starts[i]..raw_starts[i+1]` its inflated bytes, with
-/// `base == raw_starts[0]` anchoring the document's local offsets.
+/// `base == raw_starts[0]` anchoring the document's local offsets. The tables are the archived
+/// (little-endian) ones, borrowed in place, so binding a document copies nothing.
 pub struct LazyState<'a> {
     pub bufs: &'a [OnceLock<Vec<u8>>],
     pub frames: &'a [u8],
-    pub frame_starts: &'a [u32],
-    pub raw_starts: &'a [u32],
+    pub frame_starts: &'a [rkyv::Archived<u32>],
+    pub raw_starts: &'a [rkyv::Archived<u32>],
     pub base: u32,
     pub len: u32,
     pub decoder: &'a dyn FrameDecoder,
@@ -37,9 +38,10 @@ impl<'a> LazyState<'a> {
     /// `OnceLock`'s buffer, so it lives as long as the caches themselves (`'a`), not this call.
     fn block(&self, i: usize) -> &'a [u8] {
         self.bufs[i].get_or_init(|| {
-            let frame =
-                &self.frames[self.frame_starts[i] as usize..self.frame_starts[i + 1] as usize];
-            let raw_len = (self.raw_starts[i + 1] - self.raw_starts[i]) as usize;
+            let frame = &self.frames[self.frame_starts[i].to_native() as usize
+                ..self.frame_starts[i + 1].to_native() as usize];
+            let raw_len =
+                (self.raw_starts[i + 1].to_native() - self.raw_starts[i].to_native()) as usize;
             self.decoder.decode(frame, raw_len)
         })
     }
@@ -100,16 +102,17 @@ impl<'a> StringSource<'a> {
                     // Last block whose start is at or before `start`. The terminal fencepost
                     // (`raw_starts[n] == base + len`) is strictly greater than `start` for any
                     // non-empty in-bounds range, so the result is always a real block.
-                    s.raw_starts.partition_point(|&s0| s0 <= start) - 1
+                    s.raw_starts.partition_point(|s0| s0.to_native() <= start) - 1
                 };
+                let block_start = s.raw_starts[i].to_native();
                 debug_assert!(
-                    s.base + range.end <= s.raw_starts[i + 1],
+                    s.base + range.end <= s.raw_starts[i + 1].to_native(),
                     "text range straddles a block boundary"
                 );
                 unchecked_str(
                     s.block(i),
-                    start - s.raw_starts[i],
-                    s.base + range.end - s.raw_starts[i],
+                    start - block_start,
+                    s.base + range.end - block_start,
                 )
             }
         }
@@ -153,6 +156,11 @@ fn unchecked_str(bytes: &[u8], start: u32, end: u32) -> &str {
 mod tests {
     use super::*;
 
+    /// Archived (little-endian) offset tables, as the archive layer hands them over.
+    fn le<const N: usize>(offsets: [u32; N]) -> [rkyv::Archived<u32>; N] {
+        offsets.map(rkyv::Archived::<u32>::from_native)
+    }
+
     #[test]
     fn plain_reads_subranges() {
         let bytes = b"helloworld".as_slice();
@@ -180,8 +188,8 @@ mod tests {
         let state = LazyState {
             bufs: &bufs,
             frames,
-            frame_starts: &[0, 3, 7],
-            raw_starts: &[0, 3, 7],
+            frame_starts: &le([0, 3, 7]),
+            raw_starts: &le([0, 3, 7]),
             base: 0,
             len: 7,
             decoder: &decoder,
@@ -218,8 +226,8 @@ mod tests {
         let state = LazyState {
             bufs: &bufs,
             frames: b"",
-            frame_starts: &[0],
-            raw_starts: &[0],
+            frame_starts: &le([0]),
+            raw_starts: &le([0]),
             base: 0,
             len: 0,
             decoder: &decoder,
@@ -235,8 +243,8 @@ mod tests {
         // (block 1). Each LazyState is a per-document subslice, offsets stay bundle-absolute.
         let frames = b"AAABBBB".as_slice();
         let bufs = [OnceLock::new(), OnceLock::new()];
-        let frame_starts = [0u32, 3, 7];
-        let raw_starts = [0u32, 3, 7];
+        let frame_starts = le([0, 3, 7]);
+        let raw_starts = le([0, 3, 7]);
         let decoder = Identity;
 
         let doc1_state = LazyState {

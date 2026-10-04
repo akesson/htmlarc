@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::ops::RangeBounds;
 
 use crate::{
@@ -7,13 +8,15 @@ use crate::{
 
 use super::{DomIterator, exactly_iter::Exactly};
 
-pub struct MatchIter<'dom, Dom, I>
+pub struct MatchIter<'dom, Dom, I, S = SelectorList<'dom>>
 where
     I: Iterator<Item = HtmlElement<'dom, Dom>>,
     Self: 'dom,
 {
     iter: I,
-    selectors: SelectorList<'dom>,
+    /// The selector list, owned or borrowed as `&mut SelectorList` (see
+    /// [`HtmlElement::select`]); resolved against this document either way.
+    selectors: S,
     /// A [`DomView`] bound once for the whole walk on immutable backings (ADR 0007), so per-node
     /// matching reads it directly instead of rebuilding the (rkyv) sub-views per accessor. `None`
     /// for `DomRefCell`, which keeps the per-call element path.
@@ -67,22 +70,24 @@ impl TagSet {
     }
 }
 
-impl<'dom, Dom, I> MatchIter<'dom, Dom, I>
+impl<'dom, 'css, Dom, I, S> MatchIter<'dom, Dom, I, S>
 where
     Dom: DomRead,
     I: Iterator<Item = HtmlElement<'dom, Dom>> + DomIterator<'dom, Dom>,
+    S: BorrowMut<SelectorList<'css>>,
     Self: 'dom,
 {
-    pub fn new(iter: I, mut selectors: SelectorList<'dom>) -> Self {
-        // Bind the owned selector list to this document once: every class selector (incl.
-        // those nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching
-        // is integer compares (ADR 0002 §3). filter.rs clones the list per document, so this
-        // only ever mutates a per-document copy.
-        iter.dom().with_view(|view| selectors.resolve(view));
+    pub fn new(iter: I, mut selectors: S) -> Self {
+        // Bind the selector list to this document once: every class selector (incl. those
+        // nested in :not/:is/:has) resolves to a Sym or Absent, so per-node matching is integer
+        // compares (ADR 0002 §3). Resolving overwrites every resolved field from the selector's
+        // names, so a borrowed list can be re-resolved against document after document.
+        iter.dom()
+            .with_view(|view| selectors.borrow_mut().resolve(view));
         // Bind one view for the whole walk on immutable backings (ADR 0007); `None` on
         // `DomRefCell`, whose view is a scoped `RefCell` borrow — it stays on the element path.
         let bound = iter.dom().walk_view();
-        let tags = TagSet::subjects(&selectors);
+        let tags = TagSet::subjects(selectors.borrow());
         Self {
             iter,
             selectors,
@@ -96,10 +101,11 @@ where
     }
 }
 
-impl<'dom, Dom, I> Iterator for MatchIter<'dom, Dom, I>
+impl<'dom, 'css, Dom, I, S> Iterator for MatchIter<'dom, Dom, I, S>
 where
     Dom: DomRead,
     I: Iterator<Item = HtmlElement<'dom, Dom>> + DomIterator<'dom, Dom>,
+    S: BorrowMut<SelectorList<'css>>,
     Self: 'dom,
 {
     type Item = HtmlElement<'dom, Dom>;
@@ -117,7 +123,7 @@ where
                     continue;
                 }
                 let element = HtmlElement::new(dom, el_index);
-                if self.selectors.matches_in_view(view, &element) {
+                if self.selectors.borrow().matches_in_view(view, &element) {
                     return Some(element);
                 }
             }
@@ -130,7 +136,7 @@ where
                 if element.tag() == HtmlTag::sys_text {
                     continue;
                 }
-                if self.selectors.matches(&element) {
+                if self.selectors.borrow().matches(&element) {
                     return Some(element);
                 }
             }

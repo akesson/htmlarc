@@ -18,6 +18,7 @@ rkyv = { workspace = true }
 seahash = { workspace = true }
 self_cell = { workspace = true }
 thiserror = { workspace = true }
+tinyvec = { workspace = true }
 unicode-segmentation = { workspace = true }
 zstd = { workspace = true }
 

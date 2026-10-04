@@ -13,7 +13,7 @@ use rkyv::rancor::Error;
 
 use crate::Filter;
 use crate::bundle::ArchivedBundleTable;
-use crate::bundle_strings::{ArchivedBundleStrings, DocBlocks};
+use crate::bundle_strings::{ArchivedBundleStrings, BlockCaches, DocBlocks};
 use crate::codec::ZstdFrameDecoder;
 use crate::doc_table::{self, ArchivedDocTable, ArchivedSortIndex};
 use crate::entry::ArchivedHtmlEntry;
@@ -500,10 +500,10 @@ pub struct Doc<'a> {
     entry: &'a ArchivedHtmlEntry,
     /// The bundle's whole frame blob; `blocks`' tables index into it (bundle-absolute).
     frames: &'a [u8],
-    /// This document's block tables, copied to native `u32` at construction.
-    blocks: DocBlocks,
+    /// This document's block tables, borrowed from the bundle's.
+    blocks: DocBlocks<'a>,
     /// One inflate cache per block.
-    bufs: Box<[OnceLock<Vec<u8>>]>,
+    bufs: BlockCaches,
     decoder: &'a dyn FrameDecoder,
     /// [`DomRef::dom_view`]'s contiguous whole-pool cache — a borrowed view needs one flat
     /// `Plain` slice, which the per-block caches cannot provide. A handle read through both
@@ -524,8 +524,8 @@ impl<'a> Doc<'a> {
         LazyState {
             bufs: &self.bufs,
             frames: self.frames,
-            frame_starts: &self.blocks.frame_starts,
-            raw_starts: &self.blocks.raw_starts,
+            frame_starts: self.blocks.frame_starts,
+            raw_starts: self.blocks.raw_starts,
             base: self.blocks.base(),
             len: self.blocks.raw_len(),
             decoder: self.decoder,
