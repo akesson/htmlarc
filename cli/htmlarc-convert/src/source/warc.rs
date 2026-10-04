@@ -369,7 +369,11 @@ fn read_nth_body<R: BufRead>(r: &mut R, ord: u32) -> Result<Option<String>> {
         }
     }
     Ok(match read_record(r)? {
-        Some(rec) => html_body(&rec).map(|b| String::from_utf8_lossy(b).into_owned()),
+        Some(rec) => html_body(&rec).map(|b| match std::str::from_utf8(b) {
+            // `from_utf8` has an ASCII fast path the byte-at-a-time lossy decoder lacks.
+            Ok(s) => s.to_owned(),
+            Err(_) => String::from_utf8_lossy(b).into_owned(),
+        }),
         None => None,
     })
 }

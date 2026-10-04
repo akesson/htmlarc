@@ -28,6 +28,8 @@
 //! the first `AttributeName`. To attach such text to the correct parent, we do not push an
 //! element at `OpenStartTag`; we defer it until the tag is "materialised" — at its first
 //! attribute or its `CloseStartTag` — by which point any preceding text has been flushed.
+use std::borrow::Cow;
+
 use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
 use html5gum::{Emitter, ForwardingEmitter, State, Tokenizer};
 
@@ -144,6 +146,12 @@ impl<E: Emitter> ForwardingEmitter for RawTextEmitter<E> {
         }
     }
 
+    fn should_emit_errors(&mut self) -> bool {
+        // `Driver` ignores `CallbackEvent::Error`, so skip html5gum's per-byte `CharValidator`
+        // entirely: it was ~17% of parse time for errors we always discarded.
+        false
+    }
+
     fn adjusted_current_node_present_but_not_in_html_namespace(&mut self) -> bool {
         // Drives html5gum's markup-declaration path: `true` makes `<![CDATA[…]]>` a CDATA
         // section (character data) instead of a bogus comment, matching browser behaviour
@@ -186,6 +194,15 @@ pub(crate) fn parse_into<D: DomStack>(input: &str, dom: &mut D) -> HtmlParseResu
     match driver.error {
         Some(err) => Err(err),
         None => Ok(()),
+    }
+}
+
+/// Decode an html5gum event slice. `str::from_utf8` has a word-at-a-time ASCII fast path that
+/// `String::from_utf8_lossy` (byte-at-a-time `Utf8Chunks`) lacks; fall back only on invalid input.
+fn utf8(bytes: &[u8]) -> Cow<'_, str> {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Cow::Borrowed(s),
+        Err(_) => String::from_utf8_lossy(bytes),
     }
 }
 
@@ -261,7 +278,7 @@ impl<D: DomStack> Driver<'_, D> {
     }
 
     fn open_start_tag(&mut self, name: &[u8]) {
-        let name = String::from_utf8_lossy(name);
+        let name = utf8(name);
         // Unknown names are no longer a hard error: they parse as extended (custom) tags
         // (ADR 0002 §4). `svg`/`math` are ordinary recognised elements now (ADR 0002 §5).
         self.start = Some(match TagName::parse(&name) {
@@ -275,7 +292,7 @@ impl<D: DomStack> Driver<'_, D> {
         self.commit_start();
         // A new name means the previous attribute (if any) had no value.
         self.flush_attr("");
-        let name = String::from_utf8_lossy(name);
+        let name = utf8(name);
         // Mimic the old parser, whose attribute loop only began a name on an ASCII
         // alphanumeric: stray punctuation (e.g. the doubled quote in `accesskey="f"">`)
         // is skipped as junk rather than treated as an unknown attribute.
@@ -296,7 +313,7 @@ impl<D: DomStack> Driver<'_, D> {
     }
 
     fn attribute_value(&mut self, value: &[u8]) {
-        let value = String::from_utf8_lossy(value);
+        let value = utf8(value);
         self.flush_attr(&value);
     }
 
@@ -337,7 +354,7 @@ impl<D: DomStack> Driver<'_, D> {
     }
 
     fn end_tag(&mut self, name: &[u8]) {
-        let name = String::from_utf8_lossy(name);
+        let name = utf8(name);
         // Unknown end-tag names parse as extended tags rather than erroring (ADR 0002 §4); a
         // genuine mismatch is still caught by `pop_tag`'s identity check.
         let tag = TagName::parse(&name);
@@ -357,12 +374,12 @@ impl<D: DomStack> Driver<'_, D> {
         if value.is_empty() {
             return;
         }
-        let value = String::from_utf8_lossy(value);
+        let value = utf8(value);
         self.dom.add_text_tag(HtmlTag::sys_text, &value);
     }
 
     fn comment(&mut self, value: &[u8]) {
-        let value = String::from_utf8_lossy(value);
+        let value = utf8(value);
         self.dom.add_text_tag(HtmlTag::sys_comment, &value);
     }
 
