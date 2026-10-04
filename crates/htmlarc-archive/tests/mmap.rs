@@ -4,7 +4,9 @@
 use htmlarc_archive::{
     BUNDLE_CAP, DocBundle, HtmlArchive, HtmlArchiveBuilder, HtmlEntry, MmapArchive, OwnedDoc,
 };
-use htmlarc_dom::prelude::{DomIterator, DomRead, HtmlDoc, HtmlFormat, HtmlTag, OwnedSelectorList};
+use htmlarc_dom::prelude::{
+    DomIterator, DomRead, HtmlDoc, HtmlFormat, HtmlTag, OwnedSelectorList, parse_css,
+};
 
 fn sample_archive() -> HtmlArchive {
     let mut b = HtmlArchiveBuilder::default();
@@ -860,4 +862,68 @@ fn meta_type_mismatch_leaves_builder_consistent() {
     .unwrap();
     let archive = b.build();
     assert_eq!(archive.len(), 1);
+}
+
+/// A sweep re-resolves one selector list per document (`select(&mut list)`); archived documents
+/// of one bundle also share its bundle-wide symbols, so check resolution never leaks across them:
+/// alternate a document holding each name with one lacking it, against a fresh list each time.
+#[test]
+fn reused_list_reresolves_across_archived_docs() {
+    let mut b = HtmlArchiveBuilder::default();
+    // Fillers sharing names with both documents, so some become bundle-wide symbols.
+    for i in 0..3 {
+        b.add_html(
+            format!("filler{i}"),
+            HtmlDoc::parse(r#"<body><div class="k other"></div></body>"#).unwrap(),
+        );
+    }
+    b.add_html(
+        "hit".to_string(),
+        HtmlDoc::parse(
+            r#"<body><div id="m" class="k" data-z="1"><my-tag></my-tag></div><p></p></body>"#,
+        )
+        .unwrap(),
+    );
+    b.add_html(
+        "miss".to_string(),
+        HtmlDoc::parse(
+            r#"<body><div id="n" class="other" data-q="2"><x-other></x-other></div><p></p></body>"#,
+        )
+        .unwrap(),
+    );
+    let path = temp_path("reresolve");
+    b.build().write_to(&path).unwrap();
+    let mmap = MmapArchive::open(&path).unwrap();
+    let pos = |key: &str| (0..mmap.len()).find(|&i| mmap.key_at(i) == key).unwrap();
+    let (hit, miss) = (pos("hit"), pos("miss"));
+
+    for css in [
+        ".k",
+        "#m",
+        "[data-z]",
+        "my-tag",
+        "div:not(.other)",
+        "div:not([data-q])",
+        "div:has(my-tag)",
+        "body .k",
+    ] {
+        let fresh = |i: usize| {
+            let doc = mmap.try_doc(i).unwrap();
+            doc.root().select(parse_css(css).unwrap()).count()
+        };
+        let (fresh_hit, fresh_miss) = (fresh(hit), fresh(miss));
+        assert_ne!(fresh_hit, fresh_miss, "{css}: hit must differ from miss");
+
+        let mut list = parse_css(css).unwrap();
+        for (i, want) in [
+            (hit, fresh_hit),
+            (miss, fresh_miss),
+            (hit, fresh_hit),
+            (miss, fresh_miss),
+        ] {
+            let doc = mmap.try_doc(i).unwrap();
+            assert_eq!(doc.root().select(&mut list).count(), want, "{css} at {i}");
+        }
+    }
+    std::fs::remove_file(&path).ok();
 }

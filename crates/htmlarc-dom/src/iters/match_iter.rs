@@ -320,6 +320,65 @@ fn resolve_attribute_name_and_value() {
     assert_eq!(find(html, "a:not([data-absent])"), "a 2, a 3");
 }
 
+/// A sweep lends one list to `select` per document (`select(&mut list)`), so whatever the previous
+/// document resolved must never leak into the next. Alternate a document holding each name with
+/// one whose tables lack it entirely (but hold other names, which may get the same symbol
+/// numbers), and compare against a freshly parsed list every time — on both the bound-view path
+/// (`DomInner`) and the per-call element path (`DomRefCell`).
+#[test]
+fn reused_list_reresolves_per_document() {
+    let a = r#"<body><div id="m" class="k" data-z="1"><my-tag></my-tag><svg><clipPath></clipPath></svg></div><p></p></body>"#;
+    let b = r#"<body><div id="n" class="other" data-q="2"><x-other></x-other></div><p></p></body>"#;
+    let (a_inner, b_inner) = (
+        HtmlDoc::parse(a).unwrap().dom(),
+        HtmlDoc::parse(b).unwrap().dom(),
+    );
+    let a_cell = HtmlDoc::parse(a).unwrap().dom_ref_cell();
+    let b_cell = HtmlDoc::parse(b).unwrap().dom_ref_cell();
+    for css in [
+        ".k",
+        "#m",
+        "[data-z]",
+        "my-tag",
+        "clipPath",
+        "div:not(.other)",
+        "div:not([data-q])",
+        "div:has(my-tag)",
+        "div:is(.k, .absent)",
+        "body .k",
+    ] {
+        let fresh_a = a_inner.root().select(parse_css(css).unwrap()).count();
+        let fresh_b = b_inner.root().select(parse_css(css).unwrap()).count();
+        assert_ne!(fresh_a, fresh_b, "{css}: a must hit where b misses");
+
+        let mut list = parse_css(css).unwrap();
+        for (dom, fresh) in [
+            (&a_inner, fresh_a),
+            (&b_inner, fresh_b),
+            (&a_inner, fresh_a),
+            (&b_inner, fresh_b),
+        ] {
+            assert_eq!(
+                dom.root().select(&mut list).count(),
+                fresh,
+                "{css} (bound view)"
+            );
+        }
+        for (dom, fresh) in [
+            (&a_cell, fresh_a),
+            (&b_cell, fresh_b),
+            (&a_cell, fresh_a),
+            (&b_cell, fresh_b),
+        ] {
+            assert_eq!(
+                dom.root().select(&mut list).count(),
+                fresh,
+                "{css} (element path)"
+            );
+        }
+    }
+}
+
 // --- subject-tag prefilter ---
 
 #[cfg(test)]
