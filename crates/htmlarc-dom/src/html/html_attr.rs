@@ -213,20 +213,40 @@ impl Display for HtmlAttr {
 }
 
 impl HtmlAttr {
-    /// By default these attributes are case-sensitive.<br>
-    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
-    pub const fn is_case_sensitive(&self) -> bool {
+    /// Whether an attribute selector compares this attribute's value ASCII
+    /// case-insensitively by default (no `i`/`s` flag). The HTML standard fixes the list;
+    /// every other attribute, `href`, `id` and `class` included, compares case-sensitively.
+    /// These are the ones htmlarc stores as standard attributes.
+    /// <https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors>
+    pub const fn is_value_case_insensitive(&self) -> bool {
         matches!(
             self,
-            HtmlAttr::id
-                | HtmlAttr::aria_controls
-                | HtmlAttr::aria_expanded
-                | HtmlAttr::aria_haspopup
-                | HtmlAttr::aria_hidden
-                | HtmlAttr::aria_label
-                | HtmlAttr::aria_labelledby
-                | HtmlAttr::aria_pressed
-                | HtmlAttr::role
+            HtmlAttr::align
+                | HtmlAttr::bgcolor
+                | HtmlAttr::charset
+                | HtmlAttr::checked
+                | HtmlAttr::clear
+                | HtmlAttr::color
+                | HtmlAttr::defer
+                | HtmlAttr::dir
+                | HtmlAttr::disabled
+                | HtmlAttr::enctype
+                | HtmlAttr::frame
+                | HtmlAttr::hreflang
+                | HtmlAttr::http_equiv
+                | HtmlAttr::lang
+                | HtmlAttr::media
+                | HtmlAttr::method
+                | HtmlAttr::multiple
+                | HtmlAttr::readonly
+                | HtmlAttr::rel
+                | HtmlAttr::rules
+                | HtmlAttr::scope
+                | HtmlAttr::selected
+                | HtmlAttr::shape
+                | HtmlAttr::target
+                | HtmlAttr::type_
+                | HtmlAttr::valign
         )
     }
 }

@@ -114,20 +114,42 @@ impl AttributeOperator {
         Ok(Some(operator))
     }
 
-    pub fn matches(&self, pattern: &str, value: &str) -> bool {
+    /// Whether `value` matches `pattern` under this operator. `ascii_ci` compares ASCII
+    /// case-insensitively, as CSS does for the `i` flag and the case-insensitive attributes;
+    /// non-ASCII characters still compare exactly. Neither mode allocates.
+    pub fn matches(&self, pattern: &str, value: &str, ascii_ci: bool) -> bool {
         use AttributeOperator::*;
+        let eq = |a: &str, b: &str| {
+            if ascii_ci {
+                a.eq_ignore_ascii_case(b)
+            } else {
+                a == b
+            }
+        };
+        let (p, v) = (pattern.as_bytes(), value.as_bytes());
+        let starts = || v.len() >= p.len() && eq_bytes(&v[..p.len()], p, ascii_ci);
         match self {
-            Exact => pattern == value,
-            Starts => value.starts_with(pattern),
-            Includes => value.contains(pattern),
-            Ends => value.ends_with(pattern),
-            List => value.split_whitespace().any(|v| v == pattern),
-            DashMatch => value == pattern || value.starts_with(&format!("{}-", pattern)),
+            Exact => eq(pattern, value),
+            Starts => starts(),
+            Includes => {
+                if ascii_ci {
+                    p.is_empty() || v.windows(p.len()).any(|w| w.eq_ignore_ascii_case(p))
+                } else {
+                    value.contains(pattern)
+                }
+            }
+            Ends => v.len() >= p.len() && eq_bytes(&v[v.len() - p.len()..], p, ascii_ci),
+            List => value.split_whitespace().any(|v| eq(v, pattern)),
+            DashMatch => eq(pattern, value) || (starts() && v.get(p.len()) == Some(&b'-')),
         }
     }
+}
 
-    pub fn matches_includes(&self, pattern: &str, value: &str) -> bool {
-        value.contains(pattern)
+fn eq_bytes(a: &[u8], b: &[u8], ascii_ci: bool) -> bool {
+    if ascii_ci {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
     }
 }
 

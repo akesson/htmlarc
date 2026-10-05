@@ -98,9 +98,9 @@ pub fn selectors(c: &mut Criterion) {
         b.iter(|| html.root().select(attr_exact.clone()).for_each(|_e| {}))
     });
 
-    // `[typeof="mw:File"]` — case-insensitive default: integer name prefilter, then the
-    // lowercased value compare on the (few) name-matching entries.
-    let attr_ci = parse_css(r#"[typeof="mw:File"]"#).unwrap();
+    // `[typeof="mw:File" i]` — the `i` flag: integer name prefilter, then the ASCII
+    // case-insensitive value compare on the (few) name-matching entries.
+    let attr_ci = parse_css(r#"[typeof="mw:File" i]"#).unwrap();
     c.bench_function("select attr insensitive in fr.serrer.html", |b| {
         b.iter(|| html.root().select(attr_ci.clone()).for_each(|_e| {}))
     });

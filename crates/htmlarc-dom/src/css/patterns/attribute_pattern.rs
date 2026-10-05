@@ -116,15 +116,15 @@ impl PartialEq<Class<'_>> for AttributePattern<'_> {
 }
 
 /// Match a pattern against an attribute (ADR 0002 §3 — std, `data-*`, and unknown share one
-/// store). The name must match; then the value (if the pattern has one). Case defaults
-/// differ by name kind: standard values are case-INsensitive unless the attribute is
-/// case-sensitive (`id`, `role`, `aria-*`); extended values default to case-SENSITIVE. An
-/// explicit `s`/`i` flag overrides either default.
-/// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
+/// store). The name must match; then the value (if the pattern has one). Values compare
+/// case-sensitively, except the HTML standard's short list of ASCII-case-insensitive
+/// attributes ([`HtmlAttr::is_value_case_insensitive`]: `type`, `lang`, `rel`, ...). An
+/// explicit `s`/`i` flag overrides the default.
+/// <https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors>
 impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
     fn eq(&self, other: &Attribute) -> bool {
         let insensitive_default = match (&self.name, &other.name) {
-            (AttributeName::Std(p), AttrName::Std(a)) if p == a => !a.is_case_sensitive(),
+            (AttributeName::Std(p), AttrName::Std(a)) if p == a => a.is_value_case_insensitive(),
             (AttributeName::Ext(p), AttrName::Ext(n)) if p == n => false,
             _ => return false,
         };
@@ -139,13 +139,9 @@ impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
 
         // The literal was entity-decoded once at parse (see QuotedString), so the match
         // compares decoded-vs-decoded with no work here.
-        if insensitive {
-            value
-                .operator
-                .matches(&value.value.0.to_lowercase(), &other.val.to_lowercase())
-        } else {
-            value.operator.matches(&value.value.0, other.val)
-        }
+        value
+            .operator
+            .matches(&value.value.0, other.val, insensitive)
     }
 }
 
@@ -263,17 +259,13 @@ impl<'s> AttributePattern<'s> {
                 return true;
             };
 
-            let (pattern, other) = if let Some(CaseIndicator::Insensitive) = &value.case {
-                (value.value.0.to_lowercase(), other.0.to_lowercase())
-            } else {
-                (value.value.0.to_string(), other.0.to_string())
+            let insensitive = value.case == Some(CaseIndicator::Insensitive);
+            // `other` is a single class, so `~=` is per class an includes-match.
+            let operator = match value.operator {
+                AttributeOperator::List => AttributeOperator::Includes,
+                op => op,
             };
-
-            if value.operator == AttributeOperator::List {
-                return value.operator.matches_includes(&pattern, &other);
-            }
-
-            return value.operator.matches(&pattern, &other);
+            return operator.matches(&value.value.0, other.0, insensitive);
         }
 
         false
@@ -1058,4 +1050,53 @@ fn test_sensitive_attributes_matching() {
             }
         );
     }
+}
+
+#[test]
+fn test_default_value_case_follows_the_html_list() {
+    let pattern = |attr, op, value: &'static str| AttributePattern {
+        name: AttributeName::Std(attr),
+        value: Some(AttributeValue {
+            operator: op,
+            value: QuotedString(value.into()),
+            case: None,
+        }),
+    };
+    let attribute = |attr, val| Attribute {
+        name: AttrName::Std(attr),
+        val,
+    };
+    // `href` is not on the HTML standard's list: case-sensitive, like browsers.
+    let http = pattern(HtmlAttr::href, AttributeOperator::Starts, "http://");
+    assert_eq!(http, attribute(HtmlAttr::href, "http://a.example/"));
+    assert_ne!(http, attribute(HtmlAttr::href, "HTTP://a.example/"));
+    // `type` is on it: ASCII case-insensitive for every operator.
+    for (op, val) in [
+        (AttributeOperator::Exact, "TEXT/JavaScript"),
+        (AttributeOperator::Starts, "TEXT/js"),
+        (AttributeOperator::Ends, "x/JAVASCRIPT"),
+        (AttributeOperator::Includes, "a/JavaScript+b"),
+        (AttributeOperator::List, "a TEXT/JAVASCRIPT"),
+        (AttributeOperator::DashMatch, "TEXT/javascript-x"),
+    ] {
+        let needle = match op {
+            AttributeOperator::Starts => "text/",
+            AttributeOperator::Ends | AttributeOperator::Includes => "javascript",
+            _ => "text/javascript",
+        };
+        assert_eq!(
+            pattern(HtmlAttr::type_, op, needle),
+            attribute(HtmlAttr::type_, val),
+            "{op:?} {val}"
+        );
+    }
+    // ...and only ASCII folds: `É` and `é` stay different.
+    assert_ne!(
+        pattern(HtmlAttr::lang, AttributeOperator::Exact, "é"),
+        attribute(HtmlAttr::lang, "É")
+    );
+    // A dash-match needs the dash right after the prefix.
+    let en = pattern(HtmlAttr::lang, AttributeOperator::DashMatch, "en");
+    assert_eq!(en, attribute(HtmlAttr::lang, "EN-us"));
+    assert_ne!(en, attribute(HtmlAttr::lang, "eng"));
 }

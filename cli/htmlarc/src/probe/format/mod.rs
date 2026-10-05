@@ -117,7 +117,7 @@ impl<'dom> ElementFormat<'dom> {
                     if let Some((operator, pattern)) = selector.value {
                         if !el_text.is_empty() {
                             debug!("text: {:?}", el_text);
-                            if operator.matches(pattern, &el_text) {
+                            if operator.matches(pattern, &el_text, false) {
                                 attrs.push(ElementAttribute::Text(el_text));
                             }
                         }
@@ -128,7 +128,7 @@ impl<'dom> ElementFormat<'dom> {
                 AttributeName::Std(HtmlAttr::class) => {
                     if let Some((operator, pattern)) = selector.value {
                         for class in element.classes() {
-                            if operator.matches(pattern, class) {
+                            if operator.matches(pattern, class, false) {
                                 attrs.push(ElementAttribute::Class(class.to_string()));
                             }
                         }
@@ -149,7 +149,7 @@ impl<'dom> ElementFormat<'dom> {
                     for attr in element.attributes() {
                         let name_matches = attr.name == target;
                         let value_matches = match selector.value {
-                            Some((operator, pattern)) => operator.matches(pattern, attr.val),
+                            Some((operator, pattern)) => operator.matches(pattern, attr.val, false),
                             None => true,
                         };
                         if name_matches && value_matches {
