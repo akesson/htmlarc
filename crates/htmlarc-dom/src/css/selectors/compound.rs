@@ -315,6 +315,15 @@ impl<'s> CompoundSelector<'s> {
             return false;
         }
 
+        // Without a standard type selector, nothing else here is guaranteed to reject a
+        // non-element: `*`, `:not(p)` and `:first-child` would otherwise match the doctype,
+        // comments, and — as a combinator's ancestor/parent — the document root. Checked after
+        // the cheap id compare, so `#id` walks rarely pay it, but before the text and
+        // pseudo-class checks, which can scan a whole subtree (`:has`) on the document root.
+        if self.element.is_none() && !HtmlTag::is_element_byte(view.nodes.tag_byte(index)) {
+            return false;
+        }
+
         if let Some(text_pattern) = &self.text
             && !self.matches_text(text_pattern, el)
         {
@@ -339,11 +348,7 @@ impl<'s> CompoundSelector<'s> {
             return false;
         }
 
-        // Without a standard type selector, nothing above is guaranteed to reject a
-        // non-element: `*`, `:not(p)` and `:first-child` would otherwise match the doctype,
-        // comments, and — as a combinator's ancestor/parent — the document root. Checked last
-        // so `#id`/`.cls`/`[attr]` walks pay it only on nodes that already matched.
-        self.element.is_some() || HtmlTag::is_element_byte(view.nodes.tag_byte(index))
+        true
     }
 
     /// The `[text]` / `[text*="…"]` content check — the rare, allocating branch (subtree text

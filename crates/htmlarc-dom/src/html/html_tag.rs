@@ -195,6 +195,14 @@ impl HtmlTag {
     /// discriminants, and extended tags are stored at bytes `>= EXT_BASE`, so this is one compare.
     #[inline]
     pub(crate) fn is_element_byte(byte: u8) -> bool {
+        const _: () = assert!(
+            (HtmlTag::sys_root as u8) < HtmlTag::DOCTYPE as u8
+                && (HtmlTag::sys_deleted as u8) < HtmlTag::DOCTYPE as u8
+                && (HtmlTag::sys_text as u8) < HtmlTag::DOCTYPE as u8
+                && (HtmlTag::sys_comment as u8) < HtmlTag::DOCTYPE as u8
+                && HtmlTag::DOCTYPE as u8 + 1 == HtmlTag::a as u8,
+            "is_element_byte needs the system variants first, then DOCTYPE, then elements"
+        );
         byte > HtmlTag::DOCTYPE as u8
     }
 

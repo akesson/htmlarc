@@ -325,7 +325,7 @@ impl<'s> PseudoClassSelector<'s> {
 
     fn matches(&self, el: &HtmlElement<impl DomRead>) -> bool {
         match self {
-            PseudoClassSelector::Root => el.is_root(),
+            PseudoClassSelector::Root => el.is_document_element(),
             PseudoClassSelector::Empty => el.has_no_children(),
             PseudoClassSelector::NthChild(ordinal_pattern) => {
                 let position = el.nth_position(|_| true);
@@ -540,11 +540,10 @@ fn test_pseudo_class_matching_ok() {
     let html = "<div></div>";
     let doc = HtmlDoc::parse(html).unwrap().dom();
     let el = doc.root();
+    let el = el.first_child().unwrap(); // div
 
     let selector = PseudoClassSelector::Root;
     assert!(selector.matches(&el));
-
-    let el = el.first_child().unwrap(); // div
     let selector = PseudoClassSelector::Empty;
     assert!(selector.matches(&el));
 
@@ -758,8 +757,10 @@ fn test_pseudo_class_matching_err() {
     let el = doc.root();
     let el = el.first_child().unwrap(); // div
 
+    // `:root` is the top-level element, never the tagless document root or a nested one.
     let selector = PseudoClassSelector::Root;
-    assert!(!selector.matches(&el));
+    assert!(!selector.matches(&doc.root()));
+    assert!(!selector.matches(&el.first_child().unwrap()));
 
     let selector = PseudoClassSelector::Empty;
     assert!(!selector.matches(&el));

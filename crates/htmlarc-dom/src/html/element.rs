@@ -380,6 +380,15 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
         self.index() == NodeIndex::ROOT
     }
 
+    /// Whether this is a top-level element, which CSS `:root` names: `<html>` in a full
+    /// document, or each top-level element of a fragment. Not the (tagless) document root.
+    pub fn is_document_element(&self) -> bool {
+        self.with_nodes(|nodes| {
+            nodes.parent_index(self.index) == Some(NodeIndex::ROOT)
+                && HtmlTag::is_element_byte(nodes.tag_byte(self.index))
+        })
+    }
+
     pub fn has_no_children(&self) -> bool {
         RelativeIter::children(self).next().is_none()
     }

@@ -104,7 +104,11 @@ fn universal_selector_matches_elements_only() {
         // Without a type selector, other compounds used to match non-elements too.
         (":not(p)", &["div", "span", "my-el"]),
         (":not(p) > p", &[]),
-        (":first-child", &["span"]),
+        // `:root` is the top-level element, not the tagless document root.
+        (":root", &["p", "div"]),
+        (":root span", &["span"]),
+        (":root > span", &["span"]),
+        (":root > p", &[]),
     ];
     let inner = HtmlDoc::parse(html).unwrap().dom();
     let cell = HtmlDoc::parse(html).unwrap().dom_ref_cell();
