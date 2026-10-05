@@ -438,6 +438,10 @@ fn meta_arrow_type(ty: MetaType) -> DataType {
 ///
 /// Compile once and reuse across `select()` calls to skip re-parsing the selector
 /// for every document — the equivalent of `re.compile` for CSS.
+///
+/// Attribute values match as in browsers: case-sensitively, except the HTML standard's
+/// list (`type`, `rel`, `lang`, `method`, ...), which ignore ASCII case. The `i` and `s`
+/// flags override that: `a[href^="http://" i]`.
 #[pyclass(frozen, module = "htmlarc")]
 pub struct Selector {
     inner: OwnedSelectorList,
