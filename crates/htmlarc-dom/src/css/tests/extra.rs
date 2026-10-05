@@ -61,3 +61,17 @@ fn entity_selectors_match_decoded_storage_across_all_paths() {
     // a literal entity that is not present must not match
     assert!(select(html, r#"[data-q*="&lt;"]"#).is_empty());
 }
+
+#[test]
+fn doctype_is_not_a_sibling() {
+    // Sibling-counting pseudo-classes and combinators see elements only, so a leading doctype
+    // (or comment) does not stop a top-level element from being a first or only child.
+    let html = "<!DOCTYPE html><!-- c --><html><body><p>a</p></body></html>";
+    assert_eq!(select(html, "html:first-child"), ["html"]);
+    assert_eq!(select(html, "html:only-child"), ["html"]);
+    assert_eq!(select(html, "html:nth-child(1)"), ["html"]);
+    assert_eq!(select(html, "html:first-of-type"), ["html"]);
+    let html = "<!DOCTYPE html><p>a</p><div>b</div>";
+    assert_eq!(select(html, "p:first-child"), ["p"]);
+    assert_eq!(select(html, "p + div"), ["div"]);
+}

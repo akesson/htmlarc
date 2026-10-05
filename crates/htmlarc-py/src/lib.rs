@@ -754,7 +754,7 @@ impl Element {
         self.index
     }
 
-    /// The tag name, lowercase (e.g. `"div"`).
+    /// The tag name, lowercase (e.g. `"div"`); `"[document]"` for the document root.
     #[getter]
     fn tag(&self) -> String {
         with_el!(self.doc.get(), self.index, |el| el.tag_name().to_string())
@@ -834,7 +834,7 @@ impl Element {
         with_el!(self.doc.get(), self.index, |el| el.css_path())
     }
 
-    /// The parent element, or `None` at the root.
+    /// The parent element (the document root for a top-level element), or `None` at the root.
     #[getter]
     fn parent(&self, py: Python<'_>) -> Option<Element> {
         with_el!(self.doc.get(), self.index, |el| el

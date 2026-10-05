@@ -498,8 +498,12 @@ impl<'dom, Dom: DomRef> HtmlElement<'dom, Dom> {
     /// The element's tag name as a string — a standard tag's static name, or an extended
     /// (custom/unknown) element's real name resolved through the per-document vocab (ADR 0002
     /// §4). Unlike [`tag`](Self::tag), which returns `HtmlTag::extended` for custom elements,
-    /// this never yields the `extended` marker spelling.
+    /// this never yields the `extended` marker spelling. The document root, which has no tag,
+    /// is `"[document]"` (BeautifulSoup's name for it) rather than the internal `sys_root`.
     pub fn tag_name(&self) -> &'dom str {
+        if self.index == NodeIndex::ROOT {
+            return "[document]";
+        }
         self.dom.dom_view().tag_name(self.index())
     }
 

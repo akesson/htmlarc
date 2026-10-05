@@ -75,6 +75,20 @@ def test_navigation(doc):
     assert h1.document.key is None
 
 
+def test_navigation_skips_doctype_and_names_the_root():
+    # The doctype, like comments and text, is not an element: element navigation skips it,
+    # while rendering keeps it.
+    d = htmlarc.parse("<!DOCTYPE html><!-- c --><html><head></head><body><p>x</p></body></html>")
+    root = d.root
+    assert root.tag == "[document]"
+    assert [c.tag for c in root.children] == ["html"]
+    html = root.children[0]
+    assert html.prev_sibling is None
+    assert html.parent.tag == "[document]"
+    assert root.parent is None
+    assert d.to_html().startswith("<!DOCTYPE html><!-- c --><html>")
+
+
 def test_matches_and_compiled_selector(doc):
     h1 = doc.select_first("h1")
     assert h1.matches("h1.title")

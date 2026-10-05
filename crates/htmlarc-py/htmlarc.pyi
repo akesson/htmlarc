@@ -128,7 +128,7 @@ class Element:
 
     @property
     def tag(self) -> str:
-        """The tag name, lowercase (e.g. ``"div"``)."""
+        """The tag name, lowercase (e.g. ``"div"``); ``"[document]"`` for the document root."""
 
     @property
     def id(self) -> str | None:
@@ -161,7 +161,7 @@ class Element:
 
     @property
     def parent(self) -> Element | None:
-        """The parent element, or ``None`` at the root."""
+        """The parent element (the document root for a top-level element), or ``None`` at the root."""
 
     @property
     def next_sibling(self) -> Element | None:
