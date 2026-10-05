@@ -23,6 +23,8 @@ thousands of small files.
   read; topology and selector matching stay zero-copy, so a pure selector sweep never decompresses.)
 - **A real CSS3 selector engine** runs over that DOM (compound/complex/relative selectors,
   `:has()`, `nth-*`, attribute operators), at speeds comparable to a pointer-tree DOM.
+  Attribute values match case-sensitively, as in browsers, except the HTML standard's
+  case-insensitive list (`type`, `rel`, `lang`, ...); the `i`/`s` flags override either way.
 
 ## Install
 

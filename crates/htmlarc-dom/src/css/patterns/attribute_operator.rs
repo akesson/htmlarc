@@ -114,20 +114,32 @@ impl AttributeOperator {
         Ok(Some(operator))
     }
 
-    pub fn matches(&self, pattern: &str, value: &str) -> bool {
+    /// Whether `value` matches `pattern` under this operator. `ascii_ci` compares ASCII
+    /// case-insensitively, as CSS does for the `i` flag and the case-insensitive attributes;
+    /// non-ASCII characters still compare exactly. Neither mode allocates.
+    pub fn matches(&self, pattern: &str, value: &str, ascii_ci: bool) -> bool {
         use AttributeOperator::*;
+        let eq = |a: &[u8], b: &[u8]| eq_bytes(a, b, ascii_ci);
+        let (p, v) = (pattern.as_bytes(), value.as_bytes());
+        let starts = || v.len() >= p.len() && eq(&v[..p.len()], p);
         match self {
-            Exact => pattern == value,
-            Starts => value.starts_with(pattern),
+            Exact => eq(p, v),
+            Starts => starts(),
+            // `windows(0)` panics; an empty needle is in every value.
+            Includes if ascii_ci => p.is_empty() || v.windows(p.len()).any(|w| eq(w, p)),
             Includes => value.contains(pattern),
-            Ends => value.ends_with(pattern),
-            List => value.split_whitespace().any(|v| v == pattern),
-            DashMatch => value == pattern || value.starts_with(&format!("{}-", pattern)),
+            Ends => v.len() >= p.len() && eq(&v[v.len() - p.len()..], p),
+            List => value.split_whitespace().any(|w| eq(w.as_bytes(), p)),
+            DashMatch => eq(p, v) || (starts() && v.get(p.len()) == Some(&b'-')),
         }
     }
+}
 
-    pub fn matches_includes(&self, pattern: &str, value: &str) -> bool {
-        value.contains(pattern)
+fn eq_bytes(a: &[u8], b: &[u8], ascii_ci: bool) -> bool {
+    if ascii_ci {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
     }
 }
 

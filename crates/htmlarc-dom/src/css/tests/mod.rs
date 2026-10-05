@@ -1,3 +1,4 @@
+mod case;
 mod css3;
 mod ext_tags;
 mod extra;

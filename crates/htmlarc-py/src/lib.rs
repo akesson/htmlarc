@@ -117,6 +117,32 @@ fn par_sweep<S, T: Send>(
     init: impl Fn() -> S + Sync,
     f: impl Fn(&mut S, usize, &Doc<'_>) -> Option<T> + Sync,
 ) -> Result<Vec<(String, T)>, ArchiveErr> {
+    let per_worker = par_fold(
+        archive,
+        init,
+        Vec::new,
+        |state, local: &mut Vec<(usize, String, T)>, pos, doc| {
+            if let Some(v) = f(state, pos, doc) {
+                local.push((pos, doc.key().to_string(), v));
+            }
+        },
+    )?;
+    let mut hits: Vec<(usize, String, T)> = per_worker.into_iter().flatten().collect();
+    hits.sort_unstable_by_key(|(pos, ..)| *pos);
+    Ok(hits.into_iter().map(|(_, key, v)| (key, v)).collect())
+}
+
+/// The fan-out under [`par_sweep`], for sweeps that need no per-document results: each
+/// worker folds every document it claims into its own accumulator (made by `acc`), and the
+/// accumulators come back in no particular order. `init` makes the worker's state, as for
+/// [`par_sweep`]. A count sums one number per worker instead of collecting, keying and
+/// sorting one entry per document.
+fn par_fold<S, A: Send>(
+    archive: &MmapArchive,
+    init: impl Fn() -> S + Sync,
+    acc: impl Fn() -> A + Sync,
+    f: impl Fn(&mut S, &mut A, usize, &Doc<'_>) + Sync,
+) -> Result<Vec<A>, ArchiveErr> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let n = archive.len();
@@ -131,38 +157,25 @@ fn par_sweep<S, T: Send>(
     // much as the work, while ~32 claims per worker still balance the tail.
     let chunk = (n / (threads * 32)).clamp(1, 64);
     let next = AtomicUsize::new(0);
-    let per_worker = on_workers(
-        &pool,
-        threads,
-        || -> Result<Vec<(usize, String, T)>, ArchiveErr> {
-            let mut state = init();
-            let mut local = Vec::new();
-            loop {
-                let start = next.fetch_add(chunk, Ordering::Relaxed);
-                if start >= n {
-                    break;
-                }
-                for pos in start..(start + chunk).min(n) {
-                    let doc = archive.try_doc(pos).inspect_err(|_| {
-                        // Stop the other workers instead of letting them sweep the rest.
-                        next.store(n, Ordering::Relaxed);
-                    })?;
-                    if let Some(v) = f(&mut state, pos, &doc) {
-                        local.push((pos, doc.key().to_string(), v));
-                    }
-                }
+    on_workers(&pool, threads, || -> Result<A, ArchiveErr> {
+        let (mut state, mut acc) = (init(), acc());
+        loop {
+            let start = next.fetch_add(chunk, Ordering::Relaxed);
+            if start >= n {
+                break;
             }
-            Ok(local)
-        },
-    );
-    let mut hits: Vec<(usize, String, T)> = per_worker
-        .into_iter()
-        .collect::<Result<Vec<_>, ArchiveErr>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-    hits.sort_unstable_by_key(|(pos, ..)| *pos);
-    Ok(hits.into_iter().map(|(_, key, v)| (key, v)).collect())
+            for pos in start..(start + chunk).min(n) {
+                let doc = archive.try_doc(pos).inspect_err(|_| {
+                    // Stop the other workers instead of letting them sweep the rest.
+                    next.store(n, Ordering::Relaxed);
+                })?;
+                f(&mut state, &mut acc, pos, &doc);
+            }
+        }
+        Ok(acc)
+    })
+    .into_iter()
+    .collect()
 }
 
 /// Run `job` once on each of `threads` workers and collect the results.
@@ -425,6 +438,10 @@ fn meta_arrow_type(ty: MetaType) -> DataType {
 ///
 /// Compile once and reuse across `select()` calls to skip re-parsing the selector
 /// for every document — the equivalent of `re.compile` for CSS.
+///
+/// Attribute values match as in browsers: case-sensitively, except the HTML standard's
+/// list (`type`, `rel`, `lang`, `method`, ...), which ignore ASCII case. The `i` and `s`
+/// flags override that: `a[href^="http://" i]`.
 #[pyclass(frozen, module = "htmlarc")]
 pub struct Selector {
     inner: OwnedSelectorList,
@@ -1230,17 +1247,17 @@ impl Archive {
         let mut storage = None;
         let sel = selector.resolve(&mut storage)?;
         py.detach(|| {
-            par_sweep(
+            par_fold(
                 &self.inner,
                 || sel.list().clone(),
-                |list, _pos, doc| {
+                || 0,
+                |list, total, _pos, doc| {
                     let root = HtmlElement::new(doc, NodeIndex::ROOT);
-                    let n = count_matches(&root, list, attr);
-                    (n > 0).then_some(n)
+                    *total += count_matches(&root, list, attr);
                 },
             )
         })
-        .map(|hits| hits.iter().map(|(_, n)| n).sum())
+        .map(|per_worker| per_worker.iter().sum())
         .map_err(archive_err)
     }
 
