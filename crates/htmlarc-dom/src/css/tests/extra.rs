@@ -151,3 +151,14 @@ fn universal_selector_parse() {
         assert!(parse_css(css).is_err(), "{css} should not parse");
     }
 }
+
+#[test]
+fn text_matches_prose_not_css_tokens() {
+    // `[text]` is prose: `~=` splits on any Unicode whitespace (NBSP is common in French),
+    // and an empty pattern is a substring of every text, unlike a real attribute.
+    let html = "<p id=\"km\">100\u{a0}km</p><p id=\"e\"></p>";
+    assert_eq!(select(html, r#"p[text~="km"]"#), ["p#km"]);
+    assert_eq!(select(html, r#"p[text*=""]"#), ["p#km", "p#e"]);
+    assert_eq!(select(html, r#"p[text^=""]"#), ["p#km", "p#e"]);
+    assert!(select(html, r#"p[text~=""]"#).is_empty());
+}

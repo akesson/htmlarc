@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use thiserror::Error;
+use tinyvec::TinyVec;
 
 use crate::{
     css::{
@@ -109,12 +110,6 @@ impl Display for AttributePattern<'_> {
     }
 }
 
-impl PartialEq<Class<'_>> for AttributePattern<'_> {
-    fn eq(&self, other: &Class) -> bool {
-        self.eq_class(other)
-    }
-}
-
 /// Match a pattern against an attribute (ADR 0002 §3 — std, `data-*`, and unknown share one
 /// store). The name must match; then the value (if the pattern has one). Values compare
 /// case-sensitively, except the HTML standard's short list of ASCII-case-insensitive
@@ -209,70 +204,97 @@ impl<'s> AttributePattern<'s> {
         }
     }
 
-    /// By default, class attributes are case-sensitive. <br>
-    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#description>
+    /// Match a `[class…]` pattern against an element's class list, as the CSS spec defines
+    /// it: like any attribute, against the whole `class` value. Values are case-sensitive
+    /// (`class` is not on the HTML case-insensitive list) unless the pattern has the `i` flag.
+    /// <https://drafts.csswg.org/selectors-4/#attribute-representation>
     ///
-    /// # Note
-    /// This implementation doesn't follow the CSS spec for class matching.
-    /// It checks each class inside the class attribute instead of checking the class attribute as a whole
+    /// - `[class]` matches any element with a class attribute.
+    /// - `[class~="foo"]` matches when one class is exactly `foo` (same as `.foo`). A value
+    ///   that is empty or contains whitespace matches nothing.
+    /// - `[class="foo bar"]`, `^=`, `$=`, `*=`, `|=` test the whole value. `[class^="foo"]`
+    ///   matches `class="foobar baz"` but not `class="bar foo"`; `[class="foo"]` does not
+    ///   match `class="foo bar"`.
     ///
-    /// # Description
-    /// - `[class]` -> matches any element with a class attribute
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="custom">...</div>
-    /// ```
+    /// The class list is stored as its tokens, so the value tested is the tokens joined by
+    /// single spaces — what you get from `" ".join(value.split())`, and what bs4 compares.
+    /// It differs from the raw attribute only in whitespace: `class=" foo"` matches
+    /// `[class^="foo"]`, and `class="a\tb"` or `class="a  b"` matches `[class="a b"]`.
     ///
-    /// - `[class="custom"]` -> matches any element that has the class "custom"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="custom">...</div>
-    /// <div class="bar custom foo">...</div>
-    /// ```
-    /// - `[class^="cus"]` -> matches any element with a class that starts with "cus"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="foo custom">...</div>
-    /// ```
-    /// - `[class$="tom"]` -> matches any element with a class that ends with "tom"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="custom foo">...</div>
-    /// ```
-    /// - `[class*="sto"]` -> matches any element with a class that includes "sto"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="custom foo">...</div>
-    /// ```
-    /// - `[class~="sto"]` -> matches any element with a class that includes "sto"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="foo custom bar">...</div>
-    /// ```
-    /// - `[class|="custom"]` -> matches any element with a class that starts with "custom-" or is "custom"
-    /// ```html
-    /// <!-- matches -->
-    /// <div class="foo custom">...</div>
-    /// <div class="foo custom-bar">...</div>
-    /// <!-- doesn't match -->
-    /// <div class="foo custombar">...</div>
-    fn eq_class(&self, other: &Class) -> bool {
-        if let AttributeName::Std(HtmlAttr::class) = self.name {
-            let Some(value) = &self.value else {
-                return true;
-            };
-
-            let insensitive = value.case == Some(CaseIndicator::Insensitive);
-            // `other` is a single class, so `~=` is per class an includes-match.
-            let operator = match value.operator {
-                AttributeOperator::List => AttributeOperator::Includes,
-                op => op,
-            };
-            return operator.matches(&value.value.0, other.0, insensitive);
+    /// `spans_classes` says whether the value holds ASCII whitespace; the caller works it out
+    /// once per selector, not per element.
+    // Out of line: inlined into the select walk it measured ~4% slower on `[class*=]` and
+    // ~8% slower on `[class~=]`/`[class^=]` (fr.serrer, interleaved A/B).
+    #[inline(never)]
+    pub(crate) fn matches_class_list<'c>(
+        &self,
+        mut classes: impl Iterator<Item = Class<'c>>,
+        spans_classes: bool,
+    ) -> bool {
+        use AttributeOperator::*;
+        if !matches!(self.name, AttributeName::Std(HtmlAttr::class)) {
+            return false;
         }
+        let Some(value) = &self.value else {
+            return true;
+        };
+        let (op, p) = (value.operator, value.value.0.as_ref());
+        let ci = value.case == Some(CaseIndicator::Insensitive);
 
-        false
+        // A class never holds whitespace, so `~=` is an exact compare per class.
+        if op == List {
+            return !p.is_empty() && classes.any(|c| Exact.matches(p, c.0, ci));
+        }
+        if spans_classes {
+            return spanning_match(op, p, classes, ci);
+        }
+        // Otherwise a match lies inside a single class, so test the class it would be in.
+        if op == Includes {
+            return classes.any(|c| op.matches(p, c.0, ci));
+        }
+        let Some(first) = classes.next() else {
+            return false;
+        };
+        match op {
+            Exact => op.matches(p, first.0, ci) && classes.next().is_none(),
+            Starts => op.matches(p, first.0, ci),
+            Ends => op.matches(p, classes.last().unwrap_or(first).0, ci),
+            // `p` itself only matches when it is the whole value; `p-…` only needs the
+            // first class.
+            DashMatch => {
+                op.matches(p, first.0, ci) && (first.0.len() > p.len() || classes.next().is_none())
+            }
+            List | Includes => unreachable!(),
+        }
     }
+}
+
+/// Match a pattern that holds whitespace against the class list joined by single spaces,
+/// without a heap allocation for any but very long lists.
+fn spanning_match<'c>(
+    op: AttributeOperator,
+    p: &str,
+    mut classes: impl Iterator<Item = Class<'c>>,
+    ci: bool,
+) -> bool {
+    use AttributeOperator::*;
+    // `=`, the common case: compare the pattern's space-separated parts class by class,
+    // stopping at the first mismatch. A part that is empty or holds other whitespace
+    // matches no class, just as the pattern would match no joined value.
+    if op == Exact {
+        let mut parts = p.split(' ');
+        return classes.all(|c| parts.next().is_some_and(|w| Exact.matches(w, c.0, ci)))
+            && parts.next().is_none();
+    }
+    let mut joined: TinyVec<[u8; 256]> = TinyVec::new();
+    for (i, c) in classes.enumerate() {
+        if i > 0 {
+            joined.push(b' ');
+        }
+        joined.extend_from_slice(c.0.as_bytes());
+    }
+    // Classes joined by ASCII spaces are valid UTF-8.
+    std::str::from_utf8(&joined).is_ok_and(|v| op.matches(p, v, ci))
 }
 
 #[test]
@@ -605,177 +627,91 @@ fn test_data_attribute_matching_insensitive() {
     );
 }
 
-#[test]
-fn test_class_matching_sensitive() {
-    use super::*;
-
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: None,
-        },
-        Class("custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Exact,
-                value: QuotedString("Custom".into()),
-                case: None
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Starts,
-                value: QuotedString("Cus".into()),
-                case: None
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Includes,
-                value: QuotedString("Us".into()),
-                case: None
-            }),
-        },
-        Class("CUstom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Ends,
-                value: QuotedString("Om".into()),
-                case: None
-            }),
-        },
-        Class("CustOm")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::List,
-                value: QuotedString("sTo".into()),
-                case: None
-            }),
-        },
-        Class("CusTom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom".into()),
-                case: None
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::DashMatch,
-                value: QuotedString("Custom".into()),
-                case: None
-            }),
-        },
-        Class("Custom-foo")
-    );
+/// `matches_class_list` against `classes`, with `pattern` like `^="cus" i`.
+#[cfg(test)]
+fn class_list_matches(
+    operator: AttributeOperator,
+    value: &str,
+    ci: bool,
+    classes: &[&str],
+) -> bool {
+    crate::css::AttributeSelector::new(AttributePattern {
+        name: AttributeName::Std(HtmlAttr::class),
+        value: Some(AttributeValue {
+            operator,
+            value: QuotedString(value.into()),
+            case: ci.then_some(CaseIndicator::Insensitive),
+        }),
+    })
+    .matches_class_list(classes.iter().map(|c| Class(c)))
 }
 
 #[test]
-fn test_class_matching_insensitive() {
-    use super::*;
+fn test_class_matching_whole_value() {
+    use AttributeOperator::*;
 
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Exact,
-                value: QuotedString("custom".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Starts,
-                value: QuotedString("cus".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Includes,
-                value: QuotedString("us".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("CUstom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::Ends,
-                value: QuotedString("om".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("CustOm")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::List,
-                value: QuotedString("sto".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("CUSTOM")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::DashMatch,
-                value: QuotedString("custom".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("Custom")
-    );
-    assert_eq!(
-        AttributePattern {
-            name: AttributeName::Std(HtmlAttr::class),
-            value: Some(AttributeValue {
-                operator: AttributeOperator::DashMatch,
-                value: QuotedString("custom".into()),
-                case: Some(CaseIndicator::Insensitive)
-            }),
-        },
-        Class("Custom-foo")
-    );
+    let bare = AttributePattern {
+        name: AttributeName::Std(HtmlAttr::class),
+        value: None,
+    };
+    assert!(bare.matches_class_list([Class("custom")].into_iter(), false));
+
+    let cases: &[(AttributeOperator, &str, &[&str], bool)] = &[
+        (Exact, "Custom", &["Custom"], true),
+        (Exact, "Custom", &["Custom", "foo"], false),
+        (Exact, "Custom foo", &["Custom", "foo"], true),
+        (Exact, "", &[""], true),
+        (Starts, "Cus", &["Custom", "foo"], true),
+        (Starts, "Cus", &["foo", "Custom"], false),
+        (Starts, "Custom f", &["Custom", "foo"], true),
+        (Starts, "", &["Custom"], false),
+        (Ends, "Om", &["foo", "CustOm"], true),
+        (Ends, "Om", &["CustOm", "foo"], false),
+        (Ends, "", &["Custom"], false),
+        (Includes, "Us", &["foo", "CUstom"], true),
+        (Includes, "m f", &["Custom", "foo"], true),
+        (Includes, "", &["Custom"], false),
+        (List, "CusTom", &["foo", "CusTom"], true),
+        (List, "sTo", &["CusTom"], false),
+        (List, "a b", &["a", "b"], false),
+        (List, "", &[""], false),
+        (DashMatch, "Custom", &["Custom"], true),
+        (DashMatch, "Custom", &["Custom-foo", "bar"], true),
+        (DashMatch, "Custom", &["Custom", "bar"], false),
+        (DashMatch, "Custom", &["Custombar"], false),
+        (DashMatch, "", &["-x", "y"], true),
+    ];
+    for &(op, value, classes, expected) in cases {
+        assert_eq!(
+            class_list_matches(op, value, false, classes),
+            expected,
+            "[class{op}{value:?}] vs {classes:?}"
+        );
+    }
+}
+
+#[test]
+fn test_class_matching_case() {
+    use AttributeOperator::*;
+
+    // Case-sensitive by default; the `i` flag folds ASCII case.
+    for (op, value) in [
+        (Exact, "custom"),
+        (Starts, "cus"),
+        (Includes, "us"),
+        (Ends, "om"),
+        (List, "custom"),
+        (DashMatch, "custom"),
+    ] {
+        assert!(
+            !class_list_matches(op, value, false, &["CUSTOM"]),
+            "[class{op}{value:?}]"
+        );
+        assert!(
+            class_list_matches(op, value, true, &["CUSTOM"]),
+            "[class{op}{value:?} i]"
+        );
+    }
 }
 
 #[test]

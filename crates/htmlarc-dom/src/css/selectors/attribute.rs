@@ -47,18 +47,33 @@ impl IndexedError for AttributeSelectorError {
 /// See [mdn: Attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors)
 #[derive(Debug, Clone)]
 pub struct AttributeSelector<'s> {
-    pub pattern: AttributePattern<'s>,
+    /// Not `pub`: `spans_classes` is derived from it in [`new`](Self::new).
+    pub(crate) pattern: AttributePattern<'s>,
     /// The resolved `NameSym` of the pattern's name (ADR 0002 §3): an integer prefilter for
     /// per-node matching, or `Absent` when an extended name is not in the document.
     pub(crate) resolved: ResolvedRef,
+    /// Whether the value holds whitespace, so a `[class…]` match can span several classes.
+    /// Known once here: scanning the value per element cost ~20% on `[class^=…]`/`[class*=…]`.
+    spans_classes: bool,
 }
 
 impl<'s> AttributeSelector<'s> {
     pub fn new(pattern: AttributePattern<'s>) -> Self {
+        let spans_classes = pattern
+            .value
+            .as_ref()
+            .is_some_and(|v| v.value.0.bytes().any(|b| b.is_ascii_whitespace()));
         Self {
             pattern,
             resolved: ResolvedRef::Unresolved,
+            spans_classes,
         }
+    }
+
+    /// Match a `[class…]` selector against an element's class list (see
+    /// [`AttributePattern::matches_class_list`]).
+    pub(crate) fn matches_class_list<'c>(&self, classes: impl Iterator<Item = Class<'c>>) -> bool {
+        self.pattern.matches_class_list(classes, self.spans_classes)
     }
 
     /// Bind this selector to a document by resolving its attribute *name* to a `NameSym`: a
@@ -92,12 +107,6 @@ impl Display for AttributeSelector<'_> {
 impl<'s> CssPattern<'s> for AttributeSelector<'s> {
     fn from_chars(chars: &mut CssChars<'s>) -> ParseResult<Option<Self>> {
         Self::from_chars(chars)
-    }
-}
-
-impl PartialEq<Class<'_>> for AttributeSelector<'_> {
-    fn eq(&self, other: &Class<'_>) -> bool {
-        self.pattern == *other
     }
 }
 
