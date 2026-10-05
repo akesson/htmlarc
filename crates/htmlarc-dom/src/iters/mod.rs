@@ -34,6 +34,7 @@ pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'d
     fn dom(&self) -> &'dom Dom;
     /// returns the next element index if any
     fn next_index(&self) -> Option<NodeIndex>;
+    /// Also yield comment and doctype nodes, which element navigation skips by default.
     fn set_include_comment(self) -> Self;
     fn include_comment(&self) -> bool;
     fn set_include_text(self) -> Self;
@@ -47,7 +48,9 @@ pub trait DomIterator<'dom, Dom: DomRead + 'dom>: Iterator<Item = HtmlElement<'d
             if tag == HtmlTag::sys_text && !self.include_text() {
                 continue;
             }
-            if tag == HtmlTag::sys_comment && !self.include_comment() {
+            // The doctype is non-element markup like a comment: hidden from element
+            // navigation, kept for walks that need every node (repackaging).
+            if matches!(tag, HtmlTag::sys_comment | HtmlTag::DOCTYPE) && !self.include_comment() {
                 continue;
             }
 

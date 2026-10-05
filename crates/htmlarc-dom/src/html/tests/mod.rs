@@ -180,3 +180,45 @@ fn select_css_surfaces_positional_parse_error() {
     assert!(a.matches_css("a").unwrap());
     assert!(!a.matches_css("p").unwrap());
 }
+
+#[test]
+fn element_navigation_skips_the_doctype() {
+    // The doctype is non-element markup, like a comment: navigation skips it on every backing,
+    // while rendering and repackaging keep it.
+    const HTML: &str = "<!DOCTYPE html><!-- c --><html><head></head><body><p>x</p></body></html>";
+
+    fn check<D: DomRead>(dom: &D) {
+        let tags = |iter: &mut dyn Iterator<Item = HtmlElement<'_, D>>| {
+            iter.map(|el| el.tag()).collect::<Vec<_>>()
+        };
+        let root = dom.root();
+        let html = root.first_child().unwrap();
+        assert_eq!(html.tag(), HtmlTag::html);
+        assert_eq!(tags(&mut root.children()), [HtmlTag::html]);
+        assert!(html.prev_sibling().is_err());
+        assert_eq!(
+            tags(&mut root.descendants()),
+            [HtmlTag::html, HtmlTag::head, HtmlTag::body, HtmlTag::p]
+        );
+        assert_eq!(tags(&mut root.forwards()).first(), Some(&HtmlTag::html));
+        assert_eq!(
+            dom.repackage().to_html(HtmlFormat::Raw),
+            HTML,
+            "repackaging keeps the doctype"
+        );
+    }
+
+    let doc = HtmlDoc::parse(HTML).unwrap();
+    assert_eq!(doc.to_html(HtmlFormat::Raw), HTML);
+    let inner = doc.dom();
+    check(&inner);
+    check(&HtmlDoc::parse(HTML).unwrap().dom_ref_cell());
+
+    // The root has no tag; its name is BeautifulSoup's rather than the internal `sys_root`.
+    let root = inner.root();
+    assert_eq!(root.tag_name(), "[document]");
+    assert_eq!(
+        root.first_child().unwrap().parent().unwrap().tag_name(),
+        "[document]"
+    );
+}
