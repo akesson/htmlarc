@@ -251,26 +251,30 @@ fn w3c_root_pseudo_class() {
 }
 
 /// https://www.w3.org/Style/CSS/Test/CSS3/Selectors/current/html/full/flat/css3-modsel-27a.html
+///
+/// Level 3 calls these impossible because the root has no parent *element*. Selectors Level 4
+/// dropped that requirement, and lxml/cssselect and soupsieve match the root for all of them,
+/// so htmlarc does too: each one names the top-level `p`.
 #[test]
 fn w3c_impossible_rules() {
     let html = r#"
 <p>This line should be green (there should be no red on this page).</p>
 "#;
 
-    assert!(select(html, ":root:first-child").is_empty());
-    assert!(select(html, ":root:last-child").is_empty());
-    assert!(select(html, ":root:only-child").is_empty());
-    assert!(select(html, ":root:nth-child(1)").is_empty());
-    assert!(select(html, ":root:nth-child(n)").is_empty());
-    assert!(select(html, ":root:nth-last-child(1)").is_empty());
-    assert!(select(html, ":root:nth-last-child(n)").is_empty());
-    assert!(select(html, ":root:first-of-type").is_empty());
-    assert!(select(html, ":root:last-of-type").is_empty());
-    assert!(select(html, ":root:only-of-type").is_empty());
-    assert!(select(html, ":root:nth-of-type(1)").is_empty());
-    assert!(select(html, ":root:nth-of-type(n)").is_empty());
-    assert!(select(html, ":root:nth-last-of-type(1)").is_empty());
-    assert!(select(html, ":root:nth-last-of-type(n)").is_empty());
+    assert_eq!(select(html, ":root:first-child"), ["p"]);
+    assert_eq!(select(html, ":root:last-child"), ["p"]);
+    assert_eq!(select(html, ":root:only-child"), ["p"]);
+    assert_eq!(select(html, ":root:nth-child(1)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-child(n)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-last-child(1)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-last-child(n)"), ["p"]);
+    assert_eq!(select(html, ":root:first-of-type"), ["p"]);
+    assert_eq!(select(html, ":root:last-of-type"), ["p"]);
+    assert_eq!(select(html, ":root:only-of-type"), ["p"]);
+    assert_eq!(select(html, ":root:nth-of-type(1)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-of-type(n)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-last-of-type(1)"), ["p"]);
+    assert_eq!(select(html, ":root:nth-last-of-type(n)"), ["p"]);
 }
 
 /// https://www.w3.org/Style/CSS/Test/CSS3/Selectors/current/html/full/flat/css3-modsel-28.html

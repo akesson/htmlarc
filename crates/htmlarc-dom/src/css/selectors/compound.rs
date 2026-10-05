@@ -57,7 +57,7 @@ pub enum CompoundSelectorError {
     ExpectedAttribute(usize),
     #[error("Expected pseudo-class selector at {0}")]
     ExpectedPseudoClass(usize),
-    #[error("Unexpected alphabetic character at {0}")]
+    #[error("Unexpected character at {0}")]
     UnexpectedChar(usize),
     #[error("Failed to parse class selector at {0}")]
     ClassFail(usize),
@@ -117,8 +117,25 @@ pub struct CompoundSelector<'s> {
     pub text: Option<AttributePattern<'s>>,
 }
 
+impl CompoundSelector<'_> {
+    /// Whether this compound has no constraint at all — the universal selector `*`.
+    fn is_universal(&self) -> bool {
+        self.element.is_none()
+            && self.ext_element.is_none()
+            && self.id.is_none()
+            && self.classes.is_empty()
+            && self.attributes.is_empty()
+            && self.class_attributes.is_empty()
+            && self.pseudo_classes.is_empty()
+            && self.text.is_none()
+    }
+}
+
 impl Display for CompoundSelector<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_universal() {
+            return write!(f, "*");
+        }
         if let Some(tag) = &self.element {
             write!(f, "{}", tag)?;
         }
@@ -176,10 +193,17 @@ impl<'s> CompoundSelector<'s> {
         // `ext_element` slot (ADR 0002 §4). They are mutually exclusive — a compound has at
         // most one leading type selector.
         let mut compound = Self::default();
-        match TagSelector::from_chars(chars)? {
-            Some(TagSelector::Std(tag)) => compound.element = Some(tag),
-            Some(TagSelector::Ext(ext)) => compound.ext_element = Some(ext),
-            None => {}
+        if c == '*' {
+            // The universal selector constrains nothing beyond "is an element", which every
+            // compound already checks, so it parses to no type selector at all.
+            debug!("Parsed universal selector at {}", chars.last_index());
+            chars.next();
+        } else {
+            match TagSelector::from_chars(chars)? {
+                Some(TagSelector::Std(tag)) => compound.element = Some(tag),
+                Some(TagSelector::Ext(ext)) => compound.ext_element = Some(ext),
+                None => {}
+            }
         }
 
         while let Some((index, char)) = chars.current() {
@@ -241,7 +265,8 @@ impl<'s> CompoundSelector<'s> {
                         return Err(CompoundSelectorError::ExpectedPseudoClass(index).into());
                     }
                 }
-                c if c.is_alphabetic() => {
+                // `*` is only valid as a compound's first part: `p*`, `**`.
+                c if c.is_alphabetic() || c == '*' => {
                     return Err(CompoundSelectorError::UnexpectedChar(index).into());
                 }
                 _ => break,
@@ -287,6 +312,15 @@ impl<'s> CompoundSelector<'s> {
         if let Some(id) = &self.id
             && !view.has_id_selector(index, id)
         {
+            return false;
+        }
+
+        // Without a standard type selector, nothing else here is guaranteed to reject a
+        // non-element: `*`, `:not(p)` and `:first-child` would otherwise match the doctype,
+        // comments, and — as a combinator's ancestor/parent — the document root. Checked after
+        // the cheap id compare, so `#id` walks rarely pay it, but before the text and
+        // pseudo-class checks, which can scan a whole subtree (`:has`) on the document root.
+        if self.element.is_none() && !HtmlTag::is_element_byte(view.nodes.tag_byte(index)) {
             return false;
         }
 
