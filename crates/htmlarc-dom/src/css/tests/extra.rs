@@ -1,4 +1,8 @@
-use crate::css::tests::helpers::select;
+use crate::{
+    css::{parse_css, tests::helpers::select},
+    dom::DomRead,
+    html::HtmlDoc,
+};
 
 #[test]
 fn complex_relative_selector_with_multiple_potential_match() {
@@ -74,4 +78,69 @@ fn doctype_is_not_a_sibling() {
     let html = "<!DOCTYPE html><p>a</p><div>b</div>";
     assert_eq!(select(html, "p:first-child"), ["p"]);
     assert_eq!(select(html, "p + div"), ["div"]);
+}
+
+#[test]
+fn universal_selector_matches_elements_only() {
+    // The doctype, comments and text are nodes but not elements, and the document root is
+    // never an element ancestor/parent — so `* > p` must not match a top-level `<p>`.
+    let html =
+        "<!DOCTYPE html><!-- c --><p>a</p><div><!-- d --><span>b</span>t<my-el></my-el></div>";
+    let cases: &[(&str, &[&str])] = &[
+        ("*", &["p", "div", "span", "my-el"]),
+        ("div > *", &["span", "my-el"]),
+        ("div *", &["span", "my-el"]),
+        ("div>*", &["span", "my-el"]),
+        ("* *", &["span", "my-el"]),
+        ("* > p", &[]),
+        ("* p", &[]),
+        ("* + *", &["div", "my-el"]),
+        ("*:not(p)", &["div", "span", "my-el"]),
+        ("p:not(*)", &[]),
+        (":is(*)", &["p", "div", "span", "my-el"]),
+        (":has(*)", &["div"]),
+        ("div:has(> *)", &["div"]),
+        ("*, p", &["p", "div", "span", "my-el"]),
+        // Without a type selector, other compounds used to match non-elements too.
+        (":not(p)", &["div", "span", "my-el"]),
+        (":not(p) > p", &[]),
+        (":first-child", &["span"]),
+    ];
+    let inner = HtmlDoc::parse(html).unwrap().dom();
+    let cell = HtmlDoc::parse(html).unwrap().dom_ref_cell();
+    for (css, expected) in cases {
+        assert_eq!(select(html, css), *expected, "{css} (immutable walk)");
+        let got: Vec<String> = cell
+            .root()
+            .select_css(css)
+            .unwrap()
+            .map(|el| el.tag().to_string())
+            .collect();
+        // `DomRefCell` cannot lend a custom element's name; it reports the `extended` marker.
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|t| if *t == "my-el" { "extended" } else { t })
+            .collect();
+        assert_eq!(got, expected, "{css} (DomRefCell walk)");
+    }
+    assert_eq!(
+        inner.root().select_css("*.x, *#y, *[x]").unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn universal_selector_parse() {
+    for css in ["*", "div > *", "*:not(p)", "*.a", "a *", "* + *", ":not(*)"] {
+        let parsed = parse_css(css).unwrap().to_string();
+        // `*` round-trips when it stands alone; beside other parts it is redundant and dropped.
+        let expected = css
+            .strip_prefix('*')
+            .filter(|rest| !rest.is_empty() && !rest.starts_with(' '))
+            .unwrap_or(css);
+        assert_eq!(parsed, expected);
+    }
+    for css in ["**", "p*", "*p", ".a*"] {
+        assert!(parse_css(css).is_err(), "{css} should not parse");
+    }
 }

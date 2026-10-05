@@ -190,6 +190,14 @@ impl HtmlTag {
         )
     }
 
+    /// Whether a node with this raw tag byte is an element — i.e. not the document root, a
+    /// deleted slot, text, a comment, or the doctype. Those system variants are the lowest
+    /// discriminants, and extended tags are stored at bytes `>= EXT_BASE`, so this is one compare.
+    #[inline]
+    pub(crate) fn is_element_byte(byte: u8) -> bool {
+        byte > HtmlTag::DOCTYPE as u8
+    }
+
     /// Raw text elements are elements with text/script content that
     /// might interfere with the normal html syntax
     pub fn is_raw_text(&self) -> bool {
