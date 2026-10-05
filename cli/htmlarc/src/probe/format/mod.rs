@@ -117,7 +117,7 @@ impl<'dom> ElementFormat<'dom> {
                     if let Some((operator, pattern)) = selector.value {
                         if !el_text.is_empty() {
                             debug!("text: {:?}", el_text);
-                            if operator.matches(pattern, &el_text, false) {
+                            if operator.matches_prose(pattern, &el_text) {
                                 attrs.push(ElementAttribute::Text(el_text));
                             }
                         }

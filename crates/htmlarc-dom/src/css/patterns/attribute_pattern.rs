@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use thiserror::Error;
+use tinyvec::TinyVec;
 
 use crate::{
     css::{
@@ -244,12 +245,13 @@ impl<'s> AttributePattern<'s> {
         if op == List {
             return !p.is_empty() && classes.any(|c| Exact.matches(p, c.0, ci));
         }
-        // A pattern with whitespace spans classes: rebuild the value. Rare, so it allocates.
         if spans_classes {
-            let joined = classes.map(|c| c.0).collect::<Vec<_>>().join(" ");
-            return op.matches(p, &joined, ci);
+            return spanning_match(op, p, classes, ci);
         }
         // Otherwise a match lies inside a single class, so test the class it would be in.
+        if op == Includes {
+            return classes.any(|c| op.matches(p, c.0, ci));
+        }
         let Some(first) = classes.next() else {
             return false;
         };
@@ -257,15 +259,42 @@ impl<'s> AttributePattern<'s> {
             Exact => op.matches(p, first.0, ci) && classes.next().is_none(),
             Starts => op.matches(p, first.0, ci),
             Ends => op.matches(p, classes.last().unwrap_or(first).0, ci),
-            Includes => op.matches(p, first.0, ci) || classes.any(|c| op.matches(p, c.0, ci)),
             // `p` itself only matches when it is the whole value; `p-…` only needs the
             // first class.
             DashMatch => {
                 op.matches(p, first.0, ci) && (first.0.len() > p.len() || classes.next().is_none())
             }
-            List => unreachable!(),
+            List | Includes => unreachable!(),
         }
     }
+}
+
+/// Match a pattern that holds whitespace against the class list joined by single spaces,
+/// without a heap allocation for any but very long lists.
+fn spanning_match<'c>(
+    op: AttributeOperator,
+    p: &str,
+    mut classes: impl Iterator<Item = Class<'c>>,
+    ci: bool,
+) -> bool {
+    use AttributeOperator::*;
+    // `=`, the common case: compare the pattern's space-separated parts class by class,
+    // stopping at the first mismatch. A part that is empty or holds other whitespace
+    // matches no class, just as the pattern would match no joined value.
+    if op == Exact {
+        let mut parts = p.split(' ');
+        return classes.all(|c| parts.next().is_some_and(|w| Exact.matches(w, c.0, ci)))
+            && parts.next().is_none();
+    }
+    let mut joined: TinyVec<[u8; 256]> = TinyVec::new();
+    for (i, c) in classes.enumerate() {
+        if i > 0 {
+            joined.push(b' ');
+        }
+        joined.extend_from_slice(c.0.as_bytes());
+    }
+    // Classes joined by ASCII spaces are valid UTF-8.
+    std::str::from_utf8(&joined).is_ok_and(|v| op.matches(p, v, ci))
 }
 
 #[test]

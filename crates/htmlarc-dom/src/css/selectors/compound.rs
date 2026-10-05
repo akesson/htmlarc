@@ -245,7 +245,10 @@ impl<'s> CompoundSelector<'s> {
                             // every other name — std, `data-*`, unknown — queries the unified
                             // attribute store.
                             AttributeName::Std(HtmlAttr::class) => {
-                                compound.class_attributes.push(attribute)
+                                match as_class_selector(&attribute.pattern) {
+                                    Some(class) => compound.classes.push(class),
+                                    None => compound.class_attributes.push(attribute),
+                                }
                             }
                             AttributeName::Std(_) | AttributeName::Ext(_) => {
                                 compound.attributes.push(attribute)
@@ -376,16 +379,30 @@ impl<'s> CompoundSelector<'s> {
             // Unicode case (`[text*="ÉTÉ" i]` finds "été"), not just ASCII like real attributes.
             if value.case == Some(CaseIndicator::Insensitive) {
                 let pattern = value.value.0.to_lowercase();
-                value
-                    .operator
-                    .matches(&pattern, &text.to_lowercase(), false)
+                value.operator.matches_prose(&pattern, &text.to_lowercase())
             } else {
-                value.operator.matches(&value.value.0, &text, false)
+                value.operator.matches_prose(&value.value.0, &text)
             }
         } else {
             text_iter.next().is_some()
         }
     }
+}
+
+/// `[class~="v"]` means exactly `.v`, so parse it as one to get the class symbol fast path
+/// and the absent-class document skip. Kept as an attribute: an `i` flag (classes compare
+/// case-sensitively), a value that is empty or holds whitespace (matches nothing), and a
+/// value with a decoded entity (a `ClassSelector` borrows the selector text).
+fn as_class_selector<'s>(pattern: &AttributePattern<'s>) -> Option<ClassSelector<'s>> {
+    let value = pattern.value.as_ref()?;
+    let std::borrow::Cow::Borrowed(name) = value.value.0 else {
+        return None;
+    };
+    let plain = value.operator == AttributeOperator::List
+        && value.case != Some(CaseIndicator::Insensitive)
+        && !name.is_empty()
+        && !name.bytes().any(|b| b.is_ascii_whitespace());
+    plain.then(|| ClassSelector::new(name))
 }
 
 #[test]
@@ -717,9 +734,10 @@ fn test_compound_matching_err() {
         ..Default::default()
     });
 
-    // section.blue[title^="main"][data-foo][class="red"]
+    // div.blue[title^="main"][data-foo][class="red"]: only the class value fails, as
+    // `[class="red"]` must equal the whole `red blue`.
     test_match(CompoundSelector {
-        element: Some(HtmlTag::section),
+        element: Some(HtmlTag::div),
         classes: vec![ClassSelector::new("blue")],
         attributes: vec![
             AttributeSelector::new(AttributePattern {

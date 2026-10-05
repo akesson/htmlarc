@@ -77,3 +77,48 @@ fn empty_substring_patterns_match_nothing() {
     assert_eq!(ids(r#"[title=""]"#), 1);
     assert_eq!(ids(r#"[title|=""]"#), 1);
 }
+
+#[test]
+fn spanning_patterns_test_the_joined_value() {
+    // A pattern with whitespace can only match across classes joined by single spaces.
+    assert_eq!(ids(r#"[class^="foo b"]"#), "ak");
+    assert_eq!(ids(r#"[class$="o bar"]"#), "ak");
+    assert_eq!(ids(r#"[class$="r foo"]"#), "e");
+    assert_eq!(ids(r#"[class*="foo bar"]"#), "ak");
+    assert_eq!(ids(r#"[class|="foo bar"]"#), "ak");
+    assert_eq!(ids(r#"[class="FOO BAR" i]"#), "ak");
+    assert_eq!(ids(r#"[class*="O B" i]"#), "ak");
+    // Never in a joined value: a doubled, leading or trailing space, or a tab.
+    assert_eq!(ids(r#"[class="foo  bar"]"#), "");
+    assert_eq!(ids(r#"[class=" foo"]"#), "");
+    assert_eq!(ids(r#"[class="foo bar "]"#), "");
+    assert_eq!(ids("[class=\"foo\tbar\"]"), "");
+    assert_eq!(ids(r#"[class=" "]"#), "");
+}
+
+#[test]
+fn class_word_match_is_parsed_as_a_class_selector() {
+    use crate::css::{CompoundSelector, patterns::CssPattern};
+    let parse = |css| {
+        let mut chars = crate::css::CssChars::new(css);
+        CompoundSelector::from_chars(&mut chars).unwrap().unwrap()
+    };
+    let word = parse(r#"div[class~="foo"]"#);
+    assert_eq!((word.classes.len(), word.class_attributes.len()), (1, 0));
+    // These keep the attribute path: no plain class selector means the same.
+    for css in [
+        r#"[class~="foo" i]"#,
+        r#"[class~=""]"#,
+        r#"[class~="foo bar"]"#,
+        r#"[class~="a&amp;b"]"#,
+    ] {
+        let sel = parse(css);
+        assert_eq!(
+            (sel.classes.len(), sel.class_attributes.len()),
+            (0, 1),
+            "{css}"
+        );
+    }
+    // And the rewrite still selects exactly `.foo`, also under `:not`.
+    assert_eq!(ids(r#":not([class~="foo"])"#), ids(":not(.foo)"));
+}

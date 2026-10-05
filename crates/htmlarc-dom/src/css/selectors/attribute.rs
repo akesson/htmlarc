@@ -47,7 +47,8 @@ impl IndexedError for AttributeSelectorError {
 /// See [mdn: Attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors)
 #[derive(Debug, Clone)]
 pub struct AttributeSelector<'s> {
-    pub pattern: AttributePattern<'s>,
+    /// Not `pub`: `spans_classes` is derived from it in [`new`](Self::new).
+    pub(crate) pattern: AttributePattern<'s>,
     /// The resolved `NameSym` of the pattern's name (ADR 0002 §3): an integer prefilter for
     /// per-node matching, or `Absent` when an extended name is not in the document.
     pub(crate) resolved: ResolvedRef,

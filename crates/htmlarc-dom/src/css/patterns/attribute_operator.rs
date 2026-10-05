@@ -137,6 +137,18 @@ impl AttributeOperator {
             List => value.split_ascii_whitespace().any(|w| eq(w.as_bytes(), p)),
         }
     }
+
+    /// [`matches`](Self::matches) for htmlarc's `[text]` pseudo-attribute, which tests prose
+    /// rather than a CSS token list: `~=` splits on Unicode whitespace (so `100\u{a0}km`
+    /// holds the word `km`), and an empty pattern is a substring of every text.
+    pub fn matches_prose(&self, pattern: &str, value: &str) -> bool {
+        use AttributeOperator::*;
+        match self {
+            List => value.split_whitespace().any(|w| w == pattern),
+            Starts | Includes | Ends if pattern.is_empty() => true,
+            _ => self.matches(pattern, value, false),
+        }
+    }
 }
 
 fn eq_bytes(a: &[u8], b: &[u8], ascii_ci: bool) -> bool {

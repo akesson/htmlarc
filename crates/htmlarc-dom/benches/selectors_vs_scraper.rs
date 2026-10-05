@@ -36,6 +36,11 @@ const QUERIES: &[(&str, &str)] = &[
     ("class attr word", r#"[class~="vector-menu-content"]"#),
     ("class attr prefix", r#"[class^="vector-menu"]"#),
     ("class attr substr", r#"[class*="menu-content"]"#),
+    ("class attr span", r#"[class="external text"]"#),
+    (
+        "class attr span prefix",
+        r#"[class^="vector-toc-list-item vector-toc-level"]"#,
+    ),
 ];
 
 pub fn selectors_vs_scraper(c: &mut Criterion) {
