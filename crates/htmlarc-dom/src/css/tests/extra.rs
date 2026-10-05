@@ -109,6 +109,9 @@ fn universal_selector_matches_elements_only() {
         (":root span", &["span"]),
         (":root > span", &["span"]),
         (":root > p", &[]),
+        // The doctype and comment before `p` are not siblings, so `p` is still first.
+        (":first-child", &["p", "span"]),
+        (":root:first-child", &["p"]),
     ];
     let inner = HtmlDoc::parse(html).unwrap().dom();
     let cell = HtmlDoc::parse(html).unwrap().dom_ref_cell();
