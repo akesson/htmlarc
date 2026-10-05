@@ -31,7 +31,7 @@ const QUERIES: &[(&str, &str)] = &[
     ("multi-class", ".vector-menu-content.vector-menu"),
     ("id", "#vector-toc"),
     ("attr exact", r#"[role="navigation"]"#),
-    ("attr insensitive", r#"[typeof="mw:File"]"#),
+    ("attr insensitive", r#"[typeof="mw:File" i]"#),
     ("attr presence", "[data-word]"),
 ];
 

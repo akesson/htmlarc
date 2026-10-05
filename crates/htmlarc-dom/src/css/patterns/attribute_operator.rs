@@ -119,28 +119,18 @@ impl AttributeOperator {
     /// non-ASCII characters still compare exactly. Neither mode allocates.
     pub fn matches(&self, pattern: &str, value: &str, ascii_ci: bool) -> bool {
         use AttributeOperator::*;
-        let eq = |a: &str, b: &str| {
-            if ascii_ci {
-                a.eq_ignore_ascii_case(b)
-            } else {
-                a == b
-            }
-        };
+        let eq = |a: &[u8], b: &[u8]| eq_bytes(a, b, ascii_ci);
         let (p, v) = (pattern.as_bytes(), value.as_bytes());
-        let starts = || v.len() >= p.len() && eq_bytes(&v[..p.len()], p, ascii_ci);
+        let starts = || v.len() >= p.len() && eq(&v[..p.len()], p);
         match self {
-            Exact => eq(pattern, value),
+            Exact => eq(p, v),
             Starts => starts(),
-            Includes => {
-                if ascii_ci {
-                    p.is_empty() || v.windows(p.len()).any(|w| w.eq_ignore_ascii_case(p))
-                } else {
-                    value.contains(pattern)
-                }
-            }
-            Ends => v.len() >= p.len() && eq_bytes(&v[v.len() - p.len()..], p, ascii_ci),
-            List => value.split_whitespace().any(|v| eq(v, pattern)),
-            DashMatch => eq(pattern, value) || (starts() && v.get(p.len()) == Some(&b'-')),
+            // `windows(0)` panics; an empty needle is in every value.
+            Includes if ascii_ci => p.is_empty() || v.windows(p.len()).any(|w| eq(w, p)),
+            Includes => value.contains(pattern),
+            Ends => v.len() >= p.len() && eq(&v[v.len() - p.len()..], p),
+            List => value.split_whitespace().any(|w| eq(w.as_bytes(), p)),
+            DashMatch => eq(p, v) || (starts() && v.get(p.len()) == Some(&b'-')),
         }
     }
 }

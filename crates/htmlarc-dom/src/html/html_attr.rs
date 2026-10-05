@@ -249,4 +249,33 @@ impl HtmlAttr {
                 | HtmlAttr::valign
         )
     }
+
+    /// The rest of the HTML standard's case-insensitive list: names htmlarc stores as extended
+    /// attributes because they are not [`HtmlAttr`] variants (mostly legacy presentational
+    /// ones). Leaves out `text` (the `<body text>` colour), which selectors read as htmlarc's
+    /// own `[text]` pseudo-attribute.
+    pub fn is_ext_value_case_insensitive(name: &str) -> bool {
+        const NAMES: [&str; 19] = [
+            "accept",
+            "accept-charset",
+            "alink",
+            "axis",
+            "codetype",
+            "compact",
+            "declare",
+            "direction",
+            "face",
+            "language",
+            "link",
+            "nohref",
+            "noresize",
+            "noshade",
+            "nowrap",
+            "rev",
+            "scrolling",
+            "valuetype",
+            "vlink",
+        ];
+        NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
+    }
 }

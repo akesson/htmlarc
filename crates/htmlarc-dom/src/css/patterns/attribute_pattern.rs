@@ -118,14 +118,17 @@ impl PartialEq<Class<'_>> for AttributePattern<'_> {
 /// Match a pattern against an attribute (ADR 0002 §3 — std, `data-*`, and unknown share one
 /// store). The name must match; then the value (if the pattern has one). Values compare
 /// case-sensitively, except the HTML standard's short list of ASCII-case-insensitive
-/// attributes ([`HtmlAttr::is_value_case_insensitive`]: `type`, `lang`, `rel`, ...). An
+/// attributes ([`HtmlAttr::is_value_case_insensitive`]: `type`, `lang`, `rel`, ...; and
+/// [`HtmlAttr::is_ext_value_case_insensitive`] for the listed names stored as extended). An
 /// explicit `s`/`i` flag overrides the default.
 /// <https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors>
 impl PartialEq<Attribute<'_>> for AttributePattern<'_> {
     fn eq(&self, other: &Attribute) -> bool {
         let insensitive_default = match (&self.name, &other.name) {
             (AttributeName::Std(p), AttrName::Std(a)) if p == a => a.is_value_case_insensitive(),
-            (AttributeName::Ext(p), AttrName::Ext(n)) if p == n => false,
+            (AttributeName::Ext(p), AttrName::Ext(n)) if p == n => {
+                HtmlAttr::is_ext_value_case_insensitive(n)
+            }
             _ => return false,
         };
 
@@ -1099,4 +1102,28 @@ fn test_default_value_case_follows_the_html_list() {
     let en = pattern(HtmlAttr::lang, AttributeOperator::DashMatch, "en");
     assert_eq!(en, attribute(HtmlAttr::lang, "EN-us"));
     assert_ne!(en, attribute(HtmlAttr::lang, "eng"));
+}
+
+#[test]
+fn test_spec_list_covers_extended_names() {
+    let pattern = |value: &'static str| AttributePattern {
+        name: AttributeName::Ext("language"),
+        value: Some(AttributeValue {
+            operator: AttributeOperator::Exact,
+            value: QuotedString(value.into()),
+            case: None,
+        }),
+    };
+    let attribute = |name, val| Attribute {
+        name: AttrName::Ext(name),
+        val,
+    };
+    // `language` is on the HTML standard's list but not an `HtmlAttr`: still case-insensitive.
+    assert_eq!(pattern("javascript"), attribute("language", "JavaScript"));
+    // Any other extended name (here `data-mode`) stays case-sensitive.
+    let data = AttributePattern {
+        name: AttributeName::Ext("data-mode"),
+        ..pattern("dark")
+    };
+    assert_ne!(data, attribute("data-mode", "Dark"));
 }

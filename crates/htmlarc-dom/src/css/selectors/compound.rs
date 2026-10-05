@@ -334,9 +334,17 @@ impl<'s> CompoundSelector<'s> {
     ) -> bool {
         let mut text_iter = el.descendants().text_chars();
         if let Some(value) = &text_pattern.value {
-            let insensitive = value.case == Some(CaseIndicator::Insensitive);
             let text: String = text_iter.collect();
-            value.operator.matches(&value.value.0, &text, insensitive)
+            // `[text]` is htmlarc's own pseudo-attribute, matched against prose, so `i` folds
+            // Unicode case (`[text*="ÉTÉ" i]` finds "été"), not just ASCII like real attributes.
+            if value.case == Some(CaseIndicator::Insensitive) {
+                let pattern = value.value.0.to_lowercase();
+                value
+                    .operator
+                    .matches(&pattern, &text.to_lowercase(), false)
+            } else {
+                value.operator.matches(&value.value.0, &text, false)
+            }
         } else {
             text_iter.next().is_some()
         }
