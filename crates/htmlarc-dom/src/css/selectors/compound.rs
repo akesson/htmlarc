@@ -240,7 +240,8 @@ impl<'s> CompoundSelector<'s> {
                         .context(CompoundSelectorError::AttributeFail(index))?
                     {
                         match attribute.pattern.name {
-                            // `[class]`/`[class=v]` query the class tokens (see `eq_class`);
+                            // `[class]`/`[class=v]` query the class list (see
+                            // `matches_class_list`);
                             // every other name — std, `data-*`, unknown — queries the unified
                             // attribute store.
                             AttributeName::Std(HtmlAttr::class) => {
@@ -344,7 +345,9 @@ impl<'s> CompoundSelector<'s> {
             return false;
         }
 
-        if !self.class_attributes.is_empty() && !view.has_classes(index, &self.class_attributes) {
+        if !self.class_attributes.is_empty()
+            && !view.has_class_attributes(index, &self.class_attributes)
+        {
             return false;
         }
 
@@ -621,7 +624,7 @@ fn test_compound_matching_ok() {
         ..Default::default()
     });
 
-    // div.blue[title^="main"][data-foo][class="red"]
+    // div.blue[title^="main"][data-foo][class="red blue"]
     test_match(CompoundSelector {
         element: Some(HtmlTag::div),
         classes: vec![ClassSelector::new("blue")],
@@ -643,7 +646,7 @@ fn test_compound_matching_ok() {
             name: AttributeName::Std(HtmlAttr::class),
             value: Some(AttributeValue {
                 operator: AttributeOperator::Exact,
-                value: QuotedString("red".into()),
+                value: QuotedString("red blue".into()),
                 case: None,
             }),
         })],

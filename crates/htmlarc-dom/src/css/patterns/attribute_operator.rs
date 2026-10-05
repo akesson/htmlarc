@@ -117,6 +117,10 @@ impl AttributeOperator {
     /// Whether `value` matches `pattern` under this operator. `ascii_ci` compares ASCII
     /// case-insensitively, as CSS does for the `i` flag and the case-insensitive attributes;
     /// non-ASCII characters still compare exactly. Neither mode allocates.
+    ///
+    /// As the spec says, an empty `pattern` never matches `^=`, `$=`, `*=` or `~=`, and `~=`
+    /// splits the value on CSS (ASCII) whitespace only.
+    /// <https://drafts.csswg.org/selectors-4/#attribute-substrings>
     pub fn matches(&self, pattern: &str, value: &str, ascii_ci: bool) -> bool {
         use AttributeOperator::*;
         let eq = |a: &[u8], b: &[u8]| eq_bytes(a, b, ascii_ci);
@@ -124,13 +128,13 @@ impl AttributeOperator {
         let starts = || v.len() >= p.len() && eq(&v[..p.len()], p);
         match self {
             Exact => eq(p, v),
+            DashMatch => eq(p, v) || (starts() && v.get(p.len()) == Some(&b'-')),
+            _ if p.is_empty() => false,
             Starts => starts(),
-            // `windows(0)` panics; an empty needle is in every value.
-            Includes if ascii_ci => p.is_empty() || v.windows(p.len()).any(|w| eq(w, p)),
+            Includes if ascii_ci => v.windows(p.len()).any(|w| eq(w, p)),
             Includes => value.contains(pattern),
             Ends => v.len() >= p.len() && eq(&v[v.len() - p.len()..], p),
-            List => value.split_whitespace().any(|w| eq(w.as_bytes(), p)),
-            DashMatch => eq(p, v) || (starts() && v.get(p.len()) == Some(&b'-')),
+            List => value.split_ascii_whitespace().any(|w| eq(w.as_bytes(), p)),
         }
     }
 }

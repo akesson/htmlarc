@@ -184,6 +184,17 @@ impl<'a> DomView<'a> {
         }
     }
 
+    /// The compound selector's `[class…]` check: every pattern matches the node's whole class
+    /// list (see [`AttributeSelector::matches_class_list`]). A node with no class attribute
+    /// never matches.
+    pub(crate) fn has_class_attributes(&self, node: NodeIndex, sels: &[AttributeSelector]) -> bool {
+        let Some(list) = self.nodes.class_list_index(node) else {
+            return false;
+        };
+        sels.iter()
+            .all(|sel| sel.matches_class_list(self.class_list_at(list)))
+    }
+
     /// The compound selector's class check (ADR 0002 §3). Each selector takes its resolved
     /// path: `Found(sym)` is an integer compare over the node's class syms; `Absent` never
     /// matches (correct through `:not`, which negates the inner result); `Unresolved` falls

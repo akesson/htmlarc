@@ -33,6 +33,9 @@ const QUERIES: &[(&str, &str)] = &[
     ("attr exact", r#"[role="navigation"]"#),
     ("attr insensitive", r#"[typeof="mw:File" i]"#),
     ("attr presence", "[data-word]"),
+    ("class attr word", r#"[class~="vector-menu-content"]"#),
+    ("class attr prefix", r#"[class^="vector-menu"]"#),
+    ("class attr substr", r#"[class*="menu-content"]"#),
 ];
 
 pub fn selectors_vs_scraper(c: &mut Criterion) {
