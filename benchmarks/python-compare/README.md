@@ -2,8 +2,8 @@
 
 > **Superseded.** The tables below are historical format-v11 measurements (July 2026)
 > and must not be quoted as release claims. Current numbers for every workflow here
-> (htmlarc `main` at `90d1666`, format v12, with an A/B against the PyPI 0.1.1
-> wheel) are in [main-90d1666.md](main-90d1666.md); the
+> (htmlarc `main` at `d31e8c8`, format v12, with an A/B against the PyPI 0.1.1
+> wheel) are in [main-d31e8c8.md](main-d31e8c8.md); the
 > narrower 0.1.0 run is [release-v12.md](release-v12.md). The prose explaining each
 > workflow still applies.
 
