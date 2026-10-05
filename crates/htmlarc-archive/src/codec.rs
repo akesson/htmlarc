@@ -12,7 +12,7 @@
 //! zero-length frame and skips the codec entirely on both sides.
 
 use htmlarc_dom::prelude::FrameDecoder;
-use zstd::bulk::{Compressor, Decompressor};
+use zstd::bulk::Compressor;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::error::ArchiveErr;
@@ -137,8 +137,10 @@ pub(crate) fn compress_segment(
 /// The [`FrameDecoder`] installed on an opened archive: inflates one per-document frame, reusing
 /// the archive-wide dictionary when present. Holds the *prepared* (digested) `DDict` — built once
 /// at open, never per call — and it is immutable, so the decoder is `Sync` and a single instance
-/// can be borrowed by every reader thread; each decode allocates only its own decompression
-/// context, which is the thread-safe grain.
+/// can be borrowed by every reader thread. The decompression context is per thread and reused:
+/// creating one per frame cost little on one thread, but across a 14-thread sweep the
+/// create/free pairs contended on the system allocator and took ~75% of worker CPU on small
+/// frames.
 pub(crate) struct ZstdFrameDecoder {
     /// The archive-wide dictionary (digested), or `None` when the strings were compressed
     /// dictionary-less.
@@ -163,11 +165,17 @@ impl FrameDecoder for ZstdFrameDecoder {
         }
         // A frame that fails to inflate means the archive is corrupt; like a bad document blob,
         // that is a panic (the read API cannot return a `Result` from a text accessor).
-        let out = match &self.ddict {
-            None => zstd::bulk::decompress(frame, raw_len),
-            Some(ddict) => Decompressor::with_prepared_dictionary(ddict)
-                .and_then(|mut d| d.decompress(frame, raw_len)),
-        };
-        out.expect("corrupt string frame")
+        thread_local! {
+            static DCTX: std::cell::RefCell<zstd::zstd_safe::DCtx<'static>> =
+                std::cell::RefCell::new(zstd::zstd_safe::DCtx::create());
+        }
+        let mut out = Vec::with_capacity(raw_len);
+        DCTX.with_borrow_mut(|dctx| match &self.ddict {
+            None => dctx.decompress(&mut out, frame),
+            Some(ddict) => dctx.decompress_using_ddict(&mut out, frame, ddict.as_ddict()),
+        })
+        .expect("corrupt string frame");
+        assert_eq!(out.len(), raw_len, "corrupt string frame");
+        out
     }
 }
