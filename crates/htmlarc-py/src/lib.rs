@@ -8,7 +8,7 @@
 //! ever crosses the FFI boundary (iterators are collected to index vectors per call).
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{
@@ -120,40 +120,135 @@ fn par_sweep<S, T: Send>(
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let n = archive.len();
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |p| p.get())
-        .min(n.max(1));
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let pool = sweep_pool();
+    let threads = pool.current_num_threads().min(n);
     // Work-stealing by atomic counter: document sizes vary wildly, so fixed ranges would
-    // leave threads idle behind whoever drew the big documents.
+    // leave threads idle behind whoever drew the big documents. Claim a few documents per
+    // counter bump: with small documents the contended counter otherwise costs about as
+    // much as the work, while ~32 claims per worker still balance the tail.
+    let chunk = (n / (threads * 32)).clamp(1, 64);
     let next = AtomicUsize::new(0);
-    let mut hits: Vec<(usize, String, T)> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..threads)
-            .map(|_| {
-                s.spawn(|| {
-                    let mut state = init();
-                    let mut local = Vec::new();
-                    loop {
-                        let pos = next.fetch_add(1, Ordering::Relaxed);
-                        if pos >= n {
-                            break;
-                        }
-                        let doc = archive.try_doc(pos)?;
-                        if let Some(v) = f(&mut state, pos, &doc) {
-                            local.push((pos, doc.key().to_string(), v));
-                        }
+    let per_worker = on_workers(
+        &pool,
+        threads,
+        || -> Result<Vec<(usize, String, T)>, ArchiveErr> {
+            let mut state = init();
+            let mut local = Vec::new();
+            loop {
+                let start = next.fetch_add(chunk, Ordering::Relaxed);
+                if start >= n {
+                    break;
+                }
+                for pos in start..(start + chunk).min(n) {
+                    let doc = archive.try_doc(pos).inspect_err(|_| {
+                        // Stop the other workers instead of letting them sweep the rest.
+                        next.store(n, Ordering::Relaxed);
+                    })?;
+                    if let Some(v) = f(&mut state, pos, &doc) {
+                        local.push((pos, doc.key().to_string(), v));
                     }
-                    Ok(local)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().expect("archive sweep worker panicked"))
-            .collect::<Result<Vec<_>, ArchiveErr>>()
-            .map(|per_thread| per_thread.into_iter().flatten().collect())
-    })?;
+                }
+            }
+            Ok(local)
+        },
+    );
+    let mut hits: Vec<(usize, String, T)> = per_worker
+        .into_iter()
+        .collect::<Result<Vec<_>, ArchiveErr>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     hits.sort_unstable_by_key(|(pos, ..)| *pos);
     Ok(hits.into_iter().map(|(_, key, v)| (key, v)).collect())
+}
+
+/// Run `job` once on each of `threads` workers and collect the results.
+///
+/// The workers are the threads of [`sweep_pool`], kept alive between calls. Spawning fresh
+/// threads per call cost far more than the spawn itself: on macOS, the system allocator is
+/// several times slower for threads that have not allocated yet, which every fresh thread
+/// paid on every sweep. The pool runs one sweep at a time, though — a broadcast returns only
+/// when every worker is done — so a sweep that overlaps another (from a second Python thread)
+/// spawns its own threads instead of waiting behind the other's documents.
+fn on_workers<R: Send>(
+    pool: &rayon::ThreadPool,
+    threads: usize,
+    job: impl Fn() -> R + Sync,
+) -> Vec<R> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    // The id of the process whose sweep holds the pool, or 0. Keyed by process like the pool
+    // itself: a fork()ed child inherits the mark of a sweep running in another parent thread,
+    // and no thread is left in the child to clear it.
+    static BUSY: AtomicU32 = AtomicU32::new(0);
+    struct Idle;
+    impl Drop for Idle {
+        fn drop(&mut self) {
+            BUSY.store(0, Ordering::Release);
+        }
+    }
+
+    let pid = std::process::id();
+    let held = BUSY.load(Ordering::Relaxed);
+    if held != pid
+        && BUSY
+            .compare_exchange(held, pid, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+    {
+        let _idle = Idle; // also on unwind, should a worker panic
+        pool.broadcast(|ctx| (ctx.index() < threads).then(&job))
+            .into_iter()
+            .flatten()
+            .collect()
+    } else {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..threads).map(|_| s.spawn(&job)).collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("archive sweep worker panicked"))
+                .collect()
+        })
+    }
+}
+
+/// The process's sweep thread pool, created on first use with rayon's default size (one
+/// thread per core, or `RAYON_NUM_THREADS`).
+///
+/// A `fork()`ed child (Python `multiprocessing` on Linux before 3.14) inherits the pool's
+/// bookkeeping but none of its threads, so a pool reused there would wait forever. The pool is
+/// therefore keyed by process id and rebuilt in a new process. The parent's copy is leaked
+/// there: dropping it would signal sleep locks that its vanished threads may have held.
+fn sweep_pool() -> Arc<rayon::ThreadPool> {
+    static POOL: Mutex<Option<(u32, Arc<rayon::ThreadPool>)>> = Mutex::new(None);
+    let pid = std::process::id();
+    let lock = || POOL.lock().unwrap_or_else(|e| e.into_inner());
+    let ours = |slot: &Option<(u32, Arc<rayon::ThreadPool>)>| {
+        slot.as_ref()
+            .filter(|(owner, _)| *owner == pid)
+            .map(|(_, pool)| pool.clone())
+    };
+    if let Some(pool) = ours(&lock()) {
+        return pool;
+    }
+    // Build without holding the lock: starting the threads takes milliseconds, and a fork()
+    // while the lock is held would leave the child waiting on it forever.
+    let built = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .thread_name(|i| format!("htmlarc-sweep-{i}"))
+            .build()
+            .expect("failed to start the sweep thread pool"),
+    );
+    let mut slot = lock();
+    if let Some(pool) = ours(&slot) {
+        return pool; // another thread got there first; `built` shuts down when dropped
+    }
+    if let Some(inherited) = slot.replace((pid, built.clone())) {
+        std::mem::forget(inherited);
+    }
+    built
 }
 
 fn selector_err(e: impl std::fmt::Display) -> PyErr {
@@ -885,7 +980,7 @@ enum MatchArg<'py> {
 /// HTML parsing at read time. Index by position (`archive[0]`) or key (`archive["…"]`),
 /// or iterate to visit every document. The `scan_*`/`matching` sweeps run across all
 /// cores with the GIL released — prefer them over a Python loop when extracting from
-/// every document.
+/// every document. Set `RAYON_NUM_THREADS` before the first sweep to use fewer cores.
 #[pyclass(frozen, module = "htmlarc")]
 pub struct Archive {
     inner: Arc<MmapArchive>,

@@ -976,6 +976,7 @@ dependencies = [
  "htmlarc-archive",
  "htmlarc-dom",
  "pyo3",
+ "rayon",
 ]
 
 [[package]]

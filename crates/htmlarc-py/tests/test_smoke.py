@@ -6,6 +6,9 @@ correctness testing lives in the Rust crates; these tests assert the FFI layer
 wires them up faithfully.
 """
 
+import os
+import time
+
 import pytest
 
 import htmlarc
@@ -155,6 +158,66 @@ def test_archive_scan(tmp_path):
     assert archive.scan_count("h1.t", attr="href") == 0
     assert archive.scan_count(".absent") == 0
     assert archive.scan_count(htmlarc.Selector("h1.t, a")) == 2 * len(hits)
+
+
+def test_scan_many_docs_in_order(tmp_path):
+    """Sweeps claim documents in batches of n / (workers * 32); with enough documents for
+    batches of several, every document is still visited exactly once, in archive order."""
+    n = max(3000, (os.cpu_count() or 1) * 32 * 8)
+    path = tmp_path / "many.htmlarc"
+    builder = htmlarc.ArchiveBuilder()
+    for i in range(n):
+        builder.add(f"d{i:06}", f"<body><p class='c{i % 7}'>{i}</p></body>")
+    builder.write(path)
+    archive = htmlarc.open(path)
+
+    expected = [f"d{i:06}" for i in range(n) if i % 7 == 3]
+    assert archive.matching(".c3") == expected
+    assert archive.scan_text(".c3") == [(k, [str(int(k[1:]))]) for k in expected]
+    assert archive.scan_count("p") == n
+
+
+def test_overlapping_scans(scan_archive):
+    """Sweeps from several Python threads at once (one runs on the shared worker pool, the
+    others on their own threads) all return the single-threaded answer."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    archive = scan_archive
+    expected = (archive.matching("h1.t"), archive.scan_attr("a", "href"), archive.scan_count("a"))
+
+    def run(_):
+        return (archive.matching("h1.t"), archive.scan_attr("a", "href"), archive.scan_count("a"))
+
+    with ThreadPoolExecutor(8) as ex:
+        assert all(r == expected for r in ex.map(run, range(200)))
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")  # fork() of a threaded process
+def test_scan_in_forked_child(scan_archive):
+    """A sweep in a fork()ed child (multiprocessing's default start method on Linux before
+    Python 3.14) must not wait on the parent's worker threads, which the child lacks."""
+    archive = scan_archive
+    expected = archive.scan_count("h1.t")  # starts the parent's worker pool
+    pid = os.fork()
+    if pid == 0:  # child: never return into pytest
+        ok = False
+        try:
+            ok = archive.scan_count("h1.t") == expected and archive.scan_count("a") == expected
+        finally:
+            os._exit(0 if ok else 1)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            assert os.waitstatus_to_exitcode(status) == 0
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+        pytest.fail("sweep in the forked child hung")
+    assert archive.scan_count("h1.t") == expected  # the parent's pool still works
 
 
 @pytest.fixture

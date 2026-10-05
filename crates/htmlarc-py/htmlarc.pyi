@@ -225,7 +225,8 @@ class Archive:
     with no HTML parsing at read time. Index by position (``archive[0]``) or
     key (``archive["…"]``), or iterate to visit every document. The
     ``scan_*``/``matching`` sweeps run across all cores with the GIL released —
-    prefer them over a Python loop when extracting from every document.
+    prefer them over a Python loop when extracting from every document. Set
+    ``RAYON_NUM_THREADS`` before the first sweep to use fewer cores.
     """
 
     def __init__(self, path: str | PathLike[str]) -> None: ...

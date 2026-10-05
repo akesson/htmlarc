@@ -22,3 +22,5 @@ htmlarc-archive = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+# Persistent thread pool for the archive sweeps (`par_sweep`).
+rayon = { workspace = true }
