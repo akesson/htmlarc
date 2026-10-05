@@ -178,19 +178,25 @@ fn on_workers<R: Send>(
     threads: usize,
     job: impl Fn() -> R + Sync,
 ) -> Vec<R> {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicU32, Ordering};
 
-    static BUSY: AtomicBool = AtomicBool::new(false);
+    // The id of the process whose sweep holds the pool, or 0. Keyed by process like the pool
+    // itself: a fork()ed child inherits the mark of a sweep running in another parent thread,
+    // and no thread is left in the child to clear it.
+    static BUSY: AtomicU32 = AtomicU32::new(0);
     struct Idle;
     impl Drop for Idle {
         fn drop(&mut self) {
-            BUSY.store(false, Ordering::Release);
+            BUSY.store(0, Ordering::Release);
         }
     }
 
-    if BUSY
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_ok()
+    let pid = std::process::id();
+    let held = BUSY.load(Ordering::Relaxed);
+    if held != pid
+        && BUSY
+            .compare_exchange(held, pid, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
     {
         let _idle = Idle; // also on unwind, should a worker panic
         pool.broadcast(|ctx| (ctx.index() < threads).then(&job))
