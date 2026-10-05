@@ -11,9 +11,12 @@
 //! decode allocates its output buffer once, with no over-read. An empty pool is stored as a
 //! zero-length frame and skips the codec entirely on both sides.
 
+use std::cell::RefCell;
+
 use htmlarc_dom::prelude::FrameDecoder;
-use zstd::bulk::{Compressor, Decompressor};
+use zstd::bulk::Compressor;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
+use zstd::zstd_safe::{DCtx, SafeResult, get_error_name};
 
 use crate::error::ArchiveErr;
 
@@ -137,8 +140,8 @@ pub(crate) fn compress_segment(
 /// The [`FrameDecoder`] installed on an opened archive: inflates one per-document frame, reusing
 /// the archive-wide dictionary when present. Holds the *prepared* (digested) `DDict` — built once
 /// at open, never per call — and it is immutable, so the decoder is `Sync` and a single instance
-/// can be borrowed by every reader thread; each decode allocates only its own decompression
-/// context, which is the thread-safe grain.
+/// can be borrowed by every reader thread. The decompression context is per thread and reused,
+/// never made per frame: a parallel sweep's create/free pairs contend on the system allocator.
 pub(crate) struct ZstdFrameDecoder {
     /// The archive-wide dictionary (digested), or `None` when the strings were compressed
     /// dictionary-less.
@@ -153,21 +156,117 @@ impl ZstdFrameDecoder {
     }
 }
 
+thread_local! {
+    /// The decoding thread's reusable decompression context. It belongs to the thread, not to an
+    /// archive: every decode passes its own dictionary (or none), so one context serves them all.
+    static DCTX: RefCell<DCtx<'static>> = RefCell::new(DCtx::create());
+}
+
+impl ZstdFrameDecoder {
+    /// Inflate `frame` into `out` on `dctx`, against this archive's dictionary when it has one.
+    fn inflate(&self, dctx: &mut DCtx<'_>, out: &mut Vec<u8>, frame: &[u8]) -> SafeResult {
+        match &self.ddict {
+            None => dctx.decompress(out, frame),
+            Some(ddict) => dctx.decompress_using_ddict(out, frame, ddict.as_ddict()),
+        }
+    }
+}
+
 impl FrameDecoder for ZstdFrameDecoder {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn decode(&self, frame: &[u8], raw_len: usize) -> Vec<u8> {
-        // A zero-length frame is a text-free document — never a real zstd frame.
-        if frame.is_empty() {
-            debug_assert_eq!(raw_len, 0, "empty frame must decode to nothing");
-            return Vec::new();
-        }
         // A frame that fails to inflate means the archive is corrupt; like a bad document blob,
         // that is a panic (the read API cannot return a `Result` from a text accessor).
-        let out = match &self.ddict {
-            None => zstd::bulk::decompress(frame, raw_len),
-            Some(ddict) => Decompressor::with_prepared_dictionary(ddict)
-                .and_then(|mut d| d.decompress(frame, raw_len)),
-        };
-        out.expect("corrupt string frame")
+        // A zero-length frame is a text-free document — never a real zstd frame.
+        if frame.is_empty() {
+            assert_eq!(
+                raw_len, 0,
+                "corrupt string frame: empty frame for {raw_len} bytes"
+            );
+            return Vec::new();
+        }
+        let mut out = Vec::with_capacity(raw_len);
+        // A thread whose locals are already torn down (a decode from a TLS destructor) gets a
+        // one-off context instead.
+        DCTX.try_with(|dctx| self.inflate(&mut dctx.borrow_mut(), &mut out, frame))
+            .unwrap_or_else(|_| self.inflate(&mut DCtx::create(), &mut out, frame))
+            .unwrap_or_else(|code| panic!("corrupt string frame: {}", get_error_name(code)));
+        assert_eq!(
+            out.len(),
+            raw_len,
+            "corrupt string frame: wrong decoded length"
+        );
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Text pools big and varied enough to clear `train_string_dict`'s thresholds, so the
+    /// dictionary path runs; the test archives are all below them and stay dictionary-less.
+    fn samples() -> Vec<Vec<u8>> {
+        (0..3_000u32)
+            .map(|i| {
+                (0..120u32)
+                    .map(|w| format!("word{} item-{} ", (i * 7 + w * 13) % 97, w % 11))
+                    .collect::<String>()
+                    .into_bytes()
+            })
+            .collect()
+    }
+
+    fn compress(encoder: &StringEncoder, raw: &[u8]) -> Vec<u8> {
+        let (frames, ends) = encoder
+            .compressor()
+            .unwrap()
+            .compress_pool(raw, &[raw.len() as u32])
+            .unwrap();
+        assert_eq!(ends, [frames.len() as u32]);
+        frames
+    }
+
+    #[test]
+    fn decoders_with_and_without_dictionary_share_a_thread() {
+        let samples = samples();
+        let dict = train_string_dict(&samples).expect("samples clear the training threshold");
+        let (with, without) = (StringEncoder::new(Some(&dict)), StringEncoder::new(None));
+        let (dec_with, dec_without) = (
+            ZstdFrameDecoder::new(Some(dict)),
+            ZstdFrameDecoder::new(None),
+        );
+        // Alternate on one thread, so both reuse the same thread-local context back to back.
+        for raw in samples.iter().step_by(97) {
+            assert_eq!(dec_with.decode(&compress(&with, raw), raw.len()), *raw);
+            assert_eq!(
+                dec_without.decode(&compress(&without, raw), raw.len()),
+                *raw
+            );
+        }
+        assert!(dec_with.decode(&[], 0).is_empty());
+    }
+
+    #[test]
+    fn corrupt_frame_panics_with_the_zstd_error_name_and_the_thread_recovers() {
+        let samples = samples();
+        let dict = train_string_dict(&samples).unwrap();
+        let raw = &samples[0];
+        let frame = compress(&StringEncoder::new(Some(&dict)), raw);
+        // A dictionary frame read without its dictionary.
+        let err =
+            std::panic::catch_unwind(|| ZstdFrameDecoder::new(None).decode(&frame, raw.len()))
+                .expect_err("a dictionary frame must not decode without the dictionary");
+        let msg = err.downcast_ref::<String>().unwrap();
+        assert!(msg.starts_with("corrupt string frame: "), "{msg}");
+        assert!(
+            msg.chars().any(char::is_alphabetic),
+            "names the zstd error: {msg}"
+        );
+        // The panic left the thread's context usable.
+        assert_eq!(
+            ZstdFrameDecoder::new(Some(dict)).decode(&frame, raw.len()),
+            *raw
+        );
     }
 }
