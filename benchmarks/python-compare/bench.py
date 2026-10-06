@@ -26,15 +26,16 @@ Phases:
   pipeline_lxml_par | pipeline_bs4               stream+decode (+parse+query), cc only
 Corpora: wikt | cc  (pickles of list[(key, html)] made by extract.py, in data/)
 
-HTMLARC_BENCH_COLD=1 evicts the phase's on-disk input (the .htmlarc, or the
-warc.gz for pipeline_*) from the page cache before timing starts; every htmlarc
-and pipeline phase reports the input's cached fraction as `resident_at_start`.
-Without it, those inputs are read through once first, so "warm" means fully cached.
+HTMLARC_BENCH_COLD=1 evicts the phase's on-disk input (the .htmlarc, or
+data/cc.warc.gz for pipeline_*) from the page cache before timing starts; every
+htmlarc and pipeline phase reports the input's cached fraction as
+`resident_at_start`. Without it, those inputs are read through once first, so
+"warm" means fully cached.
 Multiprocessing phases also report `tree_rss_mb`: the peak of the summed RSS of
-the parent and its workers, sampled every 10 ms during a second, untimed pass (the
-sampler shares the parent's GIL, so sampling the timed pass would slow lxml's
-serial parent). It counts copy-on-write pages shared after fork once per process,
-so it overstates physical memory.
+the parent and its workers, sampled every 10 ms by a separate process during a
+second, untimed pass (so the sampler's CPU use can't touch the timing, and no
+sampler thread is alive when the pool forks). It counts copy-on-write pages
+shared after fork once per process, so it overstates physical memory.
 """
 
 import json
@@ -104,17 +105,18 @@ def resident_frac(path):
 
 
 def prepare_input(path):
-    """Evict `path` from the page cache when HTMLARC_BENCH_COLD=1 (macOS: rewrite it
-    through an F_NOCACHE copy, which needs no root, unlike `purge`). Returns the
-    cached fraction left at the start of the timed region. Warm mode reads the file
-    through once instead, so a long-unused input is fully cached again."""
+    """Evict `path` from the page cache when HTMLARC_BENCH_COLD=1, without root
+    (unlike `purge` or drop_caches). macOS: rewrite it through an F_NOCACHE copy.
+    Linux: posix_fadvise(DONTNEED). Returns the cached fraction left at the start
+    of the timed region. Warm mode reads the file through once instead, so a
+    long-unused input is fully cached again."""
     import fcntl
 
     if os.environ.get("HTMLARC_BENCH_COLD") != "1":
         with open(path, "rb", buffering=0) as f:
             while f.read(8 << 20):
                 pass
-    else:
+    elif hasattr(fcntl, "F_NOCACHE"):
         tmp = Path(f"{path}.evict")
         with open(path, "rb", buffering=0) as src, open(tmp, "wb", buffering=0) as dst:
             fcntl.fcntl(src.fileno(), fcntl.F_NOCACHE, 1)
@@ -123,38 +125,58 @@ def prepare_input(path):
                 dst.write(chunk)
             os.fsync(dst.fileno())
         os.replace(tmp, path)
+    elif hasattr(os, "posix_fadvise"):
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)  # DONTNEED skips dirty pages, e.g. a just-built archive
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        finally:
+            os.close(fd)
+    else:
+        raise OSError("cold mode needs F_NOCACHE (macOS) or posix_fadvise (Linux)")
     return resident_frac(path)
 
 
+# Runs as its own process, so the parent stays single-threaded when its pool forks.
+# Samples the parent and all its descendants except itself until stdin closes.
+_SAMPLER = """
+import os, select, sys
+import psutil
+me, peak = psutil.Process(int(sys.argv[1])), 0
+print("ready", flush=True)
+while True:
+    total = 0
+    for p in [me, *me.children(recursive=True)]:
+        if p.pid == os.getpid():
+            continue
+        try:
+            total += p.memory_info().rss
+        except psutil.Error:
+            pass  # worker exited between listing and reading
+    peak = max(peak, total)
+    if select.select([sys.stdin], [], [], 0.01)[0]:
+        break
+print(peak)
+"""
+
+
 class TreeRss:
-    """Peak summed RSS of this process and all its children, sampled in a thread."""
+    """Peak summed RSS of this process and all its children, sampled by a child
+    process."""
 
     def __enter__(self):
-        import threading
+        import subprocess
 
-        import psutil
-
-        self.peak, self._stop = 0, threading.Event()
-        me = psutil.Process()
-
-        def sample():
-            while not self._stop.is_set():
-                total = 0
-                for p in [me, *me.children(recursive=True)]:
-                    try:
-                        total += p.memory_info().rss
-                    except psutil.Error:
-                        pass  # worker exited between listing and reading
-                self.peak = max(self.peak, total)
-                self._stop.wait(0.01)
-
-        self._thread = threading.Thread(target=sample, daemon=True)
-        self._thread.start()
+        self._proc = subprocess.Popen([sys.executable, "-c", _SAMPLER, str(os.getpid())],
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      text=True)
+        if self._proc.stdout.readline().strip() != "ready":
+            raise RuntimeError("RSS sampler failed to start (is psutil installed?)")
         return self
 
     def __exit__(self, *exc):
-        self._stop.set()
-        self._thread.join()
+        out, _ = self._proc.communicate()
+        self.peak = int(out)
 
     @property
     def mb(self):
@@ -170,6 +192,13 @@ def timed_then_measured(fn):
     with TreeRss() as mem:
         fn()
     return secs, result, mem.mb
+
+
+def timed(fn):
+    """(seconds, result) of one fn() call."""
+    t0 = time.perf_counter()
+    result = fn()
+    return time.perf_counter() - t0, result
 
 
 # ---------------------------------------------------------------- bs4
@@ -288,6 +317,28 @@ def hot_lxml(corpus):
 _par_docs = None
 
 
+def par_setup(corpus):
+    """Load the corpus as bytes into _par_docs (inherited by fork workers) and split
+    it into ~4 index ranges per worker for balance. Returns (workers, chunks)."""
+    global _par_docs
+    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
+    workers = os.cpu_count()
+    step = max(1, len(_par_docs) // (workers * 4))
+    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
+    return workers, chunks
+
+
+def mp_fork():
+    import multiprocessing as mp
+
+    return mp.get_context("fork")
+
+
+def fork_sweep(fn, chunks, workers):
+    with mp_fork().Pool(workers) as pool:
+        return pool.map(fn, chunks)
+
+
 def _lxml_par_chunk(rng):
     import lxml.html
 
@@ -304,30 +355,27 @@ def _lxml_par_chunk(rng):
     return counts, failures
 
 
+def sum_results(results, n):
+    """Totals of a pool's [(counts, failures)] results: (counts, failures)."""
+    return [sum(c[i] for c, _ in results) for i in range(n)], sum(f for _, f in results)
+
+
 def requery_lxml_par(corpus):
-    import multiprocessing as mp
     from multiprocessing.pool import ThreadPool
 
-    global _par_docs
-    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
-    workers = os.cpu_count()
-    step = max(1, len(_par_docs) // (workers * 4))  # ~4 chunks/worker for balance
-    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
+    workers, chunks = par_setup(corpus)
 
-    def run(pool_cls, **kw):
-        def sweep():
-            with pool_cls(workers, **kw) as pool:
-                return pool.map(_lxml_par_chunk, chunks)
-
-        secs, results, tree_mb = timed_then_measured(sweep)
-        counts = [sum(c[i] for c, _ in results) for i in range(3)]
-        failures = sum(f for _, f in results)
-        return secs, counts, failures, tree_mb
+    def thread_sweep():
+        with ThreadPool(workers) as pool:
+            return pool.map(_lxml_par_chunk, chunks)
 
     # includes pool startup + result IPC: that's the real per-question cost
-    t_proc, counts, failures, tree_mb = run(mp.get_context("fork").Pool)
-    t_thread, t_counts, t_failures, _ = run(ThreadPool)
-    assert t_counts == counts and t_failures == failures
+    t_proc, results, tree_mb = timed_then_measured(
+        lambda: fork_sweep(_lxml_par_chunk, chunks, workers))
+    counts, failures = sum_results(results, 3)
+    # Threads share this process, so there's no tree to measure: time it only.
+    t_thread, t_results = timed(thread_sweep)
+    assert sum_results(t_results, 3) == (counts, failures)
     emit("requery_lxml_par", corpus, {"processes": t_proc, "threads": t_thread},
          counts, failures, workers=workers, tree_rss_mb=tree_mb)
 
@@ -387,21 +435,12 @@ def _lxml_count_chunk(rng):
 
 
 def requery_lxml_count_par(corpus):
-    import multiprocessing as mp
-
-    global _par_docs
-    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
-    workers = os.cpu_count()
-    step = max(1, len(_par_docs) // (workers * 4))
-    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
-    def sweep():
-        with mp.get_context("fork").Pool(workers) as pool:
-            return pool.map(_lxml_count_chunk, chunks)
-
-    secs, results, tree_mb = timed_then_measured(sweep)
-    counts = [sum(c[i] for c, _ in results) for i in range(3)]
-    emit("requery_lxml_count_par", corpus, {"processes": secs}, counts,
-         sum(f for _, f in results), workers=workers, tree_rss_mb=tree_mb)
+    workers, chunks = par_setup(corpus)
+    secs, results, tree_mb = timed_then_measured(
+        lambda: fork_sweep(_lxml_count_chunk, chunks, workers))
+    counts, failures = sum_results(results, 3)
+    emit("requery_lxml_count_par", corpus, {"processes": secs}, counts, failures,
+         workers=workers, tree_rss_mb=tree_mb)
 
 
 # ---------------------------------------------------------------- htmlarc
@@ -417,6 +456,26 @@ def htmlarc_query(doc, sels, counts):
     counts[0] += sum(1 for h in doc.select_attr(s_links, "href") if h is not None)
     counts[1] += len(doc.select_text(s_heads))
     counts[2] += len(doc.select_text(s_cells))
+
+
+def htmlarc_scan_counts(arc, sels):
+    """The extraction via the GIL-released parallel sweeps; returns match counts."""
+    s_links, s_heads, s_cells = sels
+    counts = [0, 0, 0]
+    for _k, hrefs in arc.scan_attr(s_links, "href"):
+        counts[0] += sum(1 for h in hrefs if h is not None)
+    for _k, texts in arc.scan_text(s_heads):
+        counts[1] += len(texts)
+    for _k, texts in arc.scan_text(s_cells):
+        counts[2] += len(texts)
+    return counts
+
+
+def htmlarc_scan_count(arc, sels):
+    """The three questions as pure counts: one int back per sweep."""
+    s_links, s_heads, s_cells = sels
+    return [arc.scan_count(s_links, attr="href"), arc.scan_count(s_heads),
+            arc.scan_count(s_cells)]
 
 
 def oneshot_htmlarc(corpus):
@@ -470,14 +529,7 @@ def requery_htmlarc(corpus):
         htmlarc_query(doc, sels, counts)
     t2 = time.perf_counter()
     # Same extraction via the GIL-released parallel sweeps.
-    s_links, s_heads, s_cells = sels
-    scan_counts = [0, 0, 0]
-    for _k, hrefs in arc.scan_attr(s_links, "href"):
-        scan_counts[0] += sum(1 for h in hrefs if h is not None)
-    for _k, texts in arc.scan_text(s_heads):
-        scan_counts[1] += len(texts)
-    for _k, texts in arc.scan_text(s_cells):
-        scan_counts[2] += len(texts)
+    scan_counts = htmlarc_scan_counts(arc, sels)
     t3 = time.perf_counter()
     emit("requery_htmlarc", corpus, {"open": t1 - t0, "loop_query": t2 - t1,
                                      "scan_query": t3 - t2},
@@ -487,18 +539,12 @@ def requery_htmlarc(corpus):
 def requery_htmlarc_scan(corpus):
     import htmlarc
 
-    s_links, s_heads, s_cells = htmlarc_selectors()
+    sels = htmlarc_selectors()
     resident = prepare_input(DIR / f"{corpus}.htmlarc")
     t0 = time.perf_counter()
     arc = htmlarc.open(DIR / f"{corpus}.htmlarc")
     t1 = time.perf_counter()
-    scan_counts = [0, 0, 0]
-    for _k, hrefs in arc.scan_attr(s_links, "href"):
-        scan_counts[0] += sum(1 for h in hrefs if h is not None)
-    for _k, texts in arc.scan_text(s_heads):
-        scan_counts[1] += len(texts)
-    for _k, texts in arc.scan_text(s_cells):
-        scan_counts[2] += len(texts)
+    scan_counts = htmlarc_scan_counts(arc, sels)
     t2 = time.perf_counter()
     emit("requery_htmlarc_scan", corpus, {"open": t1 - t0, "scan_query": t2 - t1},
          scan_counts, n_docs=len(arc), resident_at_start=resident)
@@ -507,7 +553,8 @@ def requery_htmlarc_scan(corpus):
 def requery_htmlarc_count(corpus):
     import htmlarc
 
-    s_links, s_heads, s_cells = htmlarc_selectors()
+    sels = htmlarc_selectors()
+    s_links, s_heads, s_cells = sels
     resident = prepare_input(DIR / f"{corpus}.htmlarc")
     t0 = time.perf_counter()
     arc = htmlarc.open(DIR / f"{corpus}.htmlarc")
@@ -519,9 +566,7 @@ def requery_htmlarc_count(corpus):
         counts[2] += doc.select_count(s_cells)
     t2 = time.perf_counter()
     # Same counts via the GIL-released parallel sweep: one int back per question.
-    scan_counts = [arc.scan_count(s_links, attr="href"),
-                   arc.scan_count(s_heads),
-                   arc.scan_count(s_cells)]
+    scan_counts = htmlarc_scan_count(arc, sels)
     t3 = time.perf_counter()
     emit("requery_htmlarc_count", corpus, {"open": t1 - t0, "loop_count": t2 - t1,
                                            "scan_count": t3 - t2},
@@ -531,14 +576,12 @@ def requery_htmlarc_count(corpus):
 def requery_htmlarc_scan_count(corpus):
     import htmlarc
 
-    s_links, s_heads, s_cells = htmlarc_selectors()
+    sels = htmlarc_selectors()
     resident = prepare_input(DIR / f"{corpus}.htmlarc")
     t0 = time.perf_counter()
     arc = htmlarc.open(DIR / f"{corpus}.htmlarc")
     t1 = time.perf_counter()
-    counts = [arc.scan_count(s_links, attr="href"),
-              arc.scan_count(s_heads),
-              arc.scan_count(s_cells)]
+    counts = htmlarc_scan_count(arc, sels)
     t2 = time.perf_counter()
     emit("requery_htmlarc_scan_count", corpus, {"open": t1 - t0, "scan_count": t2 - t1},
          counts, n_docs=len(arc), resident_at_start=resident)
@@ -636,21 +679,12 @@ def _lxml_newq_chunk(rng):
 
 
 def newq_lxml_par(corpus):
-    import multiprocessing as mp
-
-    global _par_docs
-    _par_docs = [(k, h.encode("utf-8")) for k, h in load(corpus)]
-    workers = os.cpu_count()
-    step = max(1, len(_par_docs) // (workers * 4))
-    chunks = [(i, min(i + step, len(_par_docs))) for i in range(0, len(_par_docs), step)]
-    def sweep():
-        with mp.get_context("fork").Pool(workers) as pool:
-            return pool.map(_lxml_newq_chunk, chunks)
-
-    secs, results, tree_mb = timed_then_measured(sweep)
-    counts = [sum(c[i] for c, _ in results) for i in range(2)]
-    emit("newq_lxml_par", corpus, {"processes": secs}, counts,
-         sum(f for _, f in results), workers=workers, tree_rss_mb=tree_mb)
+    workers, chunks = par_setup(corpus)
+    secs, results, tree_mb = timed_then_measured(
+        lambda: fork_sweep(_lxml_newq_chunk, chunks, workers))
+    counts, failures = sum_results(results, 2)
+    emit("newq_lxml_par", corpus, {"processes": secs}, counts, failures,
+         workers=workers, tree_rss_mb=tree_mb)
 
 
 # ------------------------------------------------- end-to-end source pipeline
@@ -658,10 +692,10 @@ def newq_lxml_par(corpus):
 # question re-reads the source .warc.gz (gunzip + warcio record scan), decodes,
 # parses, queries. htmlarc's counterpart is requery_htmlarc on the .htmlarc that
 # was converted once. cc only (the wikt analog would stream the .zim).
+# The input is extract.py's prefix of cc_000.warc.gz: the records a run over the
+# full file reads, so only those bytes are warmed or evicted.
 
-CC_WARC = (Path(os.environ.get("HTMLARC_CORPUS",
-                               Path(__file__).resolve().parent.parent.parent / "corpus"))
-           / "cc_000.warc.gz")
+CC_WARC = DIR / "cc.warc.gz"
 
 
 def _cc_bodies(limit=5000):
@@ -734,8 +768,6 @@ def _pipeline_chunk(chunk):
 
 
 def pipeline_lxml_par(corpus):
-    import multiprocessing as mp
-
     assert corpus == "cc"
     workers = os.cpu_count()
 
@@ -750,15 +782,14 @@ def pipeline_lxml_par(corpus):
             yield buf
 
     def sweep():
-        with mp.get_context("fork").Pool(workers) as pool:
+        with mp_fork().Pool(workers) as pool:
             return list(pool.imap_unordered(_pipeline_chunk, chunks(_cc_bodies())))
 
     resident = prepare_input(CC_WARC)
     secs, results, tree_mb = timed_then_measured(sweep)
-    counts = [sum(c[i] for c, _ in results) for i in range(3)]
-    emit("pipeline_lxml_par", corpus, {"total": secs}, counts,
-         sum(f for _, f in results), workers=workers, tree_rss_mb=tree_mb,
-         resident_at_start=resident)
+    counts, failures = sum_results(results, 3)
+    emit("pipeline_lxml_par", corpus, {"total": secs}, counts, failures,
+         workers=workers, tree_rss_mb=tree_mb, resident_at_start=resident)
 
 
 def pipeline_bs4(corpus):

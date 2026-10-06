@@ -315,7 +315,7 @@ uvx maturin build --release -m ../../crates/htmlarc-py/Cargo.toml -i bench-venv/
 uv pip install -p bench-venv/bin/python ../../target/py-dev/htmlarc-*.whl
 
 bench-venv/bin/python extract.py wikt      # -> data/wikt.pkl
-bench-venv/bin/python extract.py cc        # -> data/cc.pkl
+bench-venv/bin/python extract.py cc        # -> data/cc.pkl, data/cc.warc.gz
 
 # One phase per process, one JSON line each; e.g.:
 bench-venv/bin/python bench.py oneshot_bs4 wikt
@@ -325,3 +325,8 @@ bench-venv/bin/python bench.py requery_htmlarc wikt
 # Or the whole suite, 3 repeats, warm then cold-cache phases, one JSON report:
 bench-venv/bin/python run_suite.py results.json
 ```
+
+Cold phases evict their input from the page cache (an `F_NOCACHE` rewrite on macOS,
+`posix_fadvise` on Linux); they only touch files in `data/`, never the corpus.
+`data/cc.warc.gz` is the prefix of `cc_000.warc.gz` holding the 5,000 extracted
+records, which the `pipeline_*` phases read.

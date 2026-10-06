@@ -168,8 +168,7 @@ This is the [Common Crawl notebook](../../examples/python/common_crawl.ipynb)'s
 Comparing equal core counts: **59× (14 vs 14)**, 100× (1 vs 1). On the `d31e8c8`
 run this was 23× / 47×: `href^=` used to lowercase both strings on every
 comparison. `href` values now compare case-sensitively, as the HTML standard and
-lxml do, so 6 `HTTP://` links no longer count (252,046 before). The remaining gap
-to lxml's count is tree recovery, not case.
+lxml do, so 6 `HTTP://` links no longer count (252,046 before).
 On wikt neither selector matches anything (0 / 0). The cost there is 0.102 s for
 14-core lxml and 0.0022 s for htmlarc (46×), but the answer is empty, so cite cc.
 The htmlarc loop row runs after the sweep in the same process.
@@ -288,12 +287,20 @@ uv pip install -p bench-venv/bin/python target/bench-main-wheel/htmlarc-*.whl \
     lxml==6.1.3 cssselect==1.5.0 beautifulsoup4==4.15.0 soupsieve==2.10 \
     pyarrow==25.0.1 warcio==1.8.1 libzim psutil
 export HTMLARC_BENCH_DATA="$PWD/target/release-0.1.1-benchmark-data"
-export HTMLARC_CORPUS="$HTMLARC_BENCH_DATA"    # holds a copy of cc_000.warc.gz:
-cp corpus/cc_000.warc.gz "$HTMLARC_CORPUS/"    # cold runs rewrite it to evict it
-bench-venv/bin/python benchmarks/python-compare/extract.py wikt
-bench-venv/bin/python benchmarks/python-compare/extract.py cc
+bench-venv/bin/python benchmarks/python-compare/extract.py wikt  # reads corpus/
+bench-venv/bin/python benchmarks/python-compare/extract.py cc    # + cc.warc.gz
 bench-venv/bin/python benchmarks/python-compare/run_suite.py main-17dafb2.json
 ```
 
 `run_suite.py` runs every phase in its own process for 3 repeats, warm phases
-first and then the cold ones. Cold mode works on macOS only (`F_NOCACHE`).
+first and then the cold ones, and rewrites the report after every phase. Cold
+mode evicts with an `F_NOCACHE` rewrite on macOS and `posix_fadvise(DONTNEED)` on
+Linux. It only touches files in `$HTMLARC_BENCH_DATA`, never `corpus/`.
+
+The numbers above predate these harness changes. The pipeline phases now read
+`cc.warc.gz`, the 95 MB prefix of `cc_000.warc.gz` that holds the 5,000 records
+(they stop there either way), so warm and cold runs no longer read or rewrite
+the whole 1.1 GB file. The `multiprocessing` peak RSS is now sampled by a separate
+process instead of a thread, so the parent no longer forks with a thread running.
+The report now hashes each repeat's archive (`archives`) where it used to keep one
+`archive_sha256` and `archive_format`.
