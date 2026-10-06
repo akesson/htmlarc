@@ -1,7 +1,11 @@
 # Querying HTML corpora from Python: BeautifulSoup vs lxml vs htmlarc
 
-> Historical results below use format v11 (July 2026), not the v12 release.
-> See [the v12 release measurements](release-v12.md) for current results.
+> **Superseded.** The tables below are historical format-v11 measurements (July 2026)
+> and must not be quoted as release claims. Current numbers for every workflow here
+> (htmlarc `main` at `17dafb2`, format v12, with an A/B against the PyPI 0.1.1
+> wheel) are in [main-17dafb2.md](main-17dafb2.md); the
+> narrower 0.1.0 run is [release-v12.md](release-v12.md). The prose explaining each
+> workflow still applies.
 
 Head-to-head measurement of the two standard Python HTML-querying stacks against the
 `htmlarc` Python bindings, on two real corpora. Basis for an article; all numbers
@@ -305,16 +309,24 @@ the repository README, or set `HTMLARC_CORPUS=/path/to/corpus`):
 
 ```sh
 uv venv -p 3.12 bench-venv
-uv pip install -p bench-venv/bin/python beautifulsoup4 lxml cssselect warcio libzim pyarrow
+uv pip install -p bench-venv/bin/python beautifulsoup4 lxml cssselect warcio libzim pyarrow psutil
 rm -rf ../../target/py-dev
 uvx maturin build --release -m ../../crates/htmlarc-py/Cargo.toml -i bench-venv/bin/python -o ../../target/py-dev
 uv pip install -p bench-venv/bin/python ../../target/py-dev/htmlarc-*.whl
 
 bench-venv/bin/python extract.py wikt      # -> data/wikt.pkl
-bench-venv/bin/python extract.py cc        # -> data/cc.pkl
+bench-venv/bin/python extract.py cc        # -> data/cc.pkl, data/cc.warc.gz
 
 # One phase per process, one JSON line each; e.g.:
 bench-venv/bin/python bench.py oneshot_bs4 wikt
 bench-venv/bin/python bench.py build_htmlarc wikt    # required before requery_htmlarc
 bench-venv/bin/python bench.py requery_htmlarc wikt
+
+# Or the whole suite, 3 repeats, warm then cold-cache phases, one JSON report:
+bench-venv/bin/python run_suite.py results.json
 ```
+
+Cold phases evict their input from the page cache (an `F_NOCACHE` rewrite on macOS,
+`posix_fadvise` on Linux); they only touch files in `data/`, never the corpus.
+`data/cc.warc.gz` is the prefix of `cc_000.warc.gz` holding the 5,000 extracted
+records, which the `pipeline_*` phases read.
