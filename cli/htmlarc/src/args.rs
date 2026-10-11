@@ -40,7 +40,9 @@ xflags::xflags! {
             /// Drop documents matching an expression.
             repeated -x, --exclude expr: String
             /// A probe '<css> => <format><attr-selector><@words>'. Formats: HtmlFmt, CssFmt,
-            /// CssTerse. Example: 'section > h1 => HtmlFmt[id][class^=mw]@words'
+            /// CssTerse. Example: 'section > h1 => HtmlFmt[id][class^=mw-heading]@words'.
+            /// Filter values are unquoted letters, digits, '-' and '_'; a [class…] filter
+            /// keeps the classes that match, one by one.
             repeated -p, --probe expr: String
         }
 

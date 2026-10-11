@@ -239,6 +239,19 @@ fn test_html_fmt() {
 }
 
 #[test]
+fn test_html_fmt_hyphenated_value() {
+    let html = r#"<div class="mw-ui-icon mw-ui-button vector-icon mw-u">x</div>"#;
+    let dom = HtmlDoc::parse(html).unwrap().dom();
+    let root = dom.root();
+    let el = root.forwards().next().unwrap();
+
+    // A `[class…]` filter keeps the classes that match, one by one.
+    let fmt = ElementFormat::try_from("HtmlFmt[class^=mw-ui]").unwrap();
+    let out = fmt.format(&el).to_string();
+    assert_eq!(out, "<div class='mw-ui-icon mw-ui-button'>");
+}
+
+#[test]
 fn test_css_fmt() {
     let dom = HtmlDoc::parse(HTML).unwrap().dom();
     let root = dom.root();

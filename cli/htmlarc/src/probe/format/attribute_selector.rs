@@ -53,9 +53,12 @@ impl<'s> AttributeSelector<'s> {
                     if let Some(operator) =
                         AttributeOperator::from_chars(chars).map_err(|e| e.to_string())?
                     {
+                        // `-` and `_` so class names like `mw-ui` can be written.
                         let text_pattern = TextPattern::default()
                             .allow_alphabetic()
                             .allow_numeric()
+                            .allow_special('-')
+                            .allow_special('_')
                             .start_with(CssChar::Alphabetic)
                             .start_with(CssChar::Digit)
                             .stop_at(']');
@@ -63,7 +66,7 @@ impl<'s> AttributeSelector<'s> {
                         if let Some(text) =
                             text_pattern.validate(chars).map_err(|e| e.to_string())?
                         {
-                            chars.next();
+                            close_bracket(chars)?;
                             Ok(Some(Self {
                                 name: attr,
                                 value: Some((operator, text)),
@@ -72,7 +75,7 @@ impl<'s> AttributeSelector<'s> {
                             Err("no value".to_string())
                         }
                     } else {
-                        chars.next();
+                        close_bracket(chars)?;
                         Ok(Some(Self {
                             name: attr,
                             value: None,
@@ -84,6 +87,18 @@ impl<'s> AttributeSelector<'s> {
         } else {
             Ok(None)
         }
+    }
+}
+
+/// Consume the closing `]`, so a character the value can't hold is reported where it is.
+fn close_bracket(chars: &mut CssChars) -> Result<(), String> {
+    match chars.current() {
+        Some((_, ']')) => {
+            chars.next();
+            Ok(())
+        }
+        Some((i, c)) => Err(format!("expected ']' at {i}, found '{c}'")),
+        None => Err("missing ']'".to_string()),
     }
 }
 
@@ -106,4 +121,20 @@ fn parse_attribute_selector() {
     let selector = AttributeSelector::from_chars(&mut chars).unwrap().unwrap();
 
     assert_eq!(selector.to_string(), str);
+
+    for str in ["[class^=mw-ui]", "[data-foo=a_b-c]"] {
+        let mut chars = CssChars::new(str);
+        let selector = AttributeSelector::from_chars(&mut chars).unwrap().unwrap();
+        assert_eq!(selector.to_string(), str);
+    }
+}
+
+#[test]
+fn reject_a_char_the_value_cannot_hold_where_it_is() {
+    let parse = |str| AttributeSelector::from_chars(&mut CssChars::new(str)).map(|_| ());
+    assert_eq!(
+        parse("[class^=mw.ui]"),
+        Err("expected ']' at 10, found '.'".into())
+    );
+    assert_eq!(parse("[class^=mw"), Err("missing ']'".into()));
 }
