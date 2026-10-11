@@ -171,19 +171,6 @@ impl<'a> DomView<'a> {
         }
     }
 
-    pub(crate) fn has_classes<P>(&self, node: NodeIndex, classes: &[P]) -> bool
-    where
-        P: for<'b> PartialEq<Class<'b>>,
-    {
-        if let Some(list_index) = self.nodes.class_list_index(node) {
-            classes
-                .iter()
-                .all(|c| self.class_list_at(list_index).any(|v| *c == v))
-        } else {
-            false
-        }
-    }
-
     /// The compound selector's `[class…]` check: every pattern matches the node's whole class
     /// list (see [`AttributeSelector::matches_class_list`]). A node with no class attribute
     /// never matches.

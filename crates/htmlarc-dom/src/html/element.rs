@@ -8,7 +8,7 @@ use crate::{
     fmt::HtmlFormat,
     html::HtmlTag,
     iters::{DomIterator, ElementIter, MatchIter, RelativeIter, RevElementIter},
-    stores::{AttrName, Class},
+    stores::AttrName,
 };
 
 use super::HtmlAttr;
@@ -367,13 +367,6 @@ impl<'dom, Dom: DomRead> HtmlElement<'dom, Dom> {
 
     pub fn has_id(&self, id: &str) -> bool {
         self.with_view(|view| view.has_id(self.index(), id))
-    }
-
-    pub fn has_classes<P>(&self, classes: &[P]) -> bool
-    where
-        P: for<'a> PartialEq<Class<'a>>,
-    {
-        self.with_view(move |view| view.has_classes(self.index(), classes))
     }
 
     pub fn is_root(&self) -> bool {

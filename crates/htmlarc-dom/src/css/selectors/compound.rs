@@ -283,7 +283,7 @@ impl<'s> CompoundSelector<'s> {
 
     /// Whether this compound matches `el`. Binds the node's [`DomView`] once and delegates to the
     /// single [`matches_in_view`](Self::matches_in_view) body. The element accessors
-    /// (`el.has_classes`, …) are each just `el.with_view(|v| v.<check>(el.index(), …))`, so matching
+    /// (`el.has_id`, …) are each just `el.with_view(|v| v.<check>(el.index(), …))`, so matching
     /// *through them* would rebuild the view per check; binding it once here avoids that. This is
     /// the entry point for direct matches (`matches_css`) and the combinator `verify` path; the
     /// bound-walk hot path skips it and calls `matches_in_view` with a view bound for the walk.
