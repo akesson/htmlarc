@@ -232,7 +232,7 @@ This product includes software from the compact-thrift project (Apache 2.0)
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd 0.14.0; zstd-safe 8.0.0; zstd-sys 2.1.0+zstd.1.5.7
+Components: zstd 0.14.2; zstd-safe 8.1.0; zstd-sys 2.1.1+zstd.1.5.7
 
 BSD 3-Clause License
 
@@ -266,7 +266,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: Zstandard; zstd-sys 2.1.0+zstd.1.5.7
+Components: Zstandard; zstd-sys 2.1.1+zstd.1.5.7
 
 BSD License
 
@@ -302,7 +302,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd-sys 2.1.0+zstd.1.5.7
+Components: zstd-sys 2.1.1+zstd.1.5.7
 
 The auto-generated bindings are under the 3-clause BSD license:
 
@@ -340,7 +340,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 MIT
 ========================================================================
-Components: Rust standard library: adler2 2.0.1; allocator-api2 0.2.21; fs-err 3.3.1; once_cell 1.21.4; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 2.0.21; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
+Components: Rust standard library: adler2 2.0.1; allocator-api2 0.2.21; fs-err 3.3.2; once_cell 1.21.4; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 2.0.21; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
 Components: rayon 1.12.0; rayon-core 1.13.0
 Copyright (c) 2010 The Rust Project Developers
 Components: core-foundation-sys 0.8.7
@@ -383,7 +383,7 @@ Copyright (c) 2020 Yevhenii Reizner
 Copyright (c) 2015 Dan Burkert
 Components: html5gum 0.8.4
 Copyright (c) 2021 Markus Unterwaditzer
-Components: pyo3 0.29.2; pyo3-ffi 0.29.2; pyo3-macros 0.29.2; pyo3-macros-backend 0.29.2
+Components: pyo3 0.29.3; pyo3-ffi 0.29.3; pyo3-macros 0.29.3; pyo3-macros-backend 0.29.3
 Copyright (c) 2023-present PyO3 Project and Contributors.  https://github.com/PyO3
 Components: Rust standard library: libc 0.2.185; libc 0.2.186
 Copyright (c) The Rust Project Developers
