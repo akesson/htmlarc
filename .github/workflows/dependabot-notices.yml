@@ -1,0 +1,58 @@
+name: dependabot notices
+
+# Dependabot can't run scripts, so each cargo bump it opens fails CI's license
+# notices check (scripts/package_notices.py hashes Cargo.lock and the
+# manifests). Regenerate the notices on its branch as docs/releasing.md
+# describes, and push them back.
+#
+# Dependabot-triggered runs get a read-only token unless the workflow asks for
+# more. Only Dependabot's PRs in this repo run the job; fork PRs never get a
+# write token.
+on:
+  pull_request:
+    paths: ["Cargo.lock", "**/Cargo.toml"]
+
+permissions:
+  contents: write # push the regenerated notices
+  actions: write # dispatch CI for the pushed commit
+
+concurrency:
+  group: dependabot-notices-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: rust-src, rust-docs
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      - run: python3 scripts/generate_notices.py
+      - run: python3 scripts/package_notices.py --sync
+      # A push made with GITHUB_TOKEN starts no workflow run, so CI is
+      # dispatched for the new commit. Dependabot stops rebasing a branch that
+      # has someone else's commit; comment `@dependabot recreate` on a
+      # conflicting PR and this job runs again on the fresh branch.
+      - name: push and run CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet; then
+            echo "Notices are current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Regenerate third-party notices for the dependency bump"
+          git push origin "HEAD:$BRANCH"
+          gh workflow run ci.yml --ref "$BRANCH"
