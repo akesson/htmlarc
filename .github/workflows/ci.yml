@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # dependabot-notices.yml pushes with GITHUB_TOKEN, which starts no workflow
+  # run, so it dispatches this one for the commit it pushed.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
@@ -14,13 +17,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  fmt:
-    name: rustfmt
+  notices:
+    name: license notices
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: python3 scripts/package_notices.py
       - run: python3 scripts/test_notices.py
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       # Honors the channel + components pinned in rust-toolchain.toml.
       - uses: actions-rust-lang/setup-rust-toolchain@v2
       - run: cargo fmt --all --check

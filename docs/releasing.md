@@ -116,6 +116,9 @@ python3 scripts/generate_notices.py
 python3 scripts/package_notices.py --sync
 ```
 
+The `dependabot notices` workflow does this on Dependabot's cargo PRs and
+pushes the result to the PR branch.
+
 There are two generated files:
 
 - `crates/htmlarc-py/THIRD_PARTY_NOTICES.txt` ships in wheels and the Python sdist
