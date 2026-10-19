@@ -434,7 +434,7 @@ Components: unit-prefix 0.5.2
 MIT License
 
 Copyright (c) 2024 Benjamin Sago, Fabio Valentini
-Components: function_name-proc-macro 0.3.0; hotpath 0.26.1; hotpath-macros 0.26.1; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
+Components: function_name-proc-macro 0.3.0; hotpath 0.28.3; hotpath-macros 0.28.4; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
 MIT License
 
 Copyright (c) <year> <copyright holders>
