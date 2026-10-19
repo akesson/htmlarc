@@ -27,7 +27,9 @@ def get(url: str, tries: int = 9, **kw) -> requests.Response:
         wait = min(2 ** (attempt + 1), 60)
         try:
             r = requests.get(url, headers=headers, **kw)
-        except (requests.ConnectionError, requests.Timeout):
+        # ChunkedEncodingError: the connection dropped mid-body (a non-streamed
+        # get reads the whole body here); it isn't a ConnectionError subclass.
+        except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError):
             if attempt < tries - 1:
                 time.sleep(wait)
                 continue
