@@ -407,7 +407,7 @@ Components: strum 0.28.0; strum_macros 0.28.0
 MIT License
 
 Copyright (c) 2019 Peter Glotfelty
-Components: html-escape 0.2.15
+Components: html-escape 0.3.0
 MIT License
 
 Copyright (c) 2020 magiclen.org (Ron Li)
