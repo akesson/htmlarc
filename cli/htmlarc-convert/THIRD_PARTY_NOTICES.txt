@@ -213,7 +213,7 @@ Apache License
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd 0.14.2; zstd-safe 8.1.0; zstd-sys 2.1.1+zstd.1.5.7
+Components: zstd 0.14.3; zstd-safe 8.2.0; zstd-sys 2.1.2+zstd.1.5.7
 
 BSD 3-Clause License
 
@@ -247,7 +247,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: Zstandard; zstd-sys 2.1.1+zstd.1.5.7
+Components: Zstandard; zstd-sys 2.1.2+zstd.1.5.7
 
 BSD License
 
@@ -283,7 +283,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd-sys 2.1.1+zstd.1.5.7
+Components: zstd-sys 2.1.2+zstd.1.5.7
 
 The auto-generated bindings are under the 3-clause BSD license:
 
@@ -347,7 +347,7 @@ Components: bitreader 0.3.11
 Copyright (c) 2015 Ilkka Rauta
 Components: Rust standard library: object 0.37.3
 Copyright (c) 2015 The Gimli Developers
-Components: Rust standard library: gimli 0.32.3; heck 0.4.1; heck 0.5.0; unicode-normalization 0.1.25; unicode-segmentation 1.13.3; unicode-width 0.2.2
+Components: Rust standard library: gimli 0.32.3; heck 0.4.1; heck 0.5.0; unicode-normalization 0.1.26; unicode-segmentation 1.13.3; unicode-width 0.2.2
 Copyright (c) 2015 The Rust Project Developers
 Components: zim 0.4.0
 Copyright (c) 2015 The terminal-size Developers
@@ -434,7 +434,7 @@ Components: unit-prefix 0.5.2
 MIT License
 
 Copyright (c) 2024 Benjamin Sago, Fabio Valentini
-Components: function_name-proc-macro 0.3.0; hotpath 0.28.3; hotpath-macros 0.28.4; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
+Components: function_name-proc-macro 0.3.0; hotpath 0.28.6; hotpath-macros 0.28.6; ouroboros 0.18.5; ouroboros_macro 0.18.5; seahash 4.1.0; xflags 0.3.2; xflags-macros 0.3.2
 MIT License
 
 Copyright (c) <year> <copyright holders>
@@ -1071,7 +1071,7 @@ Copyright notices are retained in src/* files where relevant.
 ========================================================================
 Unicode-3.0
 ========================================================================
-Components: unicode-ident 1.0.24
+Components: unicode-ident 1.0.24; unicode-normalization 0.1.26
 
 UNICODE LICENSE V3
 
