@@ -232,7 +232,7 @@ This product includes software from the compact-thrift project (Apache 2.0)
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd 0.14.2; zstd-safe 8.1.0; zstd-sys 2.1.1+zstd.1.5.7
+Components: zstd 0.14.3; zstd-safe 8.2.0; zstd-sys 2.1.2+zstd.1.5.7
 
 BSD 3-Clause License
 
@@ -266,7 +266,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: Zstandard; zstd-sys 2.1.1+zstd.1.5.7
+Components: Zstandard; zstd-sys 2.1.2+zstd.1.5.7
 
 BSD License
 
@@ -302,7 +302,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 BSD-3-Clause
 ========================================================================
-Components: zstd-sys 2.1.1+zstd.1.5.7
+Components: zstd-sys 2.1.2+zstd.1.5.7
 
 The auto-generated bindings are under the 3-clause BSD license:
 
@@ -378,7 +378,7 @@ Components: iana-time-zone 0.1.65
 Copyright (c) 2020 Andrew D. Straw
 Components: Rust portable-simd
 Copyright (c) 2020 The Rust Project Developers
-Components: memmap2 0.9.11
+Components: memmap2 0.9.12
 Copyright (c) 2020 Yevhenii Reizner
 Copyright (c) 2015 Dan Burkert
 Components: html5gum 0.8.4
