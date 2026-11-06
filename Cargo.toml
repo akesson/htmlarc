@@ -18,8 +18,12 @@ anyhow = "1.0"
 arrow-array = { version = "60", features = ["ffi"] }
 arrow-buffer = "60"
 arrow-schema = "60"
+# Charset detection for undeclared legacy pages at ingest (`source/decode.rs` in htmlarc-convert).
+chardetng = "1.0"
 colorful = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
+# WHATWG decoders for legacy-charset crawl pages at ingest (`source/decode.rs` in htmlarc-convert).
+encoding_rs = "0.8"
 # Pure-Rust gzip for reading `.warc.gz` crawl segments. The `zlib-rs` backend inflates ~1.6×
 # faster than the default miniz_oxide (measured on cc_000), and `WarcSource::open` inflates
 # the whole segment serially, so this sits on convert's critical path.

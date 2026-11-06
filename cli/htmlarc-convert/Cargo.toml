@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+chardetng.workspace = true
+encoding_rs.workspace = true
 flate2.workspace = true
 htmlarc-dom.workspace = true
 htmlarc-archive.workspace = true

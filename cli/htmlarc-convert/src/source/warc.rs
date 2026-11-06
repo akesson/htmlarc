@@ -22,6 +22,7 @@ use anyhow::{Result, anyhow, bail};
 use flate2::bufread::GzDecoder;
 use htmlarc_archive::{BUNDLE_CAP, MetaSchema, MetaType, MetaValue};
 
+use super::decode::decode_html;
 use super::{DocSink, Source, SourceStats};
 
 /// Reject a record claiming a wildly oversized body rather than trying to allocate it — a
@@ -169,17 +170,26 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+/// An HTML `response` record's body, undecoded, and the `Content-Type` header naming its charset.
+struct HtmlBody<'a> {
+    content_type: &'a [u8],
+    bytes: &'a [u8],
+}
+
 /// Extract the HTML body of a `response` record, or `None` if it is not an HTML response.
-fn html_body(rec: &Record) -> Option<&[u8]> {
+fn html_body(rec: &Record) -> Option<HtmlBody<'_>> {
     if rec.warc_type != "response" {
         return None;
     }
     let sep = find(&rec.block, b"\r\n\r\n")?;
-    let headers = String::from_utf8_lossy(&rec.block[..sep]).to_ascii_lowercase();
-    let is_html = headers
-        .lines()
-        .any(|l| l.starts_with("content-type:") && l.contains("text/html"));
-    is_html.then(|| &rec.block[sep + 4..])
+    let content_type = rec.block[..sep].split(|&b| b == b'\n').find(|line| {
+        let line = line.to_ascii_lowercase();
+        line.starts_with(b"content-type:") && find(&line, b"text/html").is_some()
+    })?;
+    Some(HtmlBody {
+        content_type,
+        bytes: &rec.block[sep + 4..],
+    })
 }
 
 /// Walks a WARC file's records in order, tagging each with a re-read locator
@@ -369,10 +379,8 @@ fn read_nth_body<R: BufRead>(r: &mut R, ord: u32) -> Result<Option<String>> {
         }
     }
     Ok(match read_record(r)? {
-        Some(rec) => html_body(&rec).map(|b| match std::str::from_utf8(b) {
-            // `from_utf8` has an ASCII fast path the byte-at-a-time lossy decoder lacks.
-            Ok(s) => s.to_owned(),
-            Err(_) => String::from_utf8_lossy(b).into_owned(),
+        Some(rec) => html_body(&rec).map(|body| {
+            decode_html(body.bytes, Some(body.content_type), Some(&rec.target_uri)).into_owned()
         }),
         None => None,
     })
@@ -576,6 +584,24 @@ mod tests {
         let got = roundtrip(&path);
         std::fs::remove_file(&path).ok();
         assert_eq!(got, want(&docs));
+    }
+
+    /// A legacy page is decoded by the charset in its HTTP header, not as lossy UTF-8.
+    #[test]
+    fn legacy_charset_body_is_decoded() {
+        let http =
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=windows-1252\r\n\r\ncaf\xe9";
+        let mut record = format!(
+            "WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: http://fr/\r\nContent-Length: {}\r\n\r\n",
+            http.len()
+        )
+        .into_bytes();
+        record.extend_from_slice(http);
+        record.extend_from_slice(b"\r\n\r\n");
+        let path = write_tmp("legacy.warc.gz", &gz_member(&record));
+        let got = roundtrip(&path);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(got, want(&[("http://fr/", "caf\u{e9}")]));
     }
 
     /// Non-html responses and a duplicate key are filtered in pass 1, exactly as before.
