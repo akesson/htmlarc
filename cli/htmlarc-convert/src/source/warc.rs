@@ -22,7 +22,7 @@ use anyhow::{Result, anyhow, bail};
 use flate2::bufread::GzDecoder;
 use htmlarc_archive::{BUNDLE_CAP, MetaSchema, MetaType, MetaValue};
 
-use super::decode::decode_html;
+use super::decode::{decode_html, find_ci, starts_with_ci};
 use super::{DocSink, Source, SourceStats};
 
 /// Reject a record claiming a wildly oversized body rather than trying to allocate it — a
@@ -183,8 +183,7 @@ fn html_body(rec: &Record) -> Option<HtmlBody<'_>> {
     }
     let sep = find(&rec.block, b"\r\n\r\n")?;
     let content_type = rec.block[..sep].split(|&b| b == b'\n').find(|line| {
-        let line = line.to_ascii_lowercase();
-        line.starts_with(b"content-type:") && find(&line, b"text/html").is_some()
+        starts_with_ci(line, b"content-type:") && find_ci(line, b"text/html").is_some()
     })?;
     Some(HtmlBody {
         content_type,

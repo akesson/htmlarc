@@ -13,15 +13,22 @@
 use std::borrow::Cow;
 
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
-use encoding_rs::{Encoding, UTF_8};
+use encoding_rs::{Encoding, UTF_8, WINDOWS_1252, X_USER_DEFINED};
 
 /// How far into a document to look for `<meta charset>`. The standard's prescan stops at 1,024
 /// bytes; real pages put more before it, and past the window a page falls through to detection.
 const META_PRESCAN: usize = 4096;
 
 /// Valid multi-byte characters a page needs per invalid sequence to count as damaged UTF-8. On a
-/// Common Crawl segment, genuine legacy pages stay below 4 and mislabelled UTF-8 sits above 64.
+/// Common Crawl segment, pages with a legacy label stay below 4 and mislabelled UTF-8 sits above
+/// 64.
 const VALID_PER_INVALID: usize = 4;
+
+/// The same ratio for a page with a UTF-8 label. The label and the valid characters agree, so a
+/// page needs only as many valid characters as invalid sequences: three curly quotes and one
+/// stray `\x92` stay UTF-8. Legacy bytes rarely form valid UTF-8, so a mislabelled legacy page
+/// still has almost no valid characters.
+const VALID_PER_INVALID_UTF8_LABEL: usize = 1;
 
 /// Decode `bytes`. `content_type` is the HTTP header's value and `url` the page's address, when
 /// the source has them.
@@ -49,60 +56,84 @@ fn choose_encoding(
     content_type: Option<&[u8]>,
     url: Option<&str>,
 ) -> &'static Encoding {
-    if is_damaged_utf8(bytes) {
+    // The header's label, then each `<meta>`'s, in document order.
+    let labels: Vec<&'static Encoding> = content_type
+        .and_then(charset_label)
+        .and_then(label_encoding)
+        .into_iter()
+        .chain(meta_encodings(bytes))
+        .collect();
+    if is_damaged_utf8(bytes, labels.contains(&UTF_8)) {
         return UTF_8;
     }
-    // The bytes just disproved a UTF-8 label, so it says nothing; the next one might.
-    content_type
-        .and_then(header_encoding)
-        .filter(|&e| e != UTF_8)
-        .or_else(|| meta_encoding(bytes).filter(|&e| e != UTF_8))
+    // The bytes just disproved any UTF-8 label, so it says nothing; the next one might.
+    labels
+        .into_iter()
+        .find(|&e| e != UTF_8)
         .unwrap_or_else(|| detect(bytes, url))
 }
 
 /// True for UTF-8 with a few bad bytes, as left by truncating a record or pasting in a fragment.
 /// Decoding such a page as a legacy charset would garble all of its text to save a few bytes.
-fn is_damaged_utf8(bytes: &[u8]) -> bool {
+fn is_damaged_utf8(bytes: &[u8], utf8_label: bool) -> bool {
+    let per_invalid = if utf8_label {
+        VALID_PER_INVALID_UTF8_LABEL
+    } else {
+        VALID_PER_INVALID
+    };
     let (mut valid, mut invalid) = (0, 0);
     let mut chunks = bytes.utf8_chunks().peekable();
     while let Some(chunk) = chunks.next() {
         valid += chunk.valid().chars().filter(|c| !c.is_ascii()).count();
-        // An incomplete sequence at the very end is what truncation leaves, not evidence.
-        if !chunk.invalid().is_empty() && chunks.peek().is_some() {
+        let bad = chunk.invalid();
+        // A character cut off at the very end is what truncation leaves, not evidence. A stray
+        // byte there still counts.
+        let cut_off = chunks.peek().is_none()
+            && std::str::from_utf8(bad).is_err_and(|e| e.error_len().is_none());
+        if !bad.is_empty() && !cut_off {
             invalid += 1;
         }
     }
     // With no valid character there is no evidence for UTF-8: `caf\xE9` is not a truncated page.
-    valid > 0 && valid >= invalid * VALID_PER_INVALID
+    valid > 0 && valid >= invalid * per_invalid
 }
 
-/// The encoding named by a `Content-Type` value's `charset` parameter.
-fn header_encoding(content_type: &[u8]) -> Option<&'static Encoding> {
-    charset_label(content_type).and_then(Encoding::for_label_no_replacement)
-}
-
-/// The encoding named by the first `<meta>` tag that has one, in the prescan window. Like a
-/// browser, this refuses UTF-16: a page could not have spelled the label in ASCII if it were.
-fn meta_encoding(bytes: &[u8]) -> Option<&'static Encoding> {
-    let mut rest = &bytes[..bytes.len().min(META_PRESCAN)];
-    loop {
-        let at = find_ci(rest, b"<")?;
-        rest = &rest[at..];
-        if rest.starts_with(b"<!--") {
-            rest = &rest[find_ci(rest, b"-->")? + 3..];
-        } else if starts_with_ci(rest, b"<meta") {
-            let end = find_ci(rest, b">")?;
-            let found = charset_label(&rest[..end])
-                .and_then(Encoding::for_label_no_replacement)
-                .filter(|e| e.is_ascii_compatible());
-            if found.is_some() {
-                return found;
-            }
-            rest = &rest[end..];
-        } else {
-            rest = &rest[1..];
-        }
+/// The encoding a charset label names, as this module uses it.
+///
+/// - Encodings that aren't ASCII-compatible (the UTF-16s) are refused. The page has already
+///   failed as UTF-8, so a `charset=utf-16` header is far likelier to be wrong about an 8-bit
+///   page than right about a UTF-16 one without a BOM, and believing it would turn every tag into
+///   CJK-looking text. In `<meta>`, a UTF-16 page couldn't have spelled the label in ASCII anyway.
+/// - `x-user-defined` means windows-1252, as in a browser's prescan. Its own decoder maps every
+///   high byte to the Private Use Area: `caf\xE9` would become `caf\u{F7E9}`.
+/// - Replacement-only labels such as `iso-2022-kr` are unknown, because they would blank the page.
+fn label_encoding(label: &[u8]) -> Option<&'static Encoding> {
+    match Encoding::for_label_no_replacement(label)? {
+        e if e == X_USER_DEFINED => Some(WINDOWS_1252),
+        e => e.is_ascii_compatible().then_some(e),
     }
+}
+
+/// The encodings named by `<meta>` tags in the prescan window, in document order.
+fn meta_encodings(bytes: &[u8]) -> impl Iterator<Item = &'static Encoding> + '_ {
+    let mut rest = &bytes[..bytes.len().min(META_PRESCAN)];
+    std::iter::from_fn(move || {
+        loop {
+            rest = &rest[rest.iter().position(|&b| b == b'<')?..];
+            if rest.starts_with(b"<!--") {
+                rest = &rest[find_ci(rest, b"-->")? + 3..];
+            } else if starts_with_ci(rest, b"<meta") {
+                let end = rest.iter().position(|&b| b == b'>')?;
+                let tag = &rest[..end];
+                rest = &rest[end..];
+                if let Some(encoding) = charset_label(tag).and_then(label_encoding) {
+                    return Some(encoding);
+                }
+            } else {
+                rest = &rest[1..];
+            }
+        }
+    })
 }
 
 /// Guess the charset of a page that declares none. UTF-8 is denied because the caller has ruled
@@ -148,11 +179,11 @@ fn charset_label(s: &[u8]) -> Option<&[u8]> {
     }
 }
 
-fn starts_with_ci(s: &[u8], prefix: &[u8]) -> bool {
+pub(super) fn starts_with_ci(s: &[u8], prefix: &[u8]) -> bool {
     s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
 }
 
-fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(super) fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|w| w.eq_ignore_ascii_case(needle))
@@ -223,7 +254,7 @@ mod tests {
             HTML_SJIS,
         ]
         .concat();
-        assert_eq!(meta_encoding(&page), Some(encoding_rs::SHIFT_JIS));
+        assert_eq!(meta_encodings(&page).next(), Some(encoding_rs::SHIFT_JIS));
     }
 
     #[test]
@@ -233,12 +264,45 @@ mod tests {
             b"<meta charset=shift_jis>",
         ]
         .concat();
-        assert_eq!(meta_encoding(&page), None);
+        assert_eq!(meta_encodings(&page).next(), None);
     }
 
     #[test]
     fn meta_cannot_claim_utf16() {
-        assert_eq!(meta_encoding(b"<meta charset=utf-16>"), None);
+        assert_eq!(meta_encodings(b"<meta charset=utf-16>").next(), None);
+    }
+
+    /// A UTF-16 header on an 8-bit page would turn every tag into CJK-looking text.
+    #[test]
+    fn a_utf16_header_is_refused() {
+        assert_eq!(
+            decoded(b"<p>caf\xe9</p>", Some("text/html; charset=utf-16")),
+            "<p>caf\u{e9}</p>"
+        );
+    }
+
+    /// `x-user-defined` would map every high byte to the Private Use Area.
+    #[test]
+    fn x_user_defined_means_windows_1252() {
+        let page = b"<meta charset=x-user-defined><p>caf\xe9</p>";
+        assert!(decoded(page, None).ends_with("<p>caf\u{e9}</p>"));
+        let ct = Some("text/html; charset=x-user-defined");
+        assert_eq!(decoded(b"<p>caf\xe9</p>", ct), "<p>caf\u{e9}</p>");
+    }
+
+    /// Templates often emit `<meta charset=utf-8>` and then the real legacy label.
+    #[test]
+    fn a_disproved_utf8_meta_defers_to_the_next_meta() {
+        let page = [
+            b"<meta charset=utf-8><meta http-equiv=Content-Type content=\"text/html; charset=koi8-r\">"
+                .as_slice(),
+            b"<p>\xf0\xd2\xc9\xd7\xc5\xd4</p>", // Привет
+        ]
+        .concat();
+        assert_eq!(meta_encodings(&page).nth(1), Some(encoding_rs::KOI8_R));
+        assert!(
+            decoded(&page, None).ends_with("<p>\u{41f}\u{440}\u{438}\u{432}\u{435}\u{442}</p>")
+        );
     }
 
     #[test]
@@ -264,6 +328,28 @@ mod tests {
         let page = [good.as_bytes(), b"\xff", good.as_bytes()].concat();
         let text = decoded(&page, Some("text/html; charset=windows-1251"));
         assert_eq!(text, format!("{good}\u{fffd}{good}"));
+    }
+
+    /// With a UTF-8 label, one valid character per bad byte is enough. Without the label this
+    /// page would go to the detector and every curly quote would turn into `â€œ`.
+    #[test]
+    fn utf8_labelled_page_with_a_stray_byte_stays_utf8() {
+        let page = [
+            "<p>\u{201c}Hello\u{201d} it\u{2019}s ".as_bytes(),
+            b"don\x92t</p>",
+        ]
+        .concat();
+        let want = "<p>\u{201c}Hello\u{201d} it\u{2019}s don\u{fffd}t</p>";
+        assert_eq!(decoded(&page, Some("text/html; charset=utf-8")), want);
+        let with_meta = [b"<meta charset=utf-8>".as_slice(), &page].concat();
+        assert!(decoded(&with_meta, None).ends_with(want));
+    }
+
+    /// Only a character cut off at the end is exempt; a stray byte there still counts.
+    #[test]
+    fn a_stray_trailing_byte_is_evidence() {
+        assert!(!is_damaged_utf8(b"\xc3\xa9\xff", false)); // 1 valid, 1 invalid
+        assert!(is_damaged_utf8(b"\xc3\xa9\xe6\x97", false)); // 1 valid, cut-off tail
     }
 
     #[test]
