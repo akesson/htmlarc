@@ -1,0 +1,35 @@
+name: dependency audit
+
+# CI runs `cargo audit` only when something is pushed. RustSec advisories
+# against zstd and arrow, published after main's last run on 2026-10-19, went
+# unseen until an unrelated PR (#120) hit them on 2026-11-06. This weekly run
+# on main reports a new advisory within a week of publication.
+#
+# GitHub disables scheduled workflows in public repositories after 60 days
+# without repository activity, and emails a warning first. If that happens,
+# re-enable this workflow under Actions -> dependency audit.
+on:
+  schedule:
+    - cron: "41 6 * * 1" # Mondays 06:41 UTC, after recipes smoke, off the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    # A hung advisory-database fetch would otherwise run for the default 6 hours.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # `cargo audit` runs through cargo, which needs the pinned toolchain. Nothing is
+      # compiled, so there is no build cache to restore or save.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
