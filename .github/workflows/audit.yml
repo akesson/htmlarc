@@ -1,0 +1,25 @@
+name: dependency audit
+
+# CI runs `cargo audit` only when something is pushed, so a new RustSec
+# advisory against a locked crate stays invisible until an unrelated PR trips
+# over it. Main sat red from 2026-10-16 to 2026-11-06 that way (#121). This
+# weekly run on main reports a new advisory within a week of publication.
+on:
+  schedule:
+    - cron: "41 6 * * 1" # Mondays 06:41 UTC, after recipes smoke, off the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
