@@ -10,6 +10,7 @@
 //! preserves the cluster-aligned, rank-ordered, thread-count-independent emit order that the
 //! archive format relies on.
 
+mod decode;
 mod dir;
 mod warc;
 // `pub(crate)` so the unit tests can reach the ZIM run-grouping/key helpers directly.
