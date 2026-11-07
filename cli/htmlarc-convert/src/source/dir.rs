@@ -12,6 +12,7 @@ use anyhow::{Result, anyhow};
 use htmlarc_archive::BUNDLE_CAP;
 use walkdir::WalkDir;
 
+use super::decode::decode_html;
 use super::{DocSink, Source, SourceStats};
 
 /// One document: its key (path relative to the root) and the file to read.
@@ -100,7 +101,7 @@ impl Source for DirSource {
         let mut read_failed = 0u32;
         for (key, path) in &self.runs[rank] {
             match std::fs::read(path) {
-                Ok(bytes) => sink.accept(key, &String::from_utf8_lossy(&bytes), None),
+                Ok(bytes) => sink.accept(key, &decode_html(&bytes, None, None), None),
                 Err(e) => {
                     eprintln!("could not read {}: {e}", path.display());
                     read_failed += 1;
