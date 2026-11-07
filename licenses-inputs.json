@@ -1,6 +1,6 @@
 {
   "Cargo.lock": "93a59f0e815c8e6e8a4cdb3bd784caa0c3fb9d45c823de7f4b573a7f15b9ab4f",
-  "Cargo.toml": "5819a889ace3520424bb0348484b04b54e14b2579fc2702d4154ca4a80dbc145",
+  "Cargo.toml": "edbb6eaf84ed27214f1ddf23b8dda7bf3e9ea7f58afea32e91e3fab6b07550d0",
   "about.toml": "bb888589a230c274bb389c80d0a0e678180d3df8e73d0754955373d36bbd518c",
   "cli/htmlarc-convert/Cargo.toml": "cfd7b46222e0b63c3983d8581bf1b2c393febe24b31b3d30a8c8c174a380f6ee",
   "cli/htmlarc/Cargo.toml": "a0b516bbfc1f7c1b77c20d2fabe8816b1310a9684580432260149b990e6bb25f",
