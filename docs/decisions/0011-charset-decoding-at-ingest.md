@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-01
-- **Scope:** `cli/htmlarc-convert` (`source/decode.rs`, WARC and directory sources)
+- **Scope:** `cli/htmlarc-convert` (`source/decode.rs`, WARC and directory sources); the
+  `<meta>` charset written by `htmlarc-dom`'s serializer
 
 ## Context
 
@@ -15,7 +16,7 @@ before: <title>������</title>
 after:  <title>Привет</title>
 ```
 
-On `cc_000` that was 1,068 of 34,465 HTML pages (3.1%) and 2.34M replacement characters, with no
+On `cc_000` that was 1,068 of 34,465 HTML responses (3.1%) and 2.34M replacement characters, with no
 warning. A browser's order (BOM, then header, then `<meta>`, then detection) doesn't fit crawl
 data as it stands, because labels are wrong often enough to matter there: 12 pages have a
 non-UTF-8 header on valid non-ASCII UTF-8, and 3 more are UTF-8 with a few bad bytes under a
@@ -30,46 +31,67 @@ Decode each page once, in the source, in this order:
    here, so conversion keeps the old fast path.
 3. **Damaged UTF-8:** keep UTF-8, replacing the bad bytes, when a page has at least 4 valid
    multi-byte characters per invalid sequence. On `cc_000`, pages with a legacy label were below
-   4 or above 64, with none between. When the header or any `<meta>` says UTF-8, 1 per invalid
-   sequence is enough, because the label and the valid characters agree:
-   `“Hello” it’s don\x92t` stays UTF-8 with one U+FFFD instead of going to detection and turning
-   every curly quote into `â€œ`. A character cut off at the very end doesn't count as invalid,
-   because that is what truncating a record leaves; a stray byte there still does.
+   4 or above 64, with none between. When the label that would otherwise win (step 4's first)
+   says UTF-8, 1 per invalid sequence is enough, because the label and the valid characters
+   agree: `“Hello” it’s don\x92t` stays UTF-8 with one U+FFFD instead of going to detection and
+   turning every curly quote into `â€œ`. A template's `<meta charset=utf-8>` under a legacy header
+   doesn't lower the bar, because the header outranks it. With such a label, a page needs no
+   valid character at all if its only damage is a cut-off tail. A character cut off at the very
+   end doesn't count as invalid, because that is what truncating a record leaves; a stray byte
+   there still does.
 4. **Label:** the `Content-Type` charset, then each `<meta>` in the first 4,096 bytes in document
-   order, and the first that isn't UTF-8 wins. UTF-8 labels are skipped because the bytes have
-   just disproved them, so `<meta charset=utf-8>` followed by a real `windows-1251` label uses
-   the second. Three kinds of label are refused or remapped, in the header and `<meta>` alike:
+   order, and the first that isn't UTF-8 wins. As in the standard's prescan, `<meta` must be
+   followed by a space, `/` or `>`, so `<metadata>` doesn't count. UTF-8 labels are skipped
+   because the bytes have just disproved them, so `<meta charset=utf-8>` followed by a real
+   `windows-1251` label uses the second. Three kinds of label are refused or remapped, in the header and `<meta>` alike:
    - UTF-16 labels are refused. On a page that has already failed as UTF-8, `charset=utf-16` is
      far likelier to be wrong about an 8-bit page than right about a UTF-16 page without a BOM,
      and believing it turns every tag into CJK-looking text.
    - `x-user-defined` means windows-1252, as in a browser's prescan; its own decoder maps every
      high byte to the Private Use Area.
    - Replacement-only labels such as `iso-2022-kr` are ignored, because they would blank the page.
-5. **Detection:** `chardetng`, with the URL's top-level domain as a hint. The hint raised
-   agreement with declared labels from 91% to 93%.
+5. **Detection:** `chardetng`, with the URL's top-level domain as a hint (`ru` for both
+   `example.ru` and `example.ru.`). The hint raised agreement with declared labels from 91% to
+   93%.
 
 The header stays ahead of `<meta>`: they disagreed on 7 legacy pages, and each pair was nearly
-the same encoding, such as ISO-8859-15 and windows-1252.
+the same encoding, such as ISO-8859-15 and windows-1252. Browsers also let the header win, so a
+page whose wrong header contradicts a correct `<meta>` already looks broken in a browser.
+
+Written HTML is UTF-8, so the serializer (`htmlarc-dom`'s `fmt/meta_charset.rs`) writes every
+`<meta>` charset label as `utf-8`: the `charset` attribute, and the label inside `content` when the
+`<meta>` has `http-equiv="Content-Type"`. Otherwise a page decoded from windows-1251 and written
+to a `.html` file would show `РџСЂРёРІРµС‚` for `Привет` in a browser. The stored attribute keeps the
+page's own label, so `meta[charset]` queries still see what the page declared.
 
 ## Consequences
 
 - **Result on `cc_000`:** replacement characters fell from 2,336,553 to 20,391. Of those left,
   10,784 are in one PDF served as `text/html` and 9,337 are on 247 pages whose output didn't
   change. One page rose from 115 to 119, in a garbled script comment.
-- **The UTF-8-label rule in step 3** changed 9 pages on `cc_000`, all with a UTF-8 label and
-  mostly UTF-8 bytes mixed with some legacy ones, so neither choice decodes all of a page. On 8,
-  914 characters of UTF-8 text no longer turn into mojibake (`â€œcrisisâ€�`, `Strona gÅ‚Ã³wna`,
-  a Chinese title), and 538 legacy characters become U+FFFD instead. The 9th is the script-comment
-  page, back to 115. Replacement characters rise by 534 in total. The legacy order, step 4's
-  remapping and the cut-off-tail rule changed no page on `cc_000`.
+- **The UTF-8-label rule in step 3** changes 8 pages on `cc_000`, all with a UTF-8 header and
+  mostly UTF-8 bytes mixed with some legacy ones, so neither choice decodes all of a page. On 7 of
+  them, 912 characters of UTF-8 text no longer turn into mojibake (`â€œcrisisâ€�`,
+  `Strona gÅ‚Ã³wna`, a Chinese title), and 537 legacy characters become U+FFFD instead. The 8th is
+  the script-comment page, back to 115. Replacement characters rise by 533 in total. Applying the
+  rule to any UTF-8 label, not just the winning one, changed one more page: an ISO-8859-1 header
+  with a UTF-8 `<meta>`, whose footer `©` it lost. The legacy order, step 4's remapping, the
+  `<metadata>` and trailing-dot fixes and the cut-off-tail rule changed no page on `cc_000`.
 - **Valid UTF-8 output is unchanged,** except that 371 pages lost a leading BOM, which used to
-  reach the DOM as text. 33,134 of 34,464 pages are byte-identical.
+  reach the DOM as text. 33,134 of the 34,464 pages in the archive are byte-identical (one of the
+  34,465 responses fails to convert, before and after).
 - **Conversion time** didn't change measurably on `cc_000` (about 12 s either way).
 - **Existing archives keep their damage.** The lost bytes aren't stored, so fixing a page means
   rebuilding from the source. The file format doesn't change.
-- **Stored `<meta charset>` keeps its original value** even though text is now UTF-8, so
-  re-serialized HTML can name a charset it isn't in. It is what the source said, and extraction
-  doesn't use it.
+- **Stored `<meta charset>` keeps its original value** even though text is now UTF-8. Only the
+  serializer writes `utf-8`, so code that reads the attribute and writes HTML itself must do the
+  same.
+- **The `<meta>` prescan is looser than the standard's.** It takes `charset=` from any attribute,
+  so a `content="How to set charset=utf-8"` description counts as a label, and a `>` inside a
+  quoted value ends the tag early. A full attribute parser would fix both. Only pages that aren't
+  valid UTF-8 reach the prescan; on `cc_000`'s 1,068, the 12 `<meta>` tags with a `>` in a quoted
+  value have no charset after it, and the 2 with `charset=` outside the standard's places are a
+  `Content-Script-Type` and a misspelt `https-equiv`, both declaring a charset anyway.
 - **ISO-2022-JP pages aren't decoded.** They are 7-bit, so they pass as valid UTF-8 and keep their
   escape sequences. `cc_000` has none, so this isn't handled.
 - **Decoding is silent.** The converter reports no count of pages decoded or guessed.

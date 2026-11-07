@@ -1,7 +1,8 @@
 use crate::{
     dom::{DomView, NodeIndex},
     entities,
-    fmt::{fmt_buf::FmtBuf, spaces::Spaces},
+    fmt::{fmt_buf::FmtBuf, meta_charset, spaces::Spaces},
+    html::HtmlTag,
 };
 
 use super::pretty::Inline;
@@ -29,7 +30,14 @@ pub trait CommonFormatting<'dom> {
         // Standard, `data-*`, and unknown attributes share one run, rendered in source
         // order (ADR 0002 §3) — no more class-then-data-then-std split.
         if let Some(list_index) = dom.nodes.attr_list_index(index) {
-            buf.add_attrs(dom.attr_list_at(list_index));
+            let attrs = dom.attr_list_at(list_index);
+            if dom.nodes.tag(index) == HtmlTag::meta {
+                let content_type =
+                    meta_charset::declares_content_type(dom.attr_list_at(list_index));
+                buf.add_attrs_with(attrs, |attr| meta_charset::utf8_value(attr, content_type));
+            } else {
+                buf.add_attrs(attrs);
+            }
         }
     }
 
