@@ -75,3 +75,33 @@ the same encoding, such as ISO-8859-15 and windows-1252.
 - **Decoding is silent.** The converter reports no count of pages decoded or guessed.
 - **Not covered:** ZIM content is UTF-8 by format, and `ArchiveBuilder.add` takes a decoded `str`,
   so charsets are the caller's concern there.
+
+## Alternatives considered
+
+Every tool checked reads the BOM first, decodes legacy charsets by their WHATWG labels, and ends
+with a statistical guess. They split on whether a label or the bytes win:
+
+| Tool (version checked) | Order |
+|---|---|
+| WHATWG HTML (browsers) | BOM, header, `<meta>` in the first 1,024 bytes, optional guess, locale default (windows-1252 in most locales). `<meta>` UTF-16 counts as UTF-8 and `x-user-defined` as windows-1252. |
+| Firefox | The spec, guessing with `chardetng`, which documents that browsers "must not" allow UTF-8 as a guess for web content. |
+| Scrapy w3lib (`master`, 2.6.0) | BOM, header, `<meta>` or XML declaration, valid UTF-8, guess with the top-level domain, delegated to `frostwork.encoding`. Older releases map latin-1 to cp1252 and skip the UTF-8 check. |
+| frostwork 0.2 (Scrapy, Rust) | BOM, BOM-less UTF-16 from `<?`, header, `<meta>` or XML declaration anywhere in the document, valid UTF-8, `chardetng` with the top-level domain. |
+| Go `x/net/html/charset` | First 1,024 bytes only: BOM, header, `<meta>`, valid UTF-8, windows-1252. No guessing. |
+| BeautifulSoup 4.15 | Caller's encodings, BOM, `<meta>` or XML declaration, chardet, UTF-8, windows-1252; the first that decodes without error wins. |
+| requests 2.34 | Header only; `text/*` without a charset is ISO-8859-1. |
+| trafilatura 2.1 | Valid UTF-8, then cchardet and charset_normalizer. No header or `<meta>`. |
+
+- **Labels first, as browsers and Scrapy do.** Rejected. A browser has to show what authors
+  tested in browsers; htmlarc extracts text, and legacy text almost never forms valid UTF-8, so
+  valid UTF-8 is the stronger evidence. The cost: on the 12 `cc_000` pages with a legacy label on
+  valid UTF-8, htmlarc's text differs from what bs4, lxml or Scrapy give, deliberately.
+- **Bytes only, as trafilatura does.** Rejected. Without labels, every legacy page is a guess;
+  `chardetng` agreed with the declared label on only 93% of `cc_000`'s legacy pages.
+- **Repair mixed pages byte by byte**, like BeautifulSoup's `detwingle()` (windows-1252 inside
+  UTF-8). Not done. It would beat step 3 on the 9 mixed pages, where either encoding loses some
+  characters, but it handles one pair of encodings and those pages are 0.03% of `cc_000`.
+- **Read XML declarations and scan for `<meta>` past 4,096 bytes**, as browsers, w3lib and
+  frostwork do. Not done; measured instead. Of the 1,068 `cc_000` pages that aren't UTF-8, 3
+  have only an XML declaration, all saying UTF-8, so the result wouldn't change. 7 have their only
+  `<meta>` charset past 4,096 bytes, and 2 of those name a legacy charset; they go to `chardetng`.
