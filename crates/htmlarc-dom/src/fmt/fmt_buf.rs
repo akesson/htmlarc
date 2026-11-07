@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::entities;
 use crate::html::foreign;
 use crate::stores::{AttrName, Attribute, Class};
@@ -45,9 +47,19 @@ impl FmtBuf {
     }
 
     pub fn add_attrs<'a>(&mut self, list: impl Iterator<Item = Attribute<'a>>) {
+        self.add_attrs_with(list, |attr| Cow::Borrowed(attr.val));
+    }
+
+    /// [`add_attrs`](Self::add_attrs), writing `value(attr)` instead of each stored value.
+    pub fn add_attrs_with<'a>(
+        &mut self,
+        list: impl Iterator<Item = Attribute<'a>>,
+        value: impl Fn(&Attribute<'a>) -> Cow<'a, str>,
+    ) {
         for entry in list {
             self.push(' ');
-            let Attribute { name, val } = entry;
+            let val = value(&entry);
+            let name = entry.name;
             // Standard names render as-is; an extended name may be a known SVG/MathML
             // attribute whose canonical case is restored here (ADR 0002 §5).
             match name {
@@ -57,7 +69,7 @@ impl FmtBuf {
             // An empty value renders as a bare attribute (`disabled`, `data-x`).
             if !val.is_empty() {
                 self.push_str("=\"");
-                self.push_str(&entities::encode_attr(val));
+                self.push_str(&entities::encode_attr(&val));
                 self.push('"');
             }
         }

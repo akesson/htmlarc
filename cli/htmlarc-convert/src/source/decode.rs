@@ -24,10 +24,10 @@ const META_PRESCAN: usize = 4096;
 /// 64.
 const VALID_PER_INVALID: usize = 4;
 
-/// The same ratio for a page with a UTF-8 label. The label and the valid characters agree, so a
-/// page needs only as many valid characters as invalid sequences: three curly quotes and one
-/// stray `\x92` stay UTF-8. Legacy bytes rarely form valid UTF-8, so a mislabelled legacy page
-/// still has almost no valid characters.
+/// The same ratio for a page whose highest-ranked label says UTF-8. The label and the valid
+/// characters agree, so a page needs only as many valid characters as invalid sequences: three
+/// curly quotes and one stray `\x92` stay UTF-8. Legacy bytes rarely form valid UTF-8, so a
+/// mislabelled legacy page still has almost no valid characters.
 const VALID_PER_INVALID_UTF8_LABEL: usize = 1;
 
 /// Decode `bytes`. `content_type` is the HTTP header's value and `url` the page's address, when
@@ -63,7 +63,9 @@ fn choose_encoding(
         .into_iter()
         .chain(meta_encodings(bytes))
         .collect();
-    if is_damaged_utf8(bytes, labels.contains(&UTF_8)) {
+    // Only the label that would otherwise win lowers the bar: a template's `<meta charset=utf-8>`
+    // under a `windows-1251` header doesn't make the header's page UTF-8.
+    if is_damaged_utf8(bytes, labels.first() == Some(&UTF_8)) {
         return UTF_8;
     }
     // The bytes just disproved any UTF-8 label, so it says nothing; the next one might.
@@ -94,8 +96,9 @@ fn is_damaged_utf8(bytes: &[u8], utf8_label: bool) -> bool {
             invalid += 1;
         }
     }
-    // With no valid character there is no evidence for UTF-8: `caf\xE9` is not a truncated page.
-    valid > 0 && valid >= invalid * per_invalid
+    // With no valid character, only a UTF-8 label is evidence for UTF-8: unlabelled, `caf\xE9` is
+    // a Latin-1 word rather than a truncated page.
+    (valid > 0 || utf8_label) && valid >= invalid * per_invalid
 }
 
 /// The encoding a charset label names, as this module uses it.
@@ -122,7 +125,12 @@ fn meta_encodings(bytes: &[u8]) -> impl Iterator<Item = &'static Encoding> + '_ 
             rest = &rest[rest.iter().position(|&b| b == b'<')?..];
             if rest.starts_with(b"<!--") {
                 rest = &rest[find_ci(rest, b"-->")? + 3..];
-            } else if starts_with_ci(rest, b"<meta") {
+            } else if starts_with_ci(rest, b"<meta")
+                // As in the standard's prescan: `<meta` then a space, `/` or `>`, not `<metadata`.
+                && rest
+                    .get(5)
+                    .is_some_and(|&b| b.is_ascii_whitespace() || b == b'/' || b == b'>')
+            {
                 let end = rest.iter().position(|&b| b == b'>')?;
                 let tag = &rest[..end];
                 rest = &rest[end..];
@@ -150,6 +158,8 @@ fn detect(bytes: &[u8], url: Option<&str>) -> &'static Encoding {
 fn top_level_domain(url: &str) -> Option<String> {
     let authority = url.split_once("://")?.1.split(['/', '?', '#']).next()?;
     let host = authority.rsplit('@').next()?.split(':').next()?;
+    // A fully qualified `example.ru.` ends in an empty label; the TLD is the one before it.
+    let host = host.strip_suffix('.').unwrap_or(host);
     let label = host.rsplit('.').next()?.to_ascii_lowercase();
     (!label.is_empty() && label.is_ascii()).then_some(label)
 }
@@ -345,6 +355,40 @@ mod tests {
         assert!(decoded(&with_meta, None).ends_with(want));
     }
 
+    /// A template's `<meta charset=utf-8>` doesn't lower the bar under a legacy header, which
+    /// outranks it. Had any UTF-8 label counted, 8 valid characters against 6 invalid sequences
+    /// would have kept this page as UTF-8 and blanked its windows-1251 text.
+    #[test]
+    fn a_utf8_meta_under_a_legacy_header_keeps_the_strict_bar() {
+        let page = [
+            b"<meta charset=utf-8><p>".as_slice(),
+            "\u{a9}".repeat(8).as_bytes(),
+            b"\xcf\xf0\xe8\xe2\xe5\xf2 </p>", // Привет
+        ]
+        .concat();
+        let text = decoded(&page, Some("text/html; charset=windows-1251"));
+        assert!(
+            text.ends_with("\u{41f}\u{440}\u{438}\u{432}\u{435}\u{442} </p>"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn metadata_is_not_a_meta_tag() {
+        assert_eq!(meta_encodings(b"<metadata charset=koi8-r>").next(), None);
+        assert_eq!(
+            meta_encodings(b"<meta/charset=koi8-r>").next(),
+            Some(encoding_rs::KOI8_R)
+        );
+    }
+
+    /// With a UTF-8 label, an ASCII page cut off mid-character is UTF-8, not a detector guess.
+    #[test]
+    fn utf8_labelled_ascii_cut_off_mid_character_stays_utf8() {
+        let text = decoded(b"<p>abc\xe6\x97", Some("text/html; charset=utf-8"));
+        assert_eq!(text, "<p>abc\u{fffd}");
+    }
+
     /// Only a character cut off at the end is exempt; a stray byte there still counts.
     #[test]
     fn a_stray_trailing_byte_is_evidence() {
@@ -379,6 +423,11 @@ mod tests {
             top_level_domain("https://user:pw@example.ru").as_deref(),
             Some("ru")
         );
+        // A fully qualified name's trailing dot is not an empty TLD.
+        assert_eq!(
+            top_level_domain("http://example.ru./").as_deref(),
+            Some("ru")
+        );
     }
 
     /// The detector panics on these, so none may get through.
@@ -386,7 +435,7 @@ mod tests {
     fn hosts_the_detector_would_panic_on_are_dropped() {
         for url in [
             "http://caf\u{e9}.\u{f6}l/",
-            "http://example.com./",
+            "http://example.com../",
             "not a url",
             "http:///x",
         ] {
