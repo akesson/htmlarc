@@ -33,7 +33,7 @@ is a Git dependency, which crates.io cannot distribute. It remains available
 as a release binary or via:
 
 ```sh
-cargo install --git https://github.com/akesson/htmlarc --tag v0.1.1 --locked htmlarc-convert
+cargo install --git https://github.com/akesson/htmlarc --tag v0.2.0 --locked htmlarc-convert
 ```
 
 To publish the converter on crates.io later, first publish the patched ZIM

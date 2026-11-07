@@ -157,9 +157,9 @@ selector/topology queries, which touch none of it, stay fully zero-copy.
 
 ## Compatibility and archive safety
 
-Versions 0.1.x read and write **format v12**, on 64-bit little-endian platforms.
+Versions 0.1.x and 0.2.x read and write **format v12**, on 64-bit little-endian platforms.
 For example, a v11 archive must be exported with its original reader or rebuilt
-from source HTML before v0.1.0 can use it; this release has no built-in migration.
+from source HTML before htmlarc can use it; there is no built-in migration.
 Keep source inputs and the tool version that produced your archives.
 
 Patch releases in the 0.1 series are intended to preserve v12 readability; future

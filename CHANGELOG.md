@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+Decodes legacy-charset pages at ingest instead of garbling them, follows the specs
+for `[class…]`, attribute-value case, `:root` and doctype siblings, adds `*`, and
+speeds up parsing and Python sweeps. Archive format is unchanged (v12). See
+[release notes](docs/releases/v0.2.0.md).
+
 ## 0.1.1
 
 Adds a Python wheel for Windows ARM64. See [release notes](docs/releases/v0.1.1.md).
