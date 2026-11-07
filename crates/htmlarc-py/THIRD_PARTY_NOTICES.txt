@@ -597,7 +597,7 @@ Copyright (c) 2020 Yevhenii Reizner
 Copyright (c) 2015 Dan Burkert
 Components: html5gum 0.8.4
 Copyright (c) 2021 Markus Unterwaditzer
-Components: pyo3 0.29.3; pyo3-ffi 0.29.3; pyo3-macros 0.29.3; pyo3-macros-backend 0.29.3
+Components: pyo3 0.30.1; pyo3-ffi 0.30.1; pyo3-macros 0.30.1; pyo3-macros-backend 0.30.1
 Copyright (c) 2023-present PyO3 Project and Contributors.  https://github.com/PyO3
 Components: Rust standard library: libc 0.2.185; libc 0.2.186
 Copyright (c) The Rust Project Developers
@@ -621,7 +621,7 @@ Components: strum 0.28.0; strum_macros 0.28.0
 MIT License
 
 Copyright (c) 2019 Peter Glotfelty
-Components: html-escape 0.2.15
+Components: html-escape 0.3.0
 MIT License
 
 Copyright (c) 2020 magiclen.org (Ron Li)
