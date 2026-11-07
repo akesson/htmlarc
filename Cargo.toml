@@ -15,9 +15,10 @@ anyhow = "1.0"
 # array/buffer/schema crates plus arrow-array's `ffi` feature for the PyCapsule stream.
 # No `pyarrow` bridge crate and no compute kernels — the wheel gains no Python-side dependency
 # and the capsule glue is ours, so arrow's quarterly majors never fight the pyo3 pin.
-arrow-array = { version = "60", features = ["ffi"] }
-arrow-buffer = "60"
-arrow-schema = "60"
+# 60.1 is the first release past RUSTSEC-2026-0442; keep it the minimum for published crates.
+arrow-array = { version = "60.1", features = ["ffi"] }
+arrow-buffer = "60.1"
+arrow-schema = "60.1"
 # Charset detection for undeclared legacy pages at ingest (`source/decode.rs` in htmlarc-convert).
 chardetng = "1.0"
 colorful = "0.3"
@@ -64,7 +65,8 @@ unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
 walkdir = "2.5"
 xflags = "0.3"
-zstd = "0.14"
+# 0.14.3 pulls zstd-safe 8.2, the first past RUSTSEC-2026-0391 and -0395..-0406.
+zstd = "0.14.3"
 # Fork of the unmaintained `zim` 0.4 crate, patched to open modern ZIMs (header
 # minor version >= 2, which omit the legacy title pointer list). See akesson/zim.
 zim = { git = "https://github.com/akesson/zim", rev = "6759b44" }
