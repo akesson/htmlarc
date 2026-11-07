@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "htmlarc"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "colorful",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "htmlarc-archive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "htmlarc-convert"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chardetng",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "htmlarc-dom"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "function_name",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "htmlarc-py"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
