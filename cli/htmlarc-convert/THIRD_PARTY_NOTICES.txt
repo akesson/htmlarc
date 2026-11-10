@@ -353,6 +353,29 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ========================================================================
 MIT
 ========================================================================
+Components: html5gum 0.9.1
+Copyright © 2009/2021 Andrey Vlasovskikh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NON-INFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+========================================================================
+MIT
+========================================================================
 Components: Rust standard library: adler2 2.0.1; allocator-api2 0.2.21; anyhow 1.0.104; fs-err 3.3.2; itoa 1.0.18; portable-atomic 1.13.1; proc-macro2 1.0.106; quote 1.0.45; rkyv_derive 0.8.18; syn 2.0.118; syn 3.0.2; thiserror 1.0.69; thiserror 2.0.21; thiserror-impl 1.0.69; thiserror-impl 2.0.21; tinyvec 1.13.3; unicode-ident 1.0.24
 Components: pbr 1.1.1
 # MIT License
@@ -362,6 +385,9 @@ Components: md-5 0.10.6
 Copyright (c) 2006-2009 Graydon Hoare
 Copyright (c) 2009-2013 Mozilla Foundation
 Copyright (c) 2016 Artyom Pavlov
+Components: html5gum 0.9.1
+Copyright (c) 2006-2013 James Graham, Geoffrey Sneddon, and
+other contributors
 Components: rayon 1.12.0; rayon-core 1.13.0
 Copyright (c) 2010 The Rust Project Developers
 Components: hex 0.4.3
@@ -383,8 +409,6 @@ Components: Rust standard library: gimli 0.32.3; heck 0.4.1; heck 0.5.0; unicode
 Copyright (c) 2015 The Rust Project Developers
 Components: zim 0.4.0
 Copyright (c) 2015 The terminal-size Developers
-Components: jetscii 0.5.3
-Copyright (c) 2015-2018 Jake Goulding
 Components: num_cpus 1.17.0
 Copyright (c) 2015-2025 Sean McArthur
 Components: lzma-sys 0.1.20; xz2 0.1.7
@@ -416,7 +440,7 @@ Copyright (c) 2020 The Rust Project Developers
 Components: memmap2 0.9.11
 Copyright (c) 2020 Yevhenii Reizner
 Copyright (c) 2015 Dan Burkert
-Components: html5gum 0.8.4
+Components: html5gum 0.9.1
 Copyright (c) 2021 Markus Unterwaditzer
 Components: crypto-common 0.1.7
 Copyright (c) 2021 RustCrypto Developers
