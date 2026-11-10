@@ -36,7 +36,7 @@ hashbrown = "0.17"
 # enables `hotpath/hotpath`; used by the `profile_walk` example to profile the select walk.
 hotpath = "0.28"
 html-escape = "0.3"
-html5gum = "0.8.3"
+html5gum = "0.9.1"
 indexmap = "2.11"
 insta = { version = "1.43", features = ["glob", "json", "yaml"] }
 log = "0.4"
