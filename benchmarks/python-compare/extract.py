@@ -29,7 +29,7 @@ def extract_wikt():
     zim = Archive(CORPUS / "wiktionary_co.zim")
     docs = []
     for i in range(zim.all_entry_count):
-        entry = zim._get_entry_by_id(i)
+        entry = zim.get_entry_by_id(i)  # libzim >= 4.0
         if entry.is_redirect:
             continue
         item = entry.get_item()
