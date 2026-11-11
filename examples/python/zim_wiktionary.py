@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["requests", "libzim", "polars"]
+# dependencies = ["requests", "libzim>=4.0", "polars"]
 # ///
 """Recipe 5 — mine a Wiktionary ZIM into a structured dictionary.
 
@@ -46,9 +46,9 @@ def build() -> None:
     t0 = time.perf_counter()
     with htmlarc.ArchiveBuilder(ARCHIVE) as builder:
         for i in range(zim.all_entry_count):
-            # python-libzim has no public "iterate all entries" API; indexing by
-            # entry id via this private method is the accepted community idiom.
-            entry = zim._get_entry_by_id(i)
+            # python-libzim has no "iterate all entries" API; index by entry id
+            # (public since libzim 4.0, which removed the private _get_entry_by_id).
+            entry = zim.get_entry_by_id(i)
             if entry.is_redirect:
                 continue
             item = entry.get_item()
