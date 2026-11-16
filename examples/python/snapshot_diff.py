@@ -16,6 +16,7 @@ was patched?") and migration audits ("did the re-platform lose canonicals?").
 import argparse
 import io
 import json
+import os
 import time
 
 import htmlarc
@@ -29,6 +30,12 @@ CC_DATA = "https://data.commoncrawl.org"
 DOMAIN = "docs.python.org/3/library/*"
 
 
+class IndexUnavailable(Exception):
+    """CC's CDX index kept failing with 5xx or dropped connections through get()'s
+    whole retry window. It is shared and overloads often (502/504 for days at a
+    time), which says nothing about this recipe; a 4xx or bad JSON still raises."""
+
+
 def crawl_ids() -> tuple[str, str]:
     ids = [c["id"] for c in get("https://index.commoncrawl.org/collinfo.json").json()]
     return ids[min(9, len(ids) - 1)], ids[0]  # ~a year apart: older, newest
@@ -38,16 +45,23 @@ def snapshot(crawl_id: str, limit: int) -> htmlarc.Archive:
     path = DATA / f"snap_{crawl_id}.htmlarc"
     if path.exists():
         return htmlarc.open(path)
-    rows = get(
-        f"https://index.commoncrawl.org/{crawl_id}-index",
-        params={
-            "url": DOMAIN,
-            "output": "json",
-            "filter": "status:200",
-            "collapse": "urlkey",
-            "limit": str(limit),
-        },
-    ).text
+    try:
+        rows = get(
+            f"https://index.commoncrawl.org/{crawl_id}-index",
+            params={
+                "url": DOMAIN,
+                "output": "json",
+                "filter": "status:200",
+                "collapse": "urlkey",
+                "limit": str(limit),
+            },
+        ).text
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code >= 500:
+            raise IndexUnavailable(f"{crawl_id}: HTTP {e.response.status_code}") from e
+        raise
+    except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+        raise IndexUnavailable(f"{crawl_id}: {type(e).__name__}") from e
     n, throttled = 0, 0
     with htmlarc.ArchiveBuilder(path) as builder:
         for line in rows.splitlines():
@@ -97,7 +111,14 @@ if __name__ == "__main__":
     DATA.mkdir(exist_ok=True)
     old_id, new_id = crawl_ids()
     print(f"comparing {old_id} vs {new_id} for {DOMAIN}")
-    old, new = snapshot(old_id, limit), snapshot(new_id, limit)
+    try:
+        old, new = snapshot(old_id, limit), snapshot(new_id, limit)
+    except IndexUnavailable as e:
+        msg = f"Common Crawl's index is unavailable ({e}); try again later"
+        if os.environ.get("GITHUB_ACTIONS"):  # the recipes smoke run: CC's outage, not a broken recipe
+            print(f"::warning title=snapshot_diff skipped::{msg}")
+            raise SystemExit(0)
+        raise SystemExit(msg)
 
     diff = titles(old, "old").join(titles(new, "new"), on="key", how="full", coalesce=True)
     added = diff.filter(pl.col("old").is_null())
