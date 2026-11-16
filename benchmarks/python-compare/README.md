@@ -309,7 +309,7 @@ the repository README, or set `HTMLARC_CORPUS=/path/to/corpus`):
 
 ```sh
 uv venv -p 3.12 bench-venv
-uv pip install -p bench-venv/bin/python beautifulsoup4 lxml cssselect warcio libzim pyarrow psutil
+uv pip install -p bench-venv/bin/python beautifulsoup4 lxml cssselect warcio "libzim>=4.0" pyarrow psutil
 rm -rf ../../target/py-dev
 uvx maturin build --release -m ../../crates/htmlarc-py/Cargo.toml -i bench-venv/bin/python -o ../../target/py-dev
 uv pip install -p bench-venv/bin/python ../../target/py-dev/htmlarc-*.whl
