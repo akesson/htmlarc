@@ -140,9 +140,9 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "arrow-array"
-version = "60.1.0"
+version = "60.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3d22a41d3df78b71df0b685af219ae3a94188ab98d6fb29c958eb55c3247f4"
+checksum = "a7a75080e8066219ed2d1e3b8fd2eb0b1a4b35d03b6fa87fb1035e93bd8dac95"
 dependencies = [
  "ahash",
  "arrow-buffer",
@@ -159,9 +159,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-buffer"
-version = "60.1.0"
+version = "60.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd46a530bc1a8e763102fc36c1dc0f51f3ffa150c78e7f5658ccb54b1458ade"
+checksum = "6c6bf2edf52662586214410c6030204215453eb86b8715037e8951326e173b19"
 dependencies = [
  "bytes",
  "half",
@@ -171,9 +171,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-data"
-version = "60.1.0"
+version = "60.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415b7fbc4cf56b080bb5677a4ae74211b5c79e571ed37a1d547633ec07f3b43b"
+checksum = "d0a7becabdb9bf3fa058b55845c52e0f792bedc88fd0e28d6580c9730a902b60"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -184,9 +184,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-schema"
-version = "60.1.0"
+version = "60.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de2c8e714b466404cdc1189e89f892426efea614d938e16c15518c340cd43ba3"
+checksum = "3e7574c4175cc731e0d26a8384bc25d455c5e220250988a772c1af843592444b"
 dependencies = [
  "bitflags",
 ]
@@ -893,9 +893,9 @@ dependencies = [
 
 [[package]]
 name = "html-escape"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "491194d601b4fa9fac3c9571e014070a0ad1bc3392d1bc10419695196a8b3cc3"
+checksum = "d45ed4d99334da2a2f221504e8ffc8ad09baf2a452b154465a976bfde697b004"
 
 [[package]]
 name = "html5ever"
@@ -910,9 +910,9 @@ dependencies = [
 
 [[package]]
 name = "html5gum"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469fd7ad11d167b79385adccbba0fae87a50a9adb0c081e8ce7b130faa51f3bb"
+checksum = "2ab2ccf7fd3df0a813616f38ff8f557cdae34f06664ceb81a67241cc54bc2626"
 dependencies = [
  "jetscii",
 ]
@@ -954,7 +954,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tinyvec",
  "unicode-segmentation",
- "zstd 0.14.3",
+ "zstd 0.14.5",
 ]
 
 [[package]]
@@ -974,7 +974,7 @@ dependencies = [
  "walkdir",
  "xflags",
  "zim",
- "zstd 0.14.3",
+ "zstd 0.14.5",
 ]
 
 [[package]]
@@ -1959,9 +1959,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smallvec"
-version = "1.16.5"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "stable_deref_trait"
@@ -2266,9 +2266,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "walkdir"
-version = "2.5.0"
+version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+checksum = "b42e295b7452c4604982280d8586001fcad9b8b201cac67bca9771e7a7475403"
 dependencies = [
  "same-file",
  "winapi-util",
@@ -2566,11 +2566,11 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.14.3"
+version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db3ae9bf90af6e40197bef767eeefc46ad6397420fe873830bd85e5fbbfb3c70"
+checksum = "465cb081cac3a28a84ef547702dba1fe0f4a9f22e4e57a0b675ceee028c2af80"
 dependencies = [
- "zstd-safe 8.2.0",
+ "zstd-safe 8.4.0",
 ]
 
 [[package]]
@@ -2584,18 +2584,18 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "8.2.0"
+version = "8.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ded520f16b29e1a9b771c722221b2b0a0398c2316d9bb3c42b458a5414d7434b"
+checksum = "9b09bddd92c53b91833f4df03e0ea07e02d8367cfcd15a3b9acda94fc273f793"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.1.2+zstd.1.5.7"
+version = "2.2.0+zstd.1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+checksum = "c3f4089cda6dda4dc43c43dd9f8964140064fd2f752f3da46c3a483c3c175160"
 dependencies = [
  "cc",
  "pkg-config",
